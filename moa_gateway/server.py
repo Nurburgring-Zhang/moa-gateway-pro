@@ -739,6 +739,196 @@ def create_app() -> FastAPI:
     async def quota(request: Request, key_info: Dict[str, Any] = Depends(require_api_key)):
         return get_limiter().get_quota(key_info)
 
+    # ========== v1.5 Capability Endpoints (从 10 项目迁移) ==========
+    @app.post("/v1/capability/secret-scan")
+    async def capability_secret_scan(
+        request: Request,
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """9 类硬编码密钥扫描 + 3 层豁免 (来自 moa-skill + moat-ops-auditor)
+        Body: {"path": "./", "fail_on": 3, "no_block": false}
+        """
+        from .capability.secret_scan import scan_path, should_block
+        p = Path(body.get("path", "."))
+        if not p.exists():
+            raise HTTPException(400, f"path not found: {p}")
+        result = scan_path(p)
+        blocked = should_block(result, body.get("fail_on", 3)) and not body.get("no_block", False)
+        return {**result.to_dict(), "blocked": blocked}
+
+    @app.post("/v1/capability/group-think-check")
+    async def capability_group_think_check(
+        request: Request,
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """3 反群体思维纪律栈判定(来自 moa-skill 核心创新)
+        Body: {
+            "session_id": "...",
+            "members": [{"member_id": "...", "content": "...", "round": 0}],
+            "rounds": [[...]],  # 可选,多轮
+            "warn_threshold": 0.4,
+            "block_threshold": 0.7,
+        }
+        """
+        from .capability.moaflow import MemberResponse, group_think_verdict
+        members = [MemberResponse(**m) for m in body.get("members", [])]
+        rounds = None
+        if body.get("rounds"):
+            rounds = [[MemberResponse(**m) for m in r] for r in body["rounds"]]
+        v = group_think_verdict(
+            session_id=body.get("session_id", "unknown"),
+            members=members,
+            rounds=rounds,
+            warn_threshold=body.get("warn_threshold", 0.4),
+            block_threshold=body.get("block_threshold", 0.7),
+        )
+        return v.to_dict()
+
+    @app.post("/v1/capability/ensemble-vote")
+    async def capability_ensemble_vote(
+        request: Request,
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """集成投票器(来自 01 GateSwarm — 4 种算法:majority/weighted/borda/approval)
+        Body: {
+            "votes": [{"voter_id": "...", "candidate": "...", "confidence": 0.9, "reason": "..."}],
+            "method": "weighted"
+        }
+        """
+        from .capability.consensus import Vote, ensemble_vote
+        votes = [Vote(**v) for v in body.get("votes", [])]
+        result = ensemble_vote(votes, method=body.get("method", "weighted"))
+        return result.to_dict()
+
+    @app.post("/v1/capability/should-rebalance")
+    async def capability_should_rebalance(
+        request: Request,
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """Tier 边界再训练(来自 01 GateSwarm)
+        Body: {
+            "stats": {"deepseek-v3": {"tier": "standard", "endpoint_count": 1, "success_count": 100, ...}},
+            "config": {"high_threshold": 0.8, "low_threshold": 0.2, ...}
+        }
+        """
+        from .capability.consensus import TierStat, should_rebalance
+        stats = {k: TierStat(**v) for k, v in body.get("stats", {}).items()}
+        return {"should_rebalance": should_rebalance(stats, body.get("config", {}))}
+
+    @app.post("/v1/capability/cost-estimate")
+    async def capability_cost_estimate(
+        request: Request,
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """dry-run 成本估算(来自 05 moa-skill)
+        Body: {
+            "input_tokens": 1000,
+            "output_tokens": 500,
+            "channels": [{"name": "deepseek-v3", "cost_per_1k_input": 0.0005, ...}],
+            "include_fallback": true
+        }
+        """
+        from .capability.cost_estimator import Channel, estimate_moa_cost, format_report
+        channels = [Channel(**c) for c in body.get("channels", [])]
+        est = estimate_moa_cost(
+            input_tokens=body.get("input_tokens", 1000),
+            output_tokens=body.get("output_tokens", 500),
+            channels=channels,
+            include_fallback=body.get("include_fallback", True),
+        )
+        if body.get("format") == "report":
+            return {"report": format_report(est), "estimate": est.to_dict()}
+        return est.to_dict()
+
+    @app.post("/v1/capability/gate-l0")
+    async def capability_gate_l0(
+        request: Request,
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """L0 闸门(来自 05 moa-skill)— 判断是否需要启 MoA
+        Body: {"query": "2+3"} or {"query": "design a distributed system"}
+        """
+        from .capability.gate_l0 import gate
+        return gate(body.get("query", "")).to_dict()
+
+    @app.post("/v1/capability/score-panel")
+    async def capability_score_panel(
+        request: Request,
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """5 维评分(来自 09 opencode-moa — TQ/CO/AP/SE/IN)
+        Body: {"query": "...", "answer": "..."}
+        """
+        from .capability.score_panel import score_panel
+        return score_panel(
+            query=body.get("query", ""),
+            answer=body.get("answer", ""),
+        ).to_dict()
+
+    @app.get("/v1/capability/models")
+    async def capability_models(
+        request: Request,
+        provider: Optional[str] = None,
+        supports_tools: Optional[bool] = None,
+        supports_vision: Optional[bool] = None,
+        min_context: int = 0,
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """列模型(来自 10 Verdex — 41 真实模型)
+        Query params: provider, supports_tools, supports_vision, min_context
+        """
+        from .capability.model_context_db import list_models
+        models = list_models(
+            provider=provider,
+            supports_tools=supports_tools if supports_tools else None,
+            supports_vision=supports_vision if supports_vision else None,
+            min_context=min_context,
+        )
+        return {"count": len(models), "models": [m.to_dict() for m in models]}
+
+    @app.post("/v1/capability/calculate-max-tokens")
+    async def capability_calculate_max_tokens(
+        request: Request,
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """根据模型 context window 智能调整 max_tokens
+        Body: {"model_id": "gpt-4o", "input_tokens": 1000, "requested_output": 2000, "safety_margin": 0.1}
+        """
+        from .capability.model_context_db import calculate_max_tokens
+        return {
+            "model_id": body.get("model_id"),
+            "max_tokens": calculate_max_tokens(
+                body.get("model_id", "gpt-4o"),
+                body.get("input_tokens", 1000),
+                body.get("requested_output", 2000),
+                body.get("safety_margin", 0.1),
+            ),
+        }
+
+    @app.post("/v1/capability/estimate-cost")
+    async def capability_estimate_cost(
+        request: Request,
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """估算单模型成本
+        Body: {"model_id": "gpt-4o", "input_tokens": 1000, "output_tokens": 500}
+        """
+        from .capability.model_context_db import estimate_cost
+        return estimate_cost(
+            body.get("model_id", "gpt-4o"),
+            body.get("input_tokens", 1000),
+            body.get("output_tokens", 500),
+        )
+
     # ========== WebUI Auth ==========
     @app.post("/api/auth/login")
     async def login(req: LoginRequest):

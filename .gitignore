@@ -59,6 +59,15 @@ worktrees/
 tmp/
 temp/
 
+# Capability generated
+.moat/
+.exempt.yaml
+
+# Reference projects (large, source-only)
+参考/extracted/
+参考/*.zip
+参考/分析/
+
 # OS
 .DS_Store
 desktop.ini
