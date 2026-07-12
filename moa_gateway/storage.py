@@ -228,7 +228,17 @@ class Storage:
 
     # ========== Admin / Auth ==========
     def _bootstrap_admin(self, settings: Settings) -> None:
-        """首次启动创建默认管理员"""
+        """首次启动创建默认管理员(密码不能为空,空就拒绝启动)"""
+        # 修26: 安全加固 — config.yaml 里 admin_password 必须是真值,不能是默认 'admin'
+        if not settings.auth.admin_password or settings.auth.admin_password.strip() == "":
+            raise RuntimeError(
+                "config.yaml: auth.admin_password 不能为空!\n"
+                "请设置一个 ≥6 位的强密码(必须含字母+数字),示例:\n"
+                "  auth:\n"
+                "    admin_password: 'YourStrong#Pass1'\n"
+                "或用环境变量覆盖:\n"
+                "  export MOA_ADMIN_PASSWORD='YourStrong#Pass1'"
+            )
         with self.conn() as c:
             row = c.execute("SELECT id FROM admin_users WHERE username = ?",
                             (settings.auth.admin_username,)).fetchone()

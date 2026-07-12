@@ -202,7 +202,7 @@ class OpenClawAdapter:
                 f"# OpenClaw 接入 MoA Gateway Pro\n\n"
                 f"环境变量方式:\n```bash\n"
                 f"export OPENAI_BASE_URL={self.ctx.openai_base}\n"
-                f"export OPENAI_API_KEY={self.ctx.api_key}\n"
+                f"export OPENAI_API_KEY=<YOUR_API_KEY>\n"
                 f"openclaw onboard\n```\n\n"
                 f"配置文件 `~/.openclaw/openclaw.json`:\n```json\n"
                 f"{json.dumps(cfg, ensure_ascii=False, indent=2)}\n```\n\n"
@@ -272,7 +272,7 @@ class IDEAdapter:
                 f"{json.dumps(cfg, ensure_ascii=False, indent=2)}\n```\n\n"
                 f"或环境变量:\n```bash\n"
                 f"export OPENAI_BASE_URL={self.ctx.openai_base}\n"
-                f"export OPENAI_API_KEY={self.ctx.api_key}\n```"
+                f"export OPENAI_API_KEY=<YOUR_API_KEY>\n```"
             ),
             "examples": {}
         }

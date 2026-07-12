@@ -12,7 +12,9 @@ auth:
   gateway_api_keys:
   - demo-key-please-change
   admin_username: admin
-  admin_password: admin
+  # 修26: 安全加固 — 启动前必须显式设置,不能用默认 'admin' / 空
+  # 推荐用环境变量覆盖: export MOA_ADMIN_PASSWORD='YourStrong#Pass1'
+  admin_password: ''
   jwt_secret: ''
   jwt_expire_minutes: 1440
 models:

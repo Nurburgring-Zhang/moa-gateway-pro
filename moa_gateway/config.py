@@ -213,6 +213,12 @@ def load_settings(config_path: Optional[Path] = None) -> Settings:
         logger.warning("Config file %s not found, using defaults", config_path)
 
     cfg = Settings(**raw)
+    # 修26: 安全加固 — auth.admin_password 留空时强制用 env var 兜底
+    # 优先级:env MOA_ADMIN_PASSWORD > yaml admin_password
+    env_pw = os.environ.get("MOA_ADMIN_PASSWORD", "").strip()
+    if not cfg.auth.admin_password.strip() and env_pw:
+        cfg.auth.admin_password = env_pw
+        logger.info("admin_password loaded from MOA_ADMIN_PASSWORD env var")
     cfg = _ensure_jwt_secret(cfg)
     cfg = _resolve_api_keys(cfg)
     return cfg
