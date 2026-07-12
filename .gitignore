@@ -1,0 +1,81 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtualenv
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Test
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.cache
+coverage.xml
+*.cover
+
+# Runtime data
+data/
+data.bak/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Build
+build/
+dist/
+*.whl
+
+# MoA Gateway Pro
+*.zip
+.moa-gateway/
+worktrees/
+tmp/
+temp/
+
+# OS
+.DS_Store
+desktop.ini
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Sensitive
+secrets/
+*.pem
+*.key
+.fernet_key
+.jwt_secret
+*.fernet_key
+*.jwt_secret
+
+# Generated docs
+docs/_build/
