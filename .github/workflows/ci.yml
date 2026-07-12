@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: pytest (Python ${{ matrix.python-version }} / ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Run tests
+        env:
+          MOA_ADMIN_PASSWORD: "CI#TestPass#2024"
+          PYTHONPATH: .
+        run: |
+          # Import smoke test
+          python -c "from moa_gateway.server import app; print('import OK')"
+          # Pytest
+          python -m pytest tests/ -q --tb=short
+
+  audit:
+    name: 敏感信息审计
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 默认凭证扫描
+        run: |
+          echo "=== admin_password 不应含 'admin' 默认值 ==="
+          ! grep -rn "admin_password:\s*admin\b" config.yaml || (echo "❌ admin_password default found" && exit 1)
+          echo "=== 不应包含 ctx.api_key 模板打印 ==="
+          ! grep -rn "OPENAI_API_KEY={self\.ctx\.api_key}" moa_gateway/ || (echo "❌ ctx.api_key print found" && exit 1)
+          echo "=== 不应包含 sk- 前缀真 key ==="
+          # 只允许 docs/ 里描述性的 sk-... 模板
+          if grep -rn "sk-[a-zA-Z0-9]\{20,\}" moa_gateway/ scripts/ config.yaml 2>/dev/null; then
+            echo "❌ real sk- key found in source"
+            exit 1
+          fi
+          echo "=== 不应包含 .fernet_key / .jwt_secret ==="
+          ! git ls-files | grep -E "\.(fernet_key|jwt_secret)$" || (echo "❌ secret file tracked" && exit 1)
+          echo "✓ 全部通过"
