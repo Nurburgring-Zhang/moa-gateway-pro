@@ -21,7 +21,7 @@ aiosqlite==0.20.0
 PyYAML==6.0.2
 rich==13.9.4            # CLI 输出美化
 typer==0.12.5           # CLI 工具
-tenacity==9.0.0         # 重试退避
+tenacity==9.1.4         # 重试退避
 python-jose[cryptography]==3.3.0   # JWT
 passlib[bcrypt]==1.7.4  # 密码哈希
 cryptography==43.0.1    # 加密
