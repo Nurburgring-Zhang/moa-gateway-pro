@@ -15,7 +15,7 @@ websockets==13.1
 
 # 数据 / 存储
 sqlalchemy==2.0.35
-aiosqlite==0.20.0
+aiosqlite==0.22.1
 
 # 工具
 PyYAML==6.0.2
