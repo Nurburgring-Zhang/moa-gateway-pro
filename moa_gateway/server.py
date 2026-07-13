@@ -2015,6 +2015,266 @@ def create_app() -> FastAPI:
             raise HTTPException(500, f"version action failed: {e}")
         return result
 
+    # ========== v1.5.7 Capability Endpoints — Wave 7 (HIGH 优先级) ==========
+    @app.post("/v1/capability/config")
+    async def capability_config(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-03 8 层配置合并栈 + A-05 5 个 Permission Mode
+        Body: {"action":"get|set|unset|merge","key":"model","value":"gpt-4o","layer":"user",...}
+        """
+        from .capability.config_stack import (
+            ConfigStack, ConfigLayer, ConfigEntry, merge_layers,
+            PermissionMode, PermissionRegistry, PermissionRule,
+        )
+        # 全局 stack
+        if not hasattr(capability_config, "_stack"):
+            capability_config._stack = ConfigStack()
+        stack = capability_config._stack
+        action = body.get("action", "get")
+        result = {}
+        try:
+            if action == "set":
+                layer = ConfigLayer[body.get("layer", "user").upper()]
+                stack.set(body["key"], body.get("value"), layer, explicit=body.get("explicit", True))
+                result = {"set": True, "key": body["key"], "layer": body.get("layer", "user")}
+            elif action == "get":
+                val, layer = stack.get_with_source(body["key"])
+                result = {"value": val, "source_layer": layer.name if layer else None}
+            elif action == "unset":
+                count = stack.unset(body["key"], layer=ConfigLayer[body["layer"].upper()] if body.get("layer") else None)
+                result = {"unset_count": count}
+            elif action == "merge":
+                layers_data = {ConfigLayer[k.upper()]: v for k, v in body.get("layers", {}).items()}
+                merged = merge_layers(layers_data)
+                    # 写入 stack
+                for k, v in merged.items():
+                    stack.set(k, v, ConfigLayer.USER, explicit=True)
+                result = {"merged": merged}
+            elif action == "permission":
+                # 5 permission mode 演示
+                mode = PermissionMode(body.get("mode", "default"))
+                result = {"mode": mode.value}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"config action failed: {e}")
+        return result
+
+    @app.post("/v1/capability/bubble")
+    async def capability_bubble(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-06 Bubble Mode (parent escalate) + A-26 Event scheduling
+        Body: {"action":"escalate|resolve|pending|should_continue","parent_id":"p1",...}
+        """
+        from .capability.bubble_mode import (
+            BubbleManager, BubbleStatus, EventScheduler, Event, EventType,
+        )
+        if not hasattr(capability_bubble, "_managers"):
+            capability_bubble._managers = {}
+        action = body.get("action", "escalate")
+        result = {}
+        try:
+            if action in ("escalate", "resolve", "pending", "resolved"):
+                parent_id = body.get("parent_id", "default")
+                if parent_id not in capability_bubble._managers:
+                    capability_bubble._managers[parent_id] = BubbleManager(parent_id)
+                mgr = capability_bubble._managers[parent_id]
+                if action == "escalate":
+                    req_id = mgr.escalate(body["agent_id"], body.get("action_desc", ""), body.get("reason", ""))
+                    result = {"request_id": req_id}
+                elif action == "resolve":
+                    ok = mgr.resolve(body["request_id"], BubbleStatus(body.get("decision", "allowed")))
+                    result = {"resolved": ok}
+                elif action == "pending":
+                    pending = mgr.get_pending()
+                    result = {"pending": [r.__dict__ for r in pending], "count": len(pending)}
+                elif action == "resolved":
+                    resolved = mgr.get_resolved()
+                    result = {"resolved": [r.__dict__ for r in resolved], "count": len(resolved)}
+            elif action in ("schedule", "should_continue", "recent", "clear"):
+                if not hasattr(capability_bubble, "_scheduler"):
+                    capability_bubble._scheduler = EventScheduler()
+                sched = capability_bubble._scheduler
+                if action == "schedule":
+                    ev = Event(
+                        event_id=body.get("event_id", ""),
+                        event_type=EventType(body.get("event_type", "neutral")),
+                        agent_id=body["agent_id"],
+                        payload=body.get("payload", {}),
+                        timestamp=body.get("timestamp", time.time()),
+                    )
+                    eid = sched.schedule(ev)
+                    result = {"event_id": eid}
+                elif action == "should_continue":
+                    result = {"should_continue": sched.should_continue(body["agent_id"])}
+                elif action == "recent":
+                    events = sched.recent_events(body["agent_id"], n=body.get("n", 10))
+                    result = {"events": [e.__dict__ for e in events]}
+                elif action == "clear":
+                    count = sched.clear(body["agent_id"])
+                    result = {"cleared": count}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"bubble action failed: {e}")
+        return result
+
+    @app.post("/v1/capability/worktree")
+    async def capability_worktree(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-42 Worktree 隔离基元 + A-43 Worktree Snapshot/Diff
+        Body: {"action":"snapshot|is_clean|diff","repo_path":"D:\\MoA Gateway Pro",...}
+        """
+        from .capability.worktree import (
+            WorktreeManager, WorktreeInfo, snapshot, is_clean, diff_snapshots,
+        )
+        action = body.get("action", "snapshot")
+        repo_path = body.get("repo_path", ".")
+        result = {}
+        try:
+            if action == "snapshot":
+                snap = snapshot(repo_path)
+                result = {
+                    "commit_sha": snap.commit_sha,
+                    "branch": snap.branch,
+                    "tracked_files_count": len(snap.tracked_files),
+                    "porcelain_status_count": len(snap.porcelain_status),
+                    "is_clean": is_clean(snap),
+                    "timestamp": snap.timestamp,
+                }
+            elif action == "list":
+                mgr = WorktreeManager(repo_path)
+                wts = mgr.list_worktrees()
+                result = {"worktrees": [w.__dict__ for w in wts]}
+            elif action == "diff":
+                snap1 = snapshot(body.get("repo_path1", repo_path))
+                snap2 = snapshot(body.get("repo_path2", repo_path))
+                result = {"diff": diff_snapshots(snap1, snap2)}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"worktree action failed: {e}")
+        return result
+
+    @app.post("/v1/capability/route")
+    async def capability_route(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-45 Harness Routing 3 档 + A-46 Auto-Detection Rules
+        Body: {"action":"route_request|auto_detect|priority|tools","task":"fix bug",...}
+        """
+        from .capability.routing import (
+            HarnessTier, Priority, route_request, auto_detect_tier,
+            priority_from_severity, tools_for_tier,
+        )
+        action = body.get("action", "route_request")
+        result = {}
+        try:
+            if action == "route_request":
+                config = route_request(
+                    task=body.get("task", ""),
+                    file_count=body.get("file_count", 0),
+                    single_domain=body.get("single_domain", True),
+                    is_bugfix=body.get("is_bugfix", False),
+                    is_docs=body.get("is_docs", False),
+                )
+                result = {
+                    "tier": config.tier.value,
+                    "priority": config.priority.name,
+                    "tools": config.tools,
+                    "max_iterations": config.max_iterations,
+                }
+            elif action == "auto_detect":
+                tier = auto_detect_tier(body.get("task", ""), body.get("files", []))
+                result = {"tier": tier.value}
+            elif action == "priority":
+                pri = priority_from_severity(body.get("severity", "normal"))
+                result = {"priority": pri.name}
+            elif action == "tools":
+                tier = HarnessTier(body.get("tier", "standard"))
+                result = {"tools": tools_for_tier(tier)}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"route action failed: {e}")
+        return result
+
+    @app.post("/v1/capability/session-lock")
+    async def capability_session_lock(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-22 Multi-session 协调 (advisory lock) + A-20 MCP 工具注册
+        Body: {"action":"acquire|release|get_state|register_mcp|invoke_mcp",...}
+        """
+        from .capability.session_lock import (
+            SessionLockManager, MCPRegistry, MCPTool,
+        )
+        if not hasattr(capability_session_lock, "_mgr"):
+            capability_session_lock._mgr = SessionLockManager()
+        if not hasattr(capability_session_lock, "_mcp"):
+            capability_session_lock._mcp = MCPRegistry()
+        mgr = capability_session_lock._mgr
+        mcp = capability_session_lock._mcp
+        action = body.get("action", "acquire")
+        result = {}
+        try:
+            if action in ("try_acquire", "acquire_with_wait", "release", "get_state", "cleanup_expired"):
+                if action == "try_acquire":
+                    ok = mgr.try_acquire(body["lock_id"], body["session_id"], ttl=body.get("ttl"))
+                    result = {"acquired": ok}
+                elif action == "acquire_with_wait":
+                    ok = mgr.acquire_with_wait(
+                        body["lock_id"], body["session_id"],
+                        timeout=body.get("timeout", 10.0),
+                        retry_interval=body.get("retry_interval", 0.01),
+                    )
+                    result = {"acquired": ok}
+                elif action == "release":
+                    ok = mgr.release(body["lock_id"], body["session_id"])
+                    result = {"released": ok}
+                elif action == "get_state":
+                    lock = mgr.get_lock_state(body["lock_id"])
+                    result = {"lock": lock.__dict__ if lock else None}
+                elif action == "cleanup_expired":
+                    mgr.cleanup_expired()
+                    result = {"cleaned": True}
+            elif action in ("register_mcp", "unregister_mcp", "invoke_mcp", "list_mcp", "get_mcp"):
+                if action == "register_mcp":
+                    def handler(**kwargs):
+                        return body.get("returns", f"executed {body['name']} with {kwargs}")
+                    tool = MCPTool(
+                        name=body["name"],
+                        description=body.get("description", ""),
+                        parameters=body.get("parameters", {}),
+                        handler=handler,
+                    )
+                    mcp.register(tool)
+                    result = {"registered": body["name"]}
+                elif action == "unregister_mcp":
+                    mcp.unregister(body["name"])
+                    result = {"unregistered": body["name"]}
+                elif action == "invoke_mcp":
+                    out = mcp.invoke(body["name"], **body.get("kwargs", {}))
+                    result = {"output": out}
+                elif action == "list_mcp":
+                    result = {"tools": mcp.list_tools()}
+                elif action == "get_mcp":
+                    t = mcp.get_tool(body["name"])
+                    result = {"tool": {"name": t.name, "description": t.description, "parameters": t.parameters} if t else None}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"session_lock action failed: {e}")
+        return result
+
     # ========== WebUI Auth ==========
     @app.post("/api/auth/login")
     async def login(req: LoginRequest):
