@@ -290,9 +290,15 @@ class ModelPool:
 
     async def _health_check_loop(self) -> None:
         cfg = self.settings.health
+        first_iter = True
         while True:
             try:
-                await asyncio.sleep(cfg.interval_seconds)
+                # 修 40: 启动时立即跑首次 health check(不再等 30s)
+                # 让 endpoints 立刻有 status(healthy/unhealthy),chat 不会因 unknown 卡 30s
+                if first_iter:
+                    first_iter = False
+                else:
+                    await asyncio.sleep(cfg.interval_seconds)
                 await self._check_all_health()
             except asyncio.CancelledError:
                 break

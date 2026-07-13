@@ -167,7 +167,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="MoA Gateway Pro",
-        version="1.0.0",
+        version="1.6.2",
         description="工业级多模型协作网关 - 一份 OpenAI Key 接入所有大模型",
         lifespan=lifespan,
     )
@@ -2950,6 +2950,156 @@ def create_app() -> FastAPI:
         except Exception as e:
             raise HTTPException(500, f"grace failed: {e}")
         return result
+
+    # ========== Wave 11 Capability Endpoints (5 new) ==========
+
+    @app.post("/v1/capability/rag-search")
+    async def capability_rag_search(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """R-09: 关键词重叠 RAG 检索 — 24h TTL 缓存, max_results 默认 3"""
+        from .capability.rag_search import rag_search
+        try:
+            query = body.get("query", "")
+            corpus = body.get("corpus", [])
+            max_results = int(body.get("max_results", 3))
+            if not isinstance(corpus, list):
+                raise HTTPException(400, "corpus must be a list")
+            results = rag_search(query, corpus, max_results=max_results)
+            return {"results": results, "count": len(results), "query": query}
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"rag_search failed: {e}")
+
+    @app.post("/v1/capability/plan-act")
+    async def capability_plan_act(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """R-10: Plan/Act 模式解析 — 24+14 关键词 + 11+8 正则 → confidence"""
+        from .capability.plan_act import classify_mode
+        try:
+            query = body.get("query", "")
+            result = classify_mode(query)
+            return result
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"plan_act failed: {e}")
+
+    @app.post("/v1/capability/channels")
+    async def capability_channels(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """R-23: CH1/CH2/CH3 三通道 fallback — subagent → CLI → API"""
+        from .capability.channels import (
+            ChannelChain, SubagentChannel, CLIChannel, APIChannel,
+            ChannelType, classify_error,
+        )
+        try:
+            action = body.get("action", "execute")
+            query = body.get("query", "")
+            if action == "classify_error":
+                exc = body.get("error", "")
+                return {"classification": classify_error(exc)}
+            elif action == "chain_info":
+                return {
+                    "channels": [c.value for c in ChannelType],
+                    "order": ["ch1", "ch2", "ch3"],
+                    "fallback": "stop on first success",
+                }
+            elif action == "execute":
+                enabled = body.get("enabled", ["ch1", "ch2", "ch3"])
+                chs = []
+                if "ch1" in enabled: chs.append(SubagentChannel())
+                if "ch2" in enabled: chs.append(CLIChannel(sleep_ms=body.get("cli_latency_ms", 50)))
+                if "ch3" in enabled: chs.append(APIChannel(sleep_ms=body.get("api_latency_ms", 150)))
+                chain = ChannelChain(chs)
+                result = await chain.execute(query, **body.get("kwargs", {}))
+                return result
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"channels failed: {e}")
+
+    @app.post("/v1/capability/reference-router")
+    async def capability_reference_router(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """M-11: Reference 模型分流 — SHADOW/VALIDATE/VETO 4 策略"""
+        from .capability.reference_router import (
+            route_with_reference, RefStrategy, ReferenceConfig,
+        )
+        try:
+            query = body.get("query", "")
+            strategy = body.get("strategy", "shadow")
+            try:
+                strat = RefStrategy(strategy)
+            except ValueError:
+                raise HTTPException(400, f"unknown strategy: {strategy}")
+            cfg = ReferenceConfig(
+                main_model=body.get("main_model", "main"),
+                ref_model=body.get("ref_model", "ref"),
+                strategy=strat,
+                max_latency_ms=int(body.get("max_latency_ms", 5000)),
+                cost_ratio_cap=float(body.get("cost_ratio_cap", 2.0)),
+            )
+            result = await route_with_reference(query, cfg)
+            return result
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"reference_router failed: {e}")
+
+    @app.post("/v1/capability/checkpoint")
+    async def capability_checkpoint(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-23: 原子写 checkpoint 存储 — temp+rename, fsync, thread-safe"""
+        from .capability.checkpoint import CheckpointStore, atomic_write
+        try:
+            action = body.get("action", "save")
+            root = body.get("root_dir", "./.moai/checkpoints")
+            store = CheckpointStore(root_dir=root, max_keep=int(body.get("max_keep", 10)))
+            if action == "save":
+                name = body.get("name", "default")
+                payload = body.get("payload", {})
+                path = store.save(name, payload)
+                return {"saved": True, "path": path, "name": name}
+            elif action == "load":
+                name = body.get("name", "default")
+                data = store.load(name)
+                return {"name": name, "data": data, "found": data is not None}
+            elif action == "list":
+                items = store.list()
+                return {"items": items, "count": len(items)}
+            elif action == "delete":
+                name = body.get("name", "default")
+                ok = store.delete(name)
+                return {"deleted": ok, "name": name}
+            elif action == "cleanup":
+                older = body.get("older_than_seconds")
+                removed = store.cleanup(older_than_seconds=older)
+                return {"removed": removed, "older_than_seconds": older}
+            elif action == "atomic_write":
+                # 测试 atomic_write path — 写一个临时文件
+                path = body.get("path", "./.moai/test_atomic.txt")
+                data = body.get("data", "")
+                atomic_write(path, data, encoding=body.get("encoding", "utf-8"))
+                return {"written": True, "path": path, "size": len(data)}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"checkpoint failed: {e}")
 
     # ========== WebUI Auth ==========
     @app.post("/api/auth/login")

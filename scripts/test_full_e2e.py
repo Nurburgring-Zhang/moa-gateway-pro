@@ -68,6 +68,8 @@ def call(method, path, body=None, headers=None, timeout=30, raw=False):
             try: b = json.loads(b) if b and b[0] in "{[" else b
             except: pass
         return e.code, b
+    except urllib.error.URLError as e:  # 修: 连接失败/端口占用不 crash
+        return 0, {"detail": f"URLError: {e.reason}"}
 
 
 def expect(name, expected, actual, body=None):
@@ -209,6 +211,20 @@ capabilities = [
     ("secret-scan", {"path": ".", "fail_on": 99}),
     ("group-think-check", {"members": [{"member_id": "a", "content": "agreed"}]}),
     ("ensemble-vote", {"votes": [{"voter_id":"a","candidate":"X","confidence":0.9}], "method":"majority"}),
+    # Wave 11 5 个新能力
+    ("rag-search", {"query": "python performance", "corpus": [
+        {"id": "a", "text": "Python performance tips: use list comprehensions and generators", "tags": ["python"]},
+        {"id": "b", "text": "JavaScript async await improves performance", "tags": ["js"]},
+        {"id": "c", "text": "Python generators yield items lazily for memory efficiency", "tags": ["python"]},
+    ], "max_results": 2}),
+    ("plan-act", {"query": "please execute the build and deploy it now"}),
+    ("channels", {"action": "chain_info"}),
+    ("channels", {"action": "execute", "query": "test query", "enabled": ["ch1", "ch2"]}),
+    ("reference-router", {"query": "What is Python?", "strategy": "shadow"}),
+    ("checkpoint", {"action": "save", "name": "wave11_test", "payload": {"a": 1, "b": [1,2,3]}}),
+    ("checkpoint", {"action": "load", "name": "wave11_test"}),
+    ("checkpoint", {"action": "list"}),
+    ("checkpoint", {"action": "delete", "name": "wave11_test"}),
     ("should-rebalance", {"stats": {"e1": {"tier": "standard", "endpoint_count": 1, "success_count": 10, "total_calls": 10, "avg_latency_ms": 800, "avg_cost": 0.001, "last_24h_calls": 10, "cooldown_count": 0}}}),
     ("cost-estimate", {"input_tokens": 100, "output_tokens": 50, "channels": [{"name": "d", "cost_per_1k_input": 0.001, "cost_per_1k_output": 0.002, "avg_latency_ms": 500, "reliability": 0.95}]}),
     ("gate-l0", {"query": "2+3"}),
