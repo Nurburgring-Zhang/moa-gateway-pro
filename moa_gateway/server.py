@@ -2275,6 +2275,166 @@ def create_app() -> FastAPI:
             raise HTTPException(500, f"session_lock action failed: {e}")
         return result
 
+    # ========== v1.5.8 Capability Endpoints — Wave 8 (HIGH 优先级) ==========
+    @app.post("/v1/capability/flask")
+    async def capability_flask(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """M-29 FLASK 12 维技能评分 + M-34 Task 分解树 (高内聚低耦合)
+        Body: {"answer":"...","query":"...","tasks":[{title,description}...]}
+        """
+        from .capability.flask_score import score_flask, summary_report
+        result = {}
+        if body.get("answer"):
+            flask = score_flask(body["answer"], body.get("query", ""))
+            result["flask"] = {
+                "total_score": flask.total_score,
+                "dimension_scores": {d.name: s for d, s in flask.dimension_scores.items()},
+                "weak": [d.name for d in flask.weak_dimensions],
+                "strong": [d.name for d in flask.strong_dimensions],
+                "summary": summary_report(flask),
+            }
+        if body.get("tasks"):
+            # 简化:用 score_flask 也给每个 task title 评分
+            scores = []
+            for t in body["tasks"]:
+                text = f"{t.get('title', '')} {t.get('description', '')}"
+                f = score_flask(text)
+                scores.append({"title": t.get("title", ""), "total": f.total_score, "weak": [d.name for d in f.weak_dimensions]})
+            result["task_scores"] = scores
+        return result
+
+    @app.post("/v1/capability/elo")
+    async def capability_elo(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """M-30 Elo ranking + Bootstrap CI + Worker 调度
+        Body: {"action":"record|ranked|bootstrap_ci|submit","matches":[{winner,loser}],...}
+        """
+        from .capability.elo_ranking import (
+            EloLeaderboard, MatchResult, bootstrap_ci, WorkerPool, EloRating,
+        )
+        action = body.get("action", "record")
+        result = {}
+        try:
+            if action == "record":
+                lb = EloLeaderboard(k_factor=body.get("k_factor", 4.0))
+                for mid in body.get("model_ids", []):
+                    lb.add_model(mid)
+                matches = [MatchResult(**m) for m in body.get("matches", [])]
+                for m in matches:
+                    lb.record_match(m.winner_id, m.loser_id, m.timestamp)
+                ranked = lb.ranked()
+                result["ranked"] = [{"model_id": r.model_id, "rating": r.rating, "matches": r.matches_played} for r in ranked]
+            elif action == "bootstrap_ci":
+                lb = EloLeaderboard()
+                for r in body.get("ratings_before", []):
+                    lb.add_model(r["model_id"], r.get("rating", 1500.0))
+                matches = [MatchResult(**m) for m in body.get("matches", [])]
+                for m in matches:
+                    lb.record_match(m.winner_id, m.loser_id, m.timestamp)
+                ratings_before = [EloRating(model_id=r["model_id"], rating=r["rating"], matches_played=r.get("matches", 0)) for r in lb.ranked()]
+                ci = bootstrap_ci(ratings_before, matches, n_resamples=body.get("n_resamples", 1000), ci=body.get("ci", 0.95))
+                result["bootstrap_ci"] = {k: {"low": v[0], "high": v[1]} for k, v in ci.items()}
+            elif action == "submit":
+                pool = WorkerPool(body.get("workers", ["w1", "w2", "w3"]))
+                pool.set_strategy(body.get("strategy", "shortest_queue"))
+                # 真 submit 任务要 callable,这里返回调度决策
+                loads = pool.worker_loads()
+                result["loads"] = loads
+                result["strategy"] = body.get("strategy", "shortest_queue")
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"elo action failed: {e}")
+        return result
+
+    @app.post("/v1/capability/brainstorm")
+    async def capability_brainstorm(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """M-45 5 发散人格头脑风暴 + M-47 Decide 模式 advocate_<选项>
+        Body: {"action":"ideas|decide","topic":"...","options":[...]}
+        """
+        from .capability.brainstorm import BrainstormSession, DecideMode
+        action = body.get("action", "ideas")
+        topic = body.get("topic", "")
+        result = {}
+        try:
+            if action == "ideas":
+                session = BrainstormSession(topic)
+                ideas = session.generate_ideas_detailed() if body.get("detailed") else session.generate_ideas()
+                result["ideas"] = ideas if isinstance(ideas, dict) else {k: v.__dict__ for k, v in ideas.items()}
+            elif action == "decide":
+                options = body.get("options", [])
+                dm = DecideMode(topic, options)
+                result["advocates"] = dm.generate_advocates()
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"brainstorm action failed: {e}")
+        return result
+
+    @app.post("/v1/capability/cross-iter")
+    async def capability_cross_iter(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """M-50 Cross-iteration synthesis + M-52 Step-5 三种模式
+        Body: {"action":"convergence|best_of_each|adoption|step5","iters":[{...}],...}
+        """
+        from .capability.cross_iter_synth import (
+            IterationSnapshot, convergence_mode, best_of_each_mode,
+            recommended_adoption_mode, run_step5, Step5Mode,
+        )
+        action = body.get("action", "step5")
+        iters = [IterationSnapshot(**i) for i in body.get("iters", [])]
+        result = {}
+        try:
+            if action == "convergence":
+                r = convergence_mode(iters)
+                result = {"output": r.output, "sources": r.sources, "confidence": r.confidence, "mode": r.mode.value}
+            elif action == "best_of_each":
+                r = best_of_each_mode(iters)
+                result = {"output": r.output, "sources": r.sources, "confidence": r.confidence, "mode": r.mode.value}
+            elif action == "adoption":
+                if len(iters) < 2:
+                    raise HTTPException(400, "adoption 需要至少 2 iter")
+                r = recommended_adoption_mode(iters[-1], iters[-2])
+                result = {"output": r.output, "sources": r.sources, "confidence": r.confidence, "mode": r.mode.value}
+            elif action == "step5":
+                mode = Step5Mode(body.get("step5_mode", "sintesis_central"))
+                r = run_step5(iters, mode)
+                result = {"mode": r.mode.value, "output": r.output, "action_taken": r.action_taken}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"cross_iter action failed: {e}")
+        return result
+
+    @app.post("/v1/capability/audit")
+    async def capability_audit(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-31 Action Policy 增强 + A-35 Audit Gate (5 步协议)
+        Body: {"action_id":"...","action_data":{"action":"read"},"policy_fn":null}
+        """
+        from .capability.action_audit import AuditGate
+        if not hasattr(capability_audit, "_gate"):
+            capability_audit._gate = AuditGate()
+        gate = capability_audit._gate
+        action_id = body.get("action_id", "a1")
+        action_data = body.get("action_data", {})
+        try:
+            log = gate.audit(action_id, action_data)
+            return log.__dict__
+        except Exception as e:
+            raise HTTPException(500, f"audit failed: {e}")
+
     # ========== WebUI Auth ==========
     @app.post("/api/auth/login")
     async def login(req: LoginRequest):
