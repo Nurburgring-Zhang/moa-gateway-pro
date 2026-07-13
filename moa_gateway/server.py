@@ -2435,6 +2435,248 @@ def create_app() -> FastAPI:
         except Exception as e:
             raise HTTPException(500, f"audit failed: {e}")
 
+    # ========== v1.5.9 Capability Endpoints — Wave 9 (HIGH 优先级) ==========
+    @app.post("/v1/capability/in-flight")
+    async def capability_in_flight(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-24 In-Flight Transition 检测 + A-25 Team Checkpoint Merge
+        Body: {"action":"start|complete|in_flight|transition|merge_checkpoint|merge","session_id":"s1",...}
+        """
+        from .capability.in_flight import (
+            InFlightDetector, TeamCheckpointMerger, Checkpoint, Phase,
+        )
+        if not hasattr(capability_in_flight, "_detector"):
+            capability_in_flight._detector = InFlightDetector(state_dir=body.get("state_dir", ".moai/state"))
+        detector = capability_in_flight._detector
+        action = body.get("action", "in_flight")
+        result = {}
+        try:
+            if action == "start":
+                sid = detector.record_start(Phase(body.get("phase", "analyze")), at=body.get("at"))
+                result = {"session_id": sid}
+            elif action == "complete":
+                detector.record_complete(body["session_id"], Phase(body.get("phase", "analyze")), at=body.get("at"))
+                result = {"completed": True}
+            elif action == "in_flight":
+                states = detector.detect_in_flight(at=body.get("at"))
+                result = {"in_flight": [s.__dict__ for s in states], "count": len(states)}
+            elif action == "transition":
+                next_phase = detector.detect_phase_transition(body["session_id"])
+                result = {"next_phase": next_phase.value if next_phase else None}
+            elif action == "merge":
+                if not hasattr(capability_in_flight, "_merger"):
+                    capability_in_flight._merger = TeamCheckpointMerger()
+                merger = capability_in_flight._merger
+                for ckpt in body.get("checkpoints", []):
+                    merger.add_checkpoint(Checkpoint(
+                        session_id=ckpt.get("session_id", "s1"),
+                        phase=Phase(ckpt.get("phase", "analyze")),
+                        data=ckpt.get("data", {}),
+                        timestamp=ckpt.get("timestamp", time.time()),
+                    ))
+                result = {"merged": merger.merge()}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"in_flight action failed: {e}")
+        return result
+
+    @app.post("/v1/capability/mx")
+    async def capability_mx(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-39 MX 注解系统 + A-40 fan-in + A-44 mx CLI
+        Body: {"action":"parse|fanin|cli","text":"...","command":"list","file_path":"f.py"}
+        """
+        from .capability.mx_annot import (
+            parse_mx_annotations, compute_fanin, mx_cli,
+        )
+        action = body.get("action", "parse")
+        result = {}
+        try:
+            if action == "parse":
+                anns = parse_mx_annotations(body.get("text", ""), body.get("file_path", "f.py"), body.get("language", "python"))
+                result = {"annotations": [a.to_dict() for a in anns], "count": len(anns)}
+            elif action == "fanin":
+                anns = parse_mx_annotations(body.get("text", ""), body.get("file_path", "f.py"), body.get("language", "python"))
+                result = {"fanin": compute_fanin(anns)}
+            elif action == "cli":
+                anns = parse_mx_annotations(body.get("text", ""), body.get("file_path", "f.py"), body.get("language", "python"))
+                result = {"output": mx_cli(anns, body.get("command", "list"))}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"mx action failed: {e}")
+        return result
+
+    @app.post("/v1/capability/tier-promo")
+    async def capability_tier_promo(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-48 Tier Promotion (1/3/5/10 + confidence<0.70) + A-49 Sub-agent Boundary
+        Body: {"action":"classify|record|can_spawn|cohabitation","evidence":[{...}],"weights":[...]}
+        """
+        from moa_gateway.capability.tier_promo import (
+            PromotionConfig, compute_tier, classify_tier_from_evidence,
+            Evidence, SubAgentBoundary, PromotionLevel,
+        )
+        action = body.get("action", "classify")
+        result = {}
+        try:
+            if action == "classify":
+                evidence = [Evidence(**e) for e in body.get("evidence", [])]
+                cfg = PromotionConfig(
+                    tier_1_threshold=body.get("tier_1", 1),
+                    tier_2_threshold=body.get("tier_2", 3),
+                    tier_3_threshold=body.get("tier_3", 5),
+                    tier_4_threshold=body.get("tier_4", 10),
+                    confidence_threshold=body.get("confidence_threshold", 0.70),
+                )
+                tier = classify_tier_from_evidence(evidence, cfg)
+                result = {"tier": tier.name, "evidence_count": len(evidence)}
+            elif action == "compute":
+                cfg = PromotionConfig()
+                tier = compute_tier(
+                    body.get("count", 0),
+                    body.get("confidence", 0.5),
+                    cfg,
+                )
+                result = {"tier": tier.name}
+            elif action == "can_spawn":
+                boundary = SubAgentBoundary(
+                    body.get("parent_id", "p1"),
+                    body.get("allowed_children", []),
+                )
+                result = {"can_spawn": boundary.can_spawn(body.get("child_id", ""))}
+            elif action == "cohabitation":
+                b1 = SubAgentBoundary(body.get("parent_a", "p1"), body.get("children_a", []))
+                b2 = SubAgentBoundary(body.get("parent_b", "p2"), body.get("children_b", []))
+                result = {"cohabitation_safe": b1.cohabitation_check(body.get("parent_b", "p2"))}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"tier_promo action failed: {e}")
+        return result
+
+    @app.post("/v1/capability/artifact")
+    async def capability_artifact(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-21 Artifact Schema 统一 + A-50 Tmux 面板编排 (CG mode)
+        Body: {"action":"register|list_by_type|validate|add_pane|layout|safe_layout",...}
+        """
+        from .capability.artifact import (
+            Artifact, ArtifactType, SchemaRegistry, TmuxPane, TmuxOrchestrator,
+        )
+        if not hasattr(capability_artifact, "_registry"):
+            capability_artifact._registry = SchemaRegistry()
+        if not hasattr(capability_artifact, "_orchestrator"):
+            capability_artifact._orchestrator = TmuxOrchestrator(max_visible=body.get("max_visible", 3))
+        reg = capability_artifact._registry
+        orch = capability_artifact._orchestrator
+        action = body.get("action", "register")
+        result = {}
+        try:
+            if action == "register":
+                artifact = Artifact(
+                    id=body["id"],
+                    name=body["name"],
+                    type=ArtifactType(body["type"]),
+                    description=body.get("description", ""),
+                    tags=body.get("tags", []),
+                    inputs=body.get("inputs", {}),
+                    outputs=body.get("outputs", {}),
+                    dependencies=body.get("dependencies", []),
+                    created_at=body.get("created_at", time.time()),
+                )
+                reg.register(artifact)
+                result = {"registered": artifact.id}
+            elif action == "list_by_type":
+                t = ArtifactType(body.get("type", "agent"))
+                arts = reg.list_by_type(t)
+                result = {"artifacts": [a.to_dict() for a in arts]}
+            elif action == "validate":
+                artifact = Artifact(
+                    id=body.get("id", "test"),
+                    name=body.get("name", "test"),
+                    type=ArtifactType(body.get("type", "agent")),
+                    description=body.get("description", ""),
+                )
+                missing = reg.validate(artifact)
+                result = {"missing_fields": missing, "valid": len(missing) == 0}
+            elif action == "add_pane":
+                pane = TmuxPane(
+                    pane_id=body.get("pane_id", "p1"),
+                    command=body.get("command", ""),
+                    cwd=body.get("cwd", "."),
+                    env_vars=body.get("env_vars", {}),
+                )
+                orch.add_pane(pane)
+                result = {"added": pane.pane_id}
+            elif action == "layout":
+                result = {"panes": [p.__dict__ for p in orch.layout()]}
+            elif action == "safe_layout":
+                result = {"panes": [p.__dict__ for p in orch.safe_layout()]}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"artifact action failed: {e}")
+        return result
+
+    @app.post("/v1/capability/frozen")
+    async def capability_frozen(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-19 Frozen Zone 4-enum + A-34 HARNESS_FROZEN_* 8 sentinels
+        Body: {"action":"add|is_frozen|is_evolvable|can_modify|assert_modifiable","path":"/foo",...}
+        """
+        from .capability.frozen_zone import (
+            FrozenRegistry, FrozenEntry, Zone, can_modify, assert_modifiable, FrozenZoneError,
+            ALL_HARNESS_FROZEN_SENTINELS,
+        )
+        if not hasattr(capability_frozen, "_registry"):
+            capability_frozen._registry = FrozenRegistry()
+        reg = capability_frozen._registry
+        action = body.get("action", "is_frozen")
+        result = {}
+        try:
+            if action == "add":
+                entry = FrozenEntry(
+                    path=body["path"],
+                    zone=Zone(body["zone"]) if isinstance(body["zone"], str) else body["zone"],
+                    sentinel=body.get("sentinel", ""),
+                    reason=body.get("reason", ""),
+                    added_at=body.get("added_at", time.time()),
+                )
+                reg.add(entry)
+                result = {"added": entry.path}
+            elif action == "is_frozen":
+                result = {"is_frozen": reg.is_frozen(body["path"])}
+            elif action == "is_evolvable":
+                result = {"is_evolvable": reg.is_evolvable(body["path"])}
+            elif action == "can_modify":
+                zone = Zone(body["zone"]) if isinstance(body["zone"], str) else body["zone"]
+                result = {"can_modify": can_modify(body["path"], zone)}
+            elif action == "assert_modifiable":
+                try:
+                    assert_modifiable(body["path"], reg)
+                    result = {"modifiable": True}
+                except FrozenZoneError as e:
+                    result = {"modifiable": False, "error": str(e), "path": e.path, "sentinel": e.sentinel}
+            elif action == "list_sentinels":
+                result = {"sentinels": ALL_HARNESS_FROZEN_SENTINELS, "count": len(ALL_HARNESS_FROZEN_SENTINELS)}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"frozen action failed: {e}")
+        return result
+
     # ========== WebUI Auth ==========
     @app.post("/api/auth/login")
     async def login(req: LoginRequest):
