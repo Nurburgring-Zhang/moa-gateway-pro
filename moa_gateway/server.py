@@ -1215,6 +1215,161 @@ def create_app() -> FastAPI:
             "metadata": result.metadata,
         }
 
+    # ========== v1.5.3 Capability Endpoints — Wave 3 (HIGH 优先级) ==========
+    @app.post("/v1/capability/conflict-arbitrate")
+    async def capability_conflict_arbitrate(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """M-17 CONFLICTING 选择仲裁 (4 维: viability/support/empirical/compilable)
+        Body: {"options":[{...ConflictOption...}],"fuse":false,"query":""}
+        """
+        from .capability.conflict_arbiter import (
+            ConflictOption, arbitrate, fuse_decision,
+        )
+        options = [ConflictOption(**o) for o in body.get("options", [])]
+        if body.get("fuse", False):
+            verdict = fuse_decision(options, body.get("query", ""))
+        else:
+            verdict = arbitrate(options)
+        return {
+            "winner_option_id": verdict.winner_option_id,
+            "runner_up_id": verdict.runner_up_id,
+            "confidence": verdict.confidence,
+            "rationale": verdict.rationale,
+            "voting_breakdown": verdict.voting_breakdown,
+        }
+
+    @app.post("/v1/capability/section-viability")
+    async def capability_section_viability(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """M-18 Per-section viability (复杂提案分节验证)
+        Body: {"text":"...","proposal_idx":0}
+        """
+        from .capability.section_viability import (
+            validate_proposal, compare_proposals,
+        )
+        text = body.get("text", "")
+        proposal_idx = body.get("proposal_idx", 0)
+        report = validate_proposal(text, proposal_idx)
+        return {
+            "proposal_idx": report.proposal_idx,
+            "total_sections": report.total_sections,
+            "viable_sections": report.viable_sections,
+            "failing_sections": report.failing_sections,
+            "ap_score": report.ap_score,
+            "verdicts": [v.__dict__ for v in report.verdicts],
+        }
+
+    @app.post("/v1/capability/feedback-iter")
+    async def capability_feedback_iter(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """M-19 Feedback-aware iteration (跨迭代知识传递)
+        Body: {"record":{...IterationRecord...},"history_path":""}
+        """
+        from .capability.feedback_loop import (
+            IterationRecord, analyze_iteration, save_feedback,
+            load_history, detect_convergence, format_next_iter_prompt,
+        )
+        rec = IterationRecord(**body.get("record", {}))
+        feedback = analyze_iteration(rec)
+        history_path = body.get("history_path", "")
+        if history_path:
+            save_feedback(history_path, feedback)
+        history = load_history(history_path) if history_path else []
+        conv = detect_convergence(history) if history else {"converged": False, "std": 0.0, "trend": "stable"}
+        prompt = format_next_iter_prompt(history_path) if history_path else ""
+        return {
+            "feedback": feedback.__dict__,
+            "convergence": conv,
+            "next_iter_prompt": prompt,
+        }
+
+    @app.post("/v1/capability/stream-aggregate")
+    async def capability_stream_aggregate(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """M-06 Aggregator 流式 + 非流式 fallback
+        Body: {"prompt":"...","model":"mock-stream-v1","fail_prob":0.0,"use_fallback":true}
+        """
+        import asyncio
+        from .capability.streaming_agg import (
+            MockStreamingProvider, aggregate_with_fallback,
+        )
+        provider = MockStreamingProvider(
+            fail_prob=body.get("fail_prob", 0.0),
+        )
+        try:
+            result = await aggregate_with_fallback(
+                provider, body.get("prompt", ""), body.get("model", "mock-stream-v1"),
+            )
+        except Exception as e:
+            raise HTTPException(500, f"stream aggregate failed: {e}")
+        return {
+            "full_content": result.full_content,
+            "tool_calls": result.tool_calls,
+            "finish_reason": result.finish_reason,
+            "total_chunks": result.total_chunks,
+            "streaming_succeeded": result.streaming_succeeded,
+            "chunks_preview": [
+                {"idx": c.chunk_idx, "type": c.delta_type, "content_preview": c.content[:40]}
+                for c in result.chunks[:5]
+            ],
+        }
+
+    @app.post("/v1/capability/per-provider-rl")
+    async def capability_per_provider_rl(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """R-17 Per-provider 限流 (RPM/IPM/并发 + 429 cooldown)
+        Body: {"provider":"deepseek-v3","action":"check|record|mark_429|acquire","concurrent":0,"at":null}
+        """
+        from .capability.per_provider_rl import (
+            ProviderLimit, ProviderLimiter, MultiProviderLimiter,
+        )
+        # 单 provider 模式: limits 转 {provider: ProviderLimit}
+        limits_data = body.get("limits", {})
+        if not limits_data and "provider" in body:
+            limits_data = {body["provider"]: body.get("limit_config", {
+                "max_requests_per_minute": 60,
+                "max_inputs_per_minute": 100000,
+                "max_concurrent": 5,
+            })}
+        limits = {k: ProviderLimit(**v) for k, v in limits_data.items()}
+        mpl = MultiProviderLimiter(limits)
+        action = body.get("action", "check")
+        provider = body.get("provider", next(iter(limits.keys())) if limits else "")
+        result = {}
+        try:
+            if action == "check":
+                decision = mpl.check(provider, concurrent_now=body.get("concurrent", 0), at=body.get("at"))
+                result = decision.__dict__
+            elif action == "record":
+                mpl.record(provider, body.get("request_count", 1), body.get("input_tokens", 0), body.get("at"))
+                result = {"recorded": True, "provider": provider}
+            elif action == "mark_429":
+                limiter = mpl.limiters[provider]
+                limiter.mark_429(body.get("cooldown_seconds", 60.0), at=body.get("at"))
+                result = {"marked_429": True, "provider": provider}
+            elif action == "status":
+                limiter = mpl.limiters[provider]
+                result = {
+                    "current_rpm": limiter._current_rpm(body.get("at")),
+                    "current_ipm": limiter._current_ipm(body.get("at")),
+                    "in_cooldown": limiter.is_in_cooldown(body.get("at")),
+                }
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"per_provider_rl action failed: {e}")
+        return result
+
     # ========== WebUI Auth ==========
     @app.post("/api/auth/login")
     async def login(req: LoginRequest):
