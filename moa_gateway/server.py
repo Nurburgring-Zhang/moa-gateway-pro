@@ -167,7 +167,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="MoA Gateway Pro",
-        version="1.6.3",
+        version="1.6.4",
         description="工业级多模型协作网关 - 一份 OpenAI Key 接入所有大模型",
         lifespan=lifespan,
     )
@@ -1273,10 +1273,14 @@ def create_app() -> FastAPI:
     @app.post("/v1/capability/feedback-iter")
     async def capability_feedback_iter(
         body: Dict[str, Any],
-        key_info: Dict[str, Any] = Depends(require_api_key),
+        admin: Dict[str, Any] = Depends(require_admin),  # 修 P0-6: 必须 admin 防 path traversal
     ):
         """M-19 Feedback-aware iteration (跨迭代知识传递)
         Body: {"record":{...IterationRecord...},"history_path":""}
+
+        修 P0-6 (security):
+        - 改用 require_admin(不再是 require_api_key),防任意文件读/写
+        - history_path 强制在白名单目录(DATA_DIR/feedback/),防 path traversal
         """
         from .capability.feedback_loop import (
             IterationRecord, analyze_iteration, save_feedback,
@@ -1284,9 +1288,24 @@ def create_app() -> FastAPI:
         )
         rec = IterationRecord(**body.get("record", {}))
         feedback = analyze_iteration(rec)
-        history_path = body.get("history_path", "")
+        # 修 P0-6: history_path 强制在白名单目录
+        _allowed_dir = os.path.abspath(os.path.join(get_storage().__class__.instance.__doc__ and "data" or "data", "feedback"))
+        # 简化:用相对路径
+        _allowed_dir = os.path.abspath("./data/feedback")
+        os.makedirs(_allowed_dir, exist_ok=True)
+        raw_path = body.get("history_path", "")
+        history_path = ""
+        if raw_path:
+            # 拒绝绝对路径或 .. 遍历
+            abs_path = os.path.abspath(raw_path) if os.path.isabs(raw_path) else os.path.abspath(os.path.join(_allowed_dir, raw_path))
+            if not abs_path.startswith(_allowed_dir + os.sep) and abs_path != _allowed_dir:
+                raise HTTPException(400, f"history_path not in allowlist: {abs_path}")
+            history_path = abs_path
         if history_path:
-            save_feedback(history_path, feedback)
+            try:
+                save_feedback(history_path, feedback)
+            except Exception as e:
+                raise HTTPException(500, f"save_feedback failed: {e}")
         history = load_history(history_path) if history_path else []
         conv = detect_convergence(history) if history else {"converged": False, "std": 0.0, "trend": "stable"}
         prompt = format_next_iter_prompt(history_path) if history_path else ""
@@ -3140,6 +3159,217 @@ def create_app() -> FastAPI:
         except Exception as e:
             raise HTTPException(500, f"checkpoint failed: {e}")
 
+    # ========== Wave 12 Capability Endpoints (5 new) ==========
+
+    @app.post("/v1/capability/audit")
+    async def capability_audit(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-36: 24h 审计缓存 — LRU + TTL"""
+        from .capability.audit_cache import AuditEvent, AuditCache
+        try:
+            action = body.get("action", "record")
+            if action == "record":
+                from uuid import uuid4
+                ev = AuditEvent(
+                    event_id=body.get("event_id") or str(uuid4()),
+                    timestamp=body.get("timestamp", 0.0),
+                    event_type=body.get("event_type", "generic"),
+                    actor=body.get("actor", "anonymous"),
+                    resource=body.get("resource", ""),
+                    action=body.get("sub_action", "exec"),
+                    outcome=body.get("outcome", "allow"),
+                    metadata=body.get("metadata", {}),
+                )
+                # 模块级单例(避免每次请求 new 一个)
+                if not hasattr(capability_audit, "_cache"):
+                    capability_audit._cache = AuditCache(
+                        max_size=int(body.get("max_size", 10000)),
+                        ttl_seconds=int(body.get("ttl_seconds", 86400)),
+                    )
+                cache = capability_audit._cache
+                eid = cache.record(ev)
+                return {"recorded": True, "event_id": eid}
+            elif action == "query":
+                cache = getattr(capability_audit, "_cache", None)
+                if not cache: return {"items": [], "count": 0}
+                items = cache.query(
+                    event_type=body.get("event_type"),
+                    actor=body.get("actor"),
+                    since=body.get("since"),
+                    limit=int(body.get("limit", 100)),
+                )
+                return {"items": [e.__dict__ for e in items], "count": len(items)}
+            elif action == "stats":
+                cache = getattr(capability_audit, "_cache", None)
+                if not cache: return {"stats": {}, "count": 0}
+                return {"stats": cache.stats(), "count": cache.count()}
+            elif action == "cleanup":
+                cache = getattr(capability_audit, "_cache", None)
+                if not cache: return {"removed": 0}
+                removed = cache.cleanup()
+                return {"removed": removed, "count": cache.count()}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"audit failed: {e}")
+
+    @app.post("/v1/capability/canary")
+    async def capability_canary(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """S-36: Prompt Injection 金丝雀 — 4 策略注入 + 检测泄露"""
+        from .capability.prompt_canary import (
+            CanaryDetector, CanaryStrategy, generate_canary,
+        )
+        try:
+            action = body.get("action", "inject")
+            if action == "inject":
+                strat_name = body.get("strategy", "suffix")
+                try:
+                    strategy = CanaryStrategy(strat_name)
+                except ValueError:
+                    raise HTTPException(400, f"unknown strategy: {strat_name}")
+                prompt = body.get("prompt", "")
+                det = CanaryDetector(strategy=strategy)
+                new_prompt, canary = det.inject(prompt)
+                return {"prompt": new_prompt, "canary": canary, "strategy": strategy.value}
+            elif action == "check":
+                response = body.get("response", "")
+                canary = body.get("canary", "")
+                det = CanaryDetector()
+                result = det.check(response, canary)
+                result["classification"] = det.classify_response(response, canary)
+                return result
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"canary failed: {e}")
+
+    @app.post("/v1/capability/wrap-output")
+    async def capability_wrap_output(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """S-38: Output Wrapping — untrusted_tool_output 标签"""
+        from .capability.output_wrapping import (
+            wrap_output, unwrap_output, sanitize_for_prompt, needs_wrapping,
+            TrustLevel,
+        )
+        try:
+            action = body.get("action", "wrap")
+            if action == "wrap":
+                content = body.get("content", "")
+                source = body.get("source", "tool")
+                trust_name = body.get("trust", "untrusted")
+                try:
+                    trust = TrustLevel(trust_name)
+                except ValueError:
+                    raise HTTPException(400, f"unknown trust: {trust_name}")
+                wrapped = wrap_output(content, source, trust,
+                                       max_length=int(body.get("max_length", 8192)))
+                return {"wrapped": wrapped, "needs_wrapping": needs_wrapping(content)}
+            elif action == "unwrap":
+                wrapped = body.get("wrapped", "")
+                data = unwrap_output(wrapped)
+                if data is None:
+                    raise HTTPException(400, "invalid wrapped format")
+                return data
+            elif action == "sanitize":
+                content = body.get("content", "")
+                aggressive = body.get("aggressive", False)
+                return {"sanitized": sanitize_for_prompt(content, aggressive=aggressive)}
+            elif action == "needs_wrapping":
+                return {"needs_wrapping": needs_wrapping(body.get("content", ""))}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"wrap_output failed: {e}")
+
+    @app.post("/v1/capability/fuzzy-dedup")
+    async def capability_fuzzy_dedup(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """F-30: Fuzzy Dedup 指纹 — simhash + 暴力去重"""
+        from .capability.fuzzy_dedup import FuzzyDedupIndex, simhash, similarity
+        try:
+            action = body.get("action", "check")
+            if not hasattr(capability_fuzzy_dedup, "_index"):
+                capability_fuzzy_dedup._index = FuzzyDedupIndex(
+                    max_size=int(body.get("max_size", 10000)))
+            idx = capability_fuzzy_dedup._index
+            if action == "add":
+                text = body.get("text", "")
+                eid = idx.add(text, metadata=body.get("metadata"))
+                h = simhash(text)
+                return {"id": eid, "hash": h, "size": idx.size()}
+            elif action == "check":
+                text = body.get("text", "")
+                threshold = float(body.get("threshold", 0.85))
+                dups = idx.find_duplicates(text, threshold=threshold)
+                return {"duplicates": [
+                    {"id": did, "similarity": sim, "metadata": md}
+                    for did, sim, md in dups
+                ], "count": len(dups), "size": idx.size()}
+            elif action == "simhash":
+                return {"hash": simhash(body.get("text", ""))}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"fuzzy_dedup failed: {e}")
+
+    @app.post("/v1/capability/input-fingerprint")
+    async def capability_input_fingerprint(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """I-15: Input Fingerprint — 4 层 hash 指纹 + 碰撞检测"""
+        from .capability.input_fingerprint import (
+            InputFingerprint, FingerprintStore,
+            exact_hash, normalized_hash, structural_hash, semantic_hash,
+        )
+        try:
+            action = body.get("action", "hash")
+            if action == "hash":
+                text = body.get("text", "")
+                fp = InputFingerprint(text)
+                return {"attrs": fp.attrs, "to_dict": fp.to_dict()}
+            elif action == "similar":
+                a = InputFingerprint(body.get("a", ""))
+                b = InputFingerprint(body.get("b", ""))
+                level = body.get("level", "normalized")
+                return {"similarity": a.similar_to(b, level=level)}
+            elif action == "store":
+                if not hasattr(capability_input_fingerprint, "_store"):
+                    capability_input_fingerprint._store = FingerprintStore(
+                        max_size=int(body.get("max_size", 50000)))
+                store = capability_input_fingerprint._store
+                if "text" in body:
+                    fp = store.add(body["text"], metadata=body.get("metadata"))
+                    return {"added": True, "attrs": fp.attrs, "size": store.size()}
+                elif "collisions_with" in body:
+                    min_levels = int(body.get("min_levels", 2))
+                    collisions = store.find_collisions(
+                        body["collisions_with"], min_levels=min_levels)
+                    return {"collisions": len(collisions), "size": store.size()}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"input_fingerprint failed: {e}")
+
     # ========== WebUI Auth ==========
     @app.post("/api/auth/login")
     async def login(req: LoginRequest):
@@ -3175,10 +3405,14 @@ def create_app() -> FastAPI:
     @app.post("/api/auth/change-password")
     async def change_password(req: ChangePasswordRequest,
                               admin: Dict[str, Any] = Depends(require_admin)):
+        # 修 P1-13: 异步 bcrypt (rounds=12 ≈ 300ms) 不阻塞 event loop
         storage = get_storage()
+        # verify_admin 同步 (DB fast), 改密走 to_thread
         if not storage.verify_admin(admin["sub"], req.old_password):
             raise HTTPException(400, "old password incorrect")
-        ok = storage.change_admin_password(admin["sub"], req.new_password)
+        ok = await asyncio.to_thread(
+            storage.change_admin_password, admin["sub"], req.new_password
+        )
         if not ok:
             raise HTTPException(500, "change password failed")
         return {"ok": True}
@@ -3408,11 +3642,13 @@ def create_app() -> FastAPI:
             yield "data: " + json.dumps({"error": "model unavailable"}) + "\n\n"
             yield "data: [DONE]\n\n"
             return
+        # 修 P0-9: copy provider 引用,避免流式期间被 _rebuild_provider 替换
+        provider = ep.provider_obj
         stream_kwargs = dict(chat_kwargs)
         stream_kwargs.pop("max_retries", None)
         stream_kwargs["stream"] = True
         try:
-            async for chunk in ep.provider_obj.chat_stream(
+            async for chunk in provider.chat_stream(
                 pool.build_chat_request(ep, messages, stream_kwargs.get("temperature", 0.6),
                                         stream_kwargs.get("max_tokens", 4096),
                                         stream_kwargs.get("tools"), True)

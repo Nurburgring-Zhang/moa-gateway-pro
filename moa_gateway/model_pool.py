@@ -137,7 +137,10 @@ class ModelPool:
         self._health_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
         # 修 P0-2: 同步路径上需要关闭的旧 provider 队列 (stop() 时统一 await aclose)
-        self._pending_close: list = []
+        # 修 P0-10: 改 deque(maxlen) 限大小,后台 task 周期清空 → 防止长跑 server 内存无限增长
+        from collections import deque
+        self._pending_close: "deque" = deque(maxlen=100)
+        self._close_task: Optional[asyncio.Task] = None
         self.refresh()
         # 修19: 订阅配置变更(WebUI 改配置后自动 reload)
         subscribe_settings_change(self._on_settings_change)
@@ -275,7 +278,26 @@ class ModelPool:
             self._rebuild_provider(ep)
         if self._health_task is None:
             self._health_task = asyncio.create_task(self._health_check_loop())
+        # 修 P0-10: 启动后台 task 周期清空 _pending_close
+        if self._close_task is None:
+            self._close_task = asyncio.create_task(self._close_pending_loop())
         await self._check_all_health()
+
+    async def _close_pending_loop(self) -> None:
+        """修 P0-10: 周期把 _pending_close 里的旧 provider 关闭,避免内存无限增长"""
+        while True:
+            try:
+                await asyncio.sleep(5.0)  # 5s 一次
+                while self._pending_close:
+                    prov = self._pending_close.popleft()
+                    try:
+                        await prov.aclose()
+                    except Exception:
+                        pass
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("close_pending_loop error")
 
     async def stop(self) -> None:
         if self._health_task:
@@ -285,6 +307,14 @@ class ModelPool:
             except (asyncio.CancelledError, Exception):
                 pass
             self._health_task = None
+        # 修 P0-10: cancel 后台 close task
+        if self._close_task:
+            self._close_task.cancel()
+            try:
+                await self._close_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._close_task = None
         # 修 P0-2: 关闭所有 endpoints 的 provider
         for ep in self.endpoints.values():
             if ep.provider_obj:
@@ -294,7 +324,7 @@ class ModelPool:
                     pass
         # 修 P0-2: 关闭 _pending_close 队列里的旧 provider(sync 路径累积的)
         while self._pending_close:
-            prov = self._pending_close.pop()
+            prov = self._pending_close.popleft()  # 修 P0-10: deque 用 popleft
             try:
                 await prov.aclose()
             except Exception:

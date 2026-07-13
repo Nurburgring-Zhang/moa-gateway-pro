@@ -31,14 +31,21 @@ class GitCommandError(RuntimeError):
 
 
 # ============ 工具函数 ============
-def _run_git(repo_path: str, args: List[str], check: bool = True) -> str:
+def _run_git(repo_path: str, args: List[str], check: bool = True, timeout: float = 10.0) -> str:
     """统一封装 git 命令。
 
     - repo_path 必须存在(由调用方保证,这里不校验)
     - 默认 check=True: 非零退出码 → GitCommandError
     - 返回 stdout (stripped), stderr 在异常信息里携带
+    - 修 P0-8: 加 timeout 防 subprocess.run 阻塞 event loop(慢盘/hang 的 fsmonitor)
     """
     cmd = ["git"] + args
+    # 修 P0-8: 关 terminal prompt + 关 optional lock,防 hang
+    env = {
+        **__import__("os").environ,
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_OPTIONAL_LOCKS": "0",
+    }
     try:
         proc = subprocess.run(
             cmd,
@@ -47,9 +54,16 @@ def _run_git(repo_path: str, args: List[str], check: bool = True) -> str:
             text=True,
             encoding="utf-8",
             errors="replace",
+            timeout=timeout,
+            env=env,
         )
     except FileNotFoundError as e:
         raise GitCommandError(f"git not found on PATH: {e}") from e
+    except subprocess.TimeoutExpired as e:
+        # 修 P0-8: 超时转 GitCommandError,不 crash
+        raise GitCommandError(
+            f"git {' '.join(args)} timeout after {timeout}s"
+        ) from e
 
     if check and proc.returncode != 0:
         raise GitCommandError(
