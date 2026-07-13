@@ -1078,6 +1078,143 @@ def create_app() -> FastAPI:
             "results": [{"rank": i + 1, "score": s, "text": t} for i, (idx, s, t) in enumerate(results)],
         }
 
+    # ========== v1.5.2 Capability Endpoints — Wave 2 (HIGH 优先级) ==========
+    @app.post("/v1/capability/prompt-features")
+    async def capability_prompt_features(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """R-02 25 维 prompt 特征提取 + 域判 + complexity/urgency/pro_model
+        Body: {"text": "..."}
+        """
+        from .capability.prompt_features import (
+            extract_features, domain_classify, complexity_score,
+            urgency_score, should_use_pro_model,
+        )
+        text = body.get("text", "")
+        feats = extract_features(text)
+        return {
+            "features": feats.__dict__,
+            "domain": domain_classify(feats),
+            "complexity": complexity_score(feats),
+            "urgency": urgency_score(feats),
+            "use_pro_model": should_use_pro_model(feats),
+        }
+
+    @app.post("/v1/capability/provider-health")
+    async def capability_provider_health(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """R-07 提供者健康评分 (0-100) + tier 等级 + 排名 + 推荐
+        Body: {"providers": [{"provider": "deepseek-v3", "total_calls": 100, ...HealthMetrics...}]}
+        """
+        from .capability.provider_health import (
+            HealthMetrics, compute_score, aggregate_scores,
+            rank_providers, recommend,
+        )
+        metrics_list = [HealthMetrics(**m) for m in body.get("providers", [])]
+        scores = {m.provider: compute_score(m) for m in metrics_list}
+        agg = aggregate_scores(list(scores.values()))
+        ranked = rank_providers(scores)
+        return {
+            "scores": {k: {"score": v.score, "tier": v.tier, "reasons": v.reasons} for k, v in scores.items()},
+            "ranked": [{"provider": p, "score": s} for p, s in ranked],
+            "recommend": recommend(scores, body.get("prefer_tier")),
+        }
+
+    @app.post("/v1/capability/context-clean")
+    async def capability_context_clean(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """R-11 7 阶段消息清洗
+        Body: {"messages":[{"role":"user","content":"..."},...],"max_total_chars":100000}
+        """
+        from .capability.context_clean import (
+            Message, clean_messages, to_openai_format,
+        )
+        msgs = [Message(**m) for m in body.get("messages", [])]
+        cleaned, stats = clean_messages(msgs, max_total_chars=body.get("max_total_chars", 100000))
+        return {
+            "messages": to_openai_format(cleaned),
+            "stats": stats.__dict__,
+        }
+
+    @app.post("/v1/capability/self-heal")
+    async def capability_self_heal(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """R-15 自愈 tier 重新平衡 (action: record_success/record_failure/check_recovery/promote/demote/auto_balance)
+        Body: {"endpoints":[{...EndpointState...}],"action":"record_success","endpoint_id":"ep1","at":123.0}
+        """
+        from .capability.self_heal import (
+            EndpointState, HealState, record_success, record_failure,
+            check_recovery, promote, demote, auto_balance, get_available_endpoints,
+            state_to_dict, state_from_dict,
+        )
+        endpoints = {e["endpoint_id"]: EndpointState(**e) for e in body.get("endpoints", [])}
+        state = HealState(endpoints=endpoints)
+        action = body.get("action", "auto_balance")
+        at = body.get("at")
+        result_actions = []
+        try:
+            if action == "record_success":
+                result_actions = [record_success(state, body["endpoint_id"], at)]
+            elif action == "record_failure":
+                result_actions = [record_failure(state, body["endpoint_id"], at)]
+            elif action == "check_recovery":
+                result_actions = [check_recovery(state, body["endpoint_id"], at)]
+            elif action == "promote":
+                result_actions = [promote(state, body["endpoint_id"], body.get("reason", "manual"), at)]
+            elif action == "demote":
+                result_actions = [demote(state, body["endpoint_id"], body.get("reason", "manual"), at)]
+            elif action == "auto_balance":
+                result_actions = auto_balance(state, at)
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"self_heal action failed: {e}")
+        return {
+            "actions": [a.__dict__ for a in result_actions],
+            "state": state_to_dict(state),
+            "available_endpoints": get_available_endpoints(state),
+        }
+
+    @app.post("/v1/capability/multi-mode-synth")
+    async def capability_multi_mode_synth(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """M-14 多模式综合器 (4 模式: classification / integrated_synthesis / final_selection / cross_iteration)
+        Body: {"mode":"classification","proposals":[{"proposal_idx":0,"author":"a","text":"..."}],...}
+        """
+        from .capability.multi_mode_synth import (
+            Proposal, run_synthesis, should_run_integration,
+        )
+        proposals = [Proposal(**p) for p in body.get("proposals", [])]
+        mode = body.get("mode", "classification")
+        kwargs = {}
+        if "scores" in body:
+            kwargs["scores"] = body["scores"]
+        if "target_chars" in body:
+            kwargs["target_chars"] = body["target_chars"]
+        if "prev_proposals" in body and "curr_proposals" in body:
+            kwargs["prev_proposals"] = [Proposal(**p) for p in body["prev_proposals"]]
+            kwargs["curr_proposals"] = [Proposal(**p) for p in body["curr_proposals"]]
+        try:
+            result = run_synthesis(mode, proposals, **kwargs)
+        except Exception as e:
+            raise HTTPException(500, f"synthesis failed: {e}")
+        return {
+            "mode": result.mode.value,
+            "output": result.output,
+            "source_attribution": {str(k): v for k, v in result.source_attribution.items()},
+            "confidence": result.confidence,
+            "metadata": result.metadata,
+        }
+
     # ========== WebUI Auth ==========
     @app.post("/api/auth/login")
     async def login(req: LoginRequest):
