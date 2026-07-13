@@ -929,6 +929,155 @@ def create_app() -> FastAPI:
             body.get("output_tokens", 500),
         )
 
+    # ========== v1.5.1 Capability Endpoints — Wave 1 (HIGH 优先级) ==========
+    @app.post("/v1/capability/quota-check")
+    async def capability_quota_check(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """R-08 多窗口配额检查 (5h/weekly/monthly + ETA)
+        Body: {"windows":[{"name":"5h","limit_tokens":100000,"used_history":[[t1,n1],...]},...],"requested":1000}
+        """
+        from .capability.rate_quota import QuotaState, QuotaWindow, check_available, eta_exhaustion
+        windows = {w["name"]: QuotaWindow(**w) for w in body.get("windows", [])}
+        state = QuotaState(windows=windows, last_updated=body.get("last_updated", time.time()))
+        requested = body.get("requested", 0)
+        ok, reason = check_available(state, requested)
+        result = {
+            "available": ok,
+            "reason": reason,
+            "eta_hours": {name: eta_exhaustion(state, body.get("burn_rate_per_hour", 1000.0), name) for name in windows},
+        }
+        return result
+
+    @app.post("/v1/capability/quota-record")
+    async def capability_quota_record(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """R-08 记录 quota usage + 返回新 state"""
+        from .capability.rate_quota import QuotaState, QuotaWindow, record_usage
+        windows = {w["name"]: QuotaWindow(**w) for w in body.get("windows", [])}
+        state = QuotaState(windows=windows, last_updated=body.get("last_updated", time.time()))
+        record_usage(state, body.get("tokens", 0), body.get("at"))
+        return {"windows": {name: w.__dict__ for name, w in state.windows.items()}, "last_updated": state.last_updated}
+
+    @app.post("/v1/capability/moa-n-layer")
+    async def capability_moa_n_layer(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """M-02 多层 MoA (3-layer 默认,真实跑通)
+        Body: {"query":"...","proposers":[{"name":"a","model_id":"gpt-4o"}],"aggregators":[...]}
+        """
+        from .capability.n_layer_moa import (
+            Proposer, Aggregator, run_three_layer_moa,
+        )
+        proposers = [Proposer(**p) for p in body.get("proposers", [])]
+        aggregators = [Aggregator(**a) for a in body.get("aggregators", [])]
+        try:
+            result = await run_three_layer_moa(
+                body.get("query", ""),
+                proposers=proposers,
+                aggregators=aggregators,
+                temperature=body.get("temperature", 0.6),
+                max_total_tokens=body.get("max_total_tokens", 0),
+            )
+        except Exception as e:
+            raise HTTPException(500, f"MoA run failed: {e}")
+        return result
+
+    @app.post("/v1/capability/convergent-detect")
+    async def capability_convergent_detect(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """M-16 跨提案 CONVERGENT 想法检测 + M-17 冲突仲裁
+        Body: {"proposals":[{"proposal_idx":0,"author":"a","text":"..."}],"viability_scores":{0:0.8}}
+        """
+        from .capability.convergent_detector import (
+            Proposal, convergent_summary, extract_ideas,
+        )
+        proposals = [Proposal(**p) for p in body.get("proposals", [])]
+        for p in proposals:
+            if not p.ideas:
+                p.ideas = extract_ideas(p.text, p.proposal_idx)
+        summary = convergent_summary(proposals, min_support=body.get("min_support", 3))
+        viability = body.get("viability_scores", {})
+        if viability:
+            from .capability.convergent_detector import arbitrate_conflicts
+            summary["arbitrations"] = [
+                {"option_a": c.option_a, "option_b": c.option_b, "winner": w, "confidence": conf}
+                for c, w, conf in arbitrate_conflicts(summary["conflicts"], viability)
+            ]
+        return summary
+
+    @app.post("/v1/capability/action-policy")
+    async def capability_action_policy(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-31 Action Policy (Allow/Deny/AdminReview) + A-32 Bypass Defense
+        Body: {"command":"rm -rf /tmp/foo","rules":[{...PolicyRule...}]}
+        """
+        from .capability.action_policy import (
+            PolicyRule, ActionPolicy, pre_action_check,
+        )
+        rules = [PolicyRule(**r) for r in body.get("rules", [])]
+        policy = ActionPolicy(rules)
+        verdict = pre_action_check(body.get("command", ""), policy)
+        return verdict.__dict__
+
+    @app.post("/v1/capability/embeddings")
+    async def capability_embeddings(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """L-36 Embedding 端点 (OpenAI 兼容 /v1/embeddings 接口)
+        Body: {"input":["text1","text2"], "model":"mock", "dim":384}
+        Returns: {"data":[{"index":0,"embedding":[...]},...], "model":"mock", "dim":384}
+        """
+        from .capability.embedding import MockEmbeddingProvider
+        inputs = body.get("input", [])
+        if isinstance(inputs, str):
+            inputs = [inputs]
+        dim = body.get("dim", 384)
+        model = body.get("model", "mock-embedding-v1")
+        provider = MockEmbeddingProvider(model=model, dim=dim)
+        vectors = provider.embed(inputs)
+        return {
+            "object": "list",
+            "data": [{"object": "embedding", "index": i, "embedding": v} for i, v in enumerate(vectors)],
+            "model": model,
+            "dim": dim,
+            "usage": {"prompt_tokens": sum(len(t.split()) for t in inputs), "total_tokens": sum(len(t.split()) for t in inputs)},
+        }
+
+    @app.post("/v1/capability/semantic-search")
+    async def capability_semantic_search(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """L-36 语义搜索 (端到端: embed query + 搜 index)
+        Body: {"query":"...","documents":["a","b","c"],"top_k":3,"dim":384}
+        """
+        from .capability.embedding import (
+            MockEmbeddingProvider, EmbeddingIndex, batch_embed,
+        )
+        dim = body.get("dim", 384)
+        docs = body.get("documents", [])
+        provider = MockEmbeddingProvider(model="mock-embedding-v1", dim=dim)
+        vectors = batch_embed(docs, dim=dim)
+        index = EmbeddingIndex(model="mock-embedding-v1", dim=dim)
+        for doc, vec in zip(docs, vectors):
+            index.add(doc, vec)
+        query_vec = provider.embed([body.get("query", "")])[0]
+        results = index.search(query_vec, top_k=body.get("top_k", 3))
+        return {
+            "query": body.get("query", ""),
+            "results": [{"rank": i + 1, "score": s, "text": t} for i, (idx, s, t) in enumerate(results)],
+        }
+
     # ========== WebUI Auth ==========
     @app.post("/api/auth/login")
     async def login(req: LoginRequest):
