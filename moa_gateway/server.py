@@ -2677,6 +2677,214 @@ def create_app() -> FastAPI:
             raise HTTPException(500, f"frozen action failed: {e}")
         return result
 
+    # ========== v1.5.10 Capability Endpoints — Wave 10 (HIGH 优先级) ==========
+    @app.post("/v1/capability/turboquant")
+    async def capability_turboquant(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """R-12 TurboQuant 5 级量化 (Q0/Q1/Q2/Q4/Q8) + 60 msg HARD CAP + 30 PRESERVE
+        Body: {"action":"should_compress|apply","messages":[{role,content,timestamp}],"level":"Q4","hard_cap":60,"preserve":30}
+        """
+        from .capability.turboquant import (
+            Message, TurboQuantConfig, QuantLevel, should_compress, apply_turboquant,
+        )
+        msgs = [Message(**m) for m in body.get("messages", [])]
+        level = QuantLevel[body.get("level", "Q4").upper()]
+        cfg = TurboQuantConfig(
+            hard_cap=body.get("hard_cap", 60),
+            preserve=body.get("preserve", 30),
+            level=level,
+        )
+        action = body.get("action", "apply")
+        result = {}
+        try:
+            if action == "should_compress":
+                result = {"should_compress": should_compress(msgs, cfg), "count": len(msgs)}
+            elif action == "apply":
+                compressed = apply_turboquant(msgs, cfg)
+                result = {
+                    "compressed": [m.__dict__ for m in compressed],
+                    "original_count": len(msgs),
+                    "compressed_count": len(compressed),
+                }
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"turboquant failed: {e}")
+        return result
+
+    @app.post("/v1/capability/moa-engine")
+    async def capability_moa_engine(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """M-01 MoA 引擎核心 (3 proposer + 1 aggregator) + M-05 协同
+        Body: {"proposers":[{...}],"aggregator":{...},"query":"...","validate_only":false}
+        """
+        import asyncio
+        from .capability.moa_engine import (
+            Proposer, Aggregator, validate_moa, call_proposer, call_aggregator, run_moa,
+        )
+        proposers = [Proposer(**p) for p in body.get("proposers", [])]
+        aggregator = Aggregator(**body["aggregator"]) if body.get("aggregator") else None
+        errors = validate_moa(proposers, aggregator)
+        result = {"validation_errors": errors}
+        if body.get("validate_only"):
+            return result
+        if errors:
+            raise HTTPException(400, f"MoA config invalid: {errors}")
+        # 简单 provider_fn:返回 mock 答案 (sync,call_proposer 内部会 asyncio.to_thread 包装)
+        query = body.get("query", "")
+        def mock_provider(actor, prompt):
+            return (f"[{type(actor).__name__}:{actor.model_id}] response to: {prompt[:50]}", 100)
+        try:
+            moa_result = await run_moa(query, proposers, aggregator, mock_provider)
+            result["moa_result"] = {
+                "query": moa_result.query,
+                "proposals": [p.__dict__ for p in moa_result.proposals],
+                "aggregated": moa_result.aggregated,
+                "total_tokens": moa_result.total_tokens,
+                "total_latency_ms": moa_result.total_latency_ms,
+            }
+        except Exception as e:
+            raise HTTPException(500, f"MoA run failed: {e}")
+        return result
+
+    @app.post("/v1/capability/acceptance")
+    async def capability_acceptance(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-17 Acceptance Tree (Given/When/Then) + A-16 EARS/GEARS 5+6 模式
+        Body: {"action":"add|parse_ears|validate_pattern|get_tree","criteria":[{...}],"text":"..."}
+        """
+        from .capability.acceptance import (
+            AcceptanceCriterion, AcceptanceTree, parse_ears, validate_pattern,
+        )
+        if not hasattr(capability_acceptance, "_trees"):
+            capability_acceptance._trees = {}
+        trees = capability_acceptance._trees
+        action = body.get("action", "add")
+        result = {}
+        try:
+            if action == "add":
+                root_id = body.get("root_id", "root")
+                if root_id not in trees:
+                    trees[root_id] = AcceptanceTree(root_id)
+                tree = trees[root_id]
+                for c in body.get("criteria", []):
+                    tree.add_criterion(AcceptanceCriterion(**c))
+                result = {"root_id": root_id, "tree": {
+                    "criteria_count": len(tree._criteria),
+                }}
+            elif action == "parse_ears":
+                criteria = parse_ears(body.get("text", ""))
+                result = {"criteria": [c.__dict__ for c in criteria], "count": len(criteria)}
+            elif action == "validate_pattern":
+                ac = AcceptanceCriterion(**body["criterion"])
+                result = {"pattern": validate_pattern(ac)}
+            elif action == "get_tree":
+                root_id = body.get("root_id", "root")
+                tree = trees.get(root_id)
+                if tree is None:
+                    result = {"error": "tree not found"}
+                else:
+                    result = {"criteria": {k: v.__dict__ for k, v in tree._criteria.items()}}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"acceptance failed: {e}")
+        return result
+
+    @app.post("/v1/capability/llm-merge")
+    async def capability_llm_merge(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """L-32 LLM 响应合并 (5 strategy) + L-33 LLM 降级 chain
+        Body: {"action":"merge|fallback","responses":[{...}],"strategy":"concat","providers":["a","b"]}
+        """
+        from .capability.llm_merge import (
+            LLMResponse, MergeStrategy, merge_responses, FallbackChain, AllProvidersFailedError,
+        )
+        action = body.get("action", "merge")
+        result = {}
+        try:
+            if action == "merge":
+                responses = [LLMResponse(**r) for r in body.get("responses", [])]
+                strategy = MergeStrategy[body.get("strategy", "concat").upper()]
+                merged = merge_responses(responses, strategy)
+                result = {
+                    "text": merged.text,
+                    "sources": merged.sources,
+                    "strategy": merged.strategy.value,
+                    "total_tokens": merged.total_tokens,
+                    "total_cost_usd": merged.total_cost_usd,
+                    "confidence": merged.confidence,
+                }
+            elif action == "fallback":
+                providers = body.get("providers", [])
+                chain = FallbackChain(providers)
+                def call_fn(provider):
+                    # 简单 provider:基于 provider 名 返不同响应
+                    fail_at = body.get("fail_at", [])
+                    if provider in fail_at:
+                        raise RuntimeError(f"provider {provider} failed")
+                    return LLMResponse(
+                        source=provider, text=f"ok from {provider}",
+                        tokens=100, latency_ms=200.0, cost_usd=0.001, confidence=0.9,
+                    )
+                try:
+                    resp = chain.execute(call_fn)
+                    result = {"response": resp.__dict__}
+                except AllProvidersFailedError as e:
+                    result = {"error": "all_failed", "providers": e.providers, "errors": e.errors}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"llm_merge failed: {e}")
+        return result
+
+    @app.post("/v1/capability/grace")
+    async def capability_grace(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-37 7-day Grace Window (FAIL 7 天仅警告不阻塞)
+        Body: {"action":"register|record_pass|record_fail|should_block|status","name":"...","at":...}
+        """
+        from .capability.grace_window import (
+            CheckRegistry, CheckResult, GraceConfig, grace_status,
+        )
+        if not hasattr(capability_grace, "_registry"):
+            capability_grace._registry = CheckRegistry()
+        reg = capability_grace._registry
+        action = body.get("action", "should_block")
+        result = {}
+        try:
+            if action == "register":
+                cid = reg.register(body.get("name", "default"))
+                result = {"check_id": cid}
+            elif action == "record_pass":
+                reg.record_pass(body["check_id"])
+                result = {"passed": True}
+            elif action == "record_fail":
+                reg.record_fail(body["check_id"], at=body.get("at"))
+                result = {"failed": True}
+            elif action == "should_block":
+                result = {"should_block": reg.should_block(body["check_id"], at=body.get("at"))}
+            elif action == "status":
+                result = {"status": grace_status(body["check_id"], reg, at=body.get("at"))}
+            elif action == "warnings":
+                warnings = reg.get_warnings()
+                result = {"warnings": [w.__dict__ for w in warnings], "count": len(warnings)}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"grace failed: {e}")
+        return result
+
     # ========== WebUI Auth ==========
     @app.post("/api/auth/login")
     async def login(req: LoginRequest):
