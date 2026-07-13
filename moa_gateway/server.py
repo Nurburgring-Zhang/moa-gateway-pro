@@ -1767,6 +1767,254 @@ def create_app() -> FastAPI:
                 }
         return result
 
+    # ========== v1.5.6 Capability Endpoints — Wave 6 (HIGH 优先级) ==========
+    @app.post("/v1/capability/rerank")
+    async def capability_rerank(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """L-37 Cohere Rerank v4 (latency-bounded) + L-31 Stream delta 完整代理
+        Body: {"query":"...","documents":["d1","d2"],"top_n":3,"latency_budget_ms":2000}
+        """
+        from .capability.rerank import (
+            MockRerankProvider, rerank_with_budget, stream_delta_proxy,
+            format_for_openai,
+        )
+        query = body.get("query", "")
+        documents = body.get("documents", [])
+        top_n = body.get("top_n", 10)
+        budget = body.get("latency_budget_ms", 2000.0)
+        result = rerank_with_budget(query, documents, top_n=top_n, latency_budget_ms=budget)
+        result_data = {
+            "query": result.query,
+            "candidates": [c.__dict__ for c in result.candidates],
+            "latency_ms": result.latency_ms,
+            "truncated": result.truncated,
+        }
+        if body.get("stream_chunks"):
+            proxy = stream_delta_proxy(body["stream_chunks"])
+            result_data["stream_proxy"] = proxy
+            result_data["openai_format"] = format_for_openai(proxy)
+        return result_data
+
+    @app.post("/v1/capability/goal-eval")
+    async def capability_goal_eval(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-12 2-tier 目标求值 + A-13 5-section Ceiling Report
+        Body: {"goals":[{...Goal...}],"output":"...","generate_ceiling":true}
+        """
+        from .capability.goal_eval import (
+            Goal, GoalTier, evaluate_goal, evaluate_goals, generate_ceiling_report,
+        )
+        tier_map = {1: "mechanical", 2: "model_declared"}
+        goals = []
+        for g in body.get("goals", []):
+            tier_str = g.get("tier", "mechanical")
+            if isinstance(tier_str, int):
+                tier_str = tier_map.get(tier_str, "mechanical")
+            g["tier"] = tier_str
+            goals.append(Goal(**g))
+        output = body.get("output", "")
+        results = [evaluate_goal(g, output).__dict__ for g in goals]
+        ceiling = None
+        if body.get("generate_ceiling"):
+            cr = generate_ceiling_report(
+                claim=body.get("claim", ""),
+                evidence=body.get("evidence", []),
+                baseline=body.get("baseline", ""),
+                gaps=body.get("gaps", []),
+                residual_risk=body.get("residual_risk", ""),
+            )
+            ceiling = cr.__dict__
+        return {"results": results, "ceiling_report": ceiling}
+
+    @app.post("/v1/capability/auto-converge")
+    async def capability_auto_converge(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-15 Auto-converge + A-14 Tier classification 1/3/5/10
+        Body: {"state":{...},"config":{...},"new_score":0.85,"classify_events":5}
+        """
+        from .capability.auto_converge import (
+            ConvergenceState, ConvergenceConfig, check_convergence,
+            classify_tier, detect_stagnation, calibrate_confidence,
+        )
+        result = {}
+        if "state" in body and "new_score" in body:
+            state_data = body["state"]
+            state = ConvergenceState(
+                iteration=state_data.get("iteration", 0),
+                best_score_history=state_data.get("best_score_history", []),
+                stagnation_count=state_data.get("stagnation_count", 0),
+                converged=state_data.get("converged", False),
+            )
+            cfg = ConvergenceConfig(
+                stagnation_threshold=body.get("config", {}).get("stagnation_threshold", 3),
+                improvement_threshold=body.get("config", {}).get("improvement_threshold", 0.001),
+                max_iterations=body.get("config", {}).get("max_iterations", 10),
+            )
+            new_state = check_convergence(state, cfg, body["new_score"])
+            result["new_state"] = new_state.__dict__
+        if "classify_events" in body:
+            result["classified_tier"] = classify_tier(body["classify_events"])
+        if "history" in body:
+            result["stagnant"] = detect_stagnation(
+                body["history"],
+                threshold=body.get("stagnation_threshold", 3),
+                epsilon=body.get("epsilon", 0.001),
+            )
+        if "calibrate_score" in body:
+            result["calibrated"] = calibrate_confidence(
+                body["calibrate_score"],
+                body.get("calibrate_samples", 0),
+            )
+        return result
+
+    @app.post("/v1/capability/subagent-comms")
+    async def capability_subagent_comms(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-38 Subagent 通信 (SendMessage/TaskCreate) + A-22 Advisory lock
+        Body: {"action":"send|broadcast|reply|create_task|update_status|acquire|release","session_id":"s1",...}
+        """
+        from .capability.subagent_comms import SubagentHub, TaskBoard, AdvisoryLock
+        action = body.get("action", "send")
+        session_id = body.get("session_id", "default")
+        result = {}
+        try:
+            if action in ("send", "broadcast", "reply", "inbox"):
+                if not hasattr(capability_subagent_comms, "_hubs"):
+                    capability_subagent_comms._hubs = {}
+                hubs = capability_subagent_comms._hubs
+                if session_id not in hubs:
+                    hubs[session_id] = SubagentHub(session_id)
+                hub = hubs[session_id]
+                if action == "send":
+                    msg = hub.send_message(body["to_session"], body.get("content", ""), body.get("kind", "send"))
+                    result = {"message": msg.__dict__}
+                elif action == "broadcast":
+                    msgs = hub.broadcast(body.get("sessions", []), body.get("content", ""))
+                    result = {"messages": [m.__dict__ for m in msgs]}
+                elif action == "reply":
+                    msg = hub.reply(body["parent_msg_id"], body.get("content", ""))
+                    result = {"message": msg.__dict__}
+                elif action == "inbox":
+                    result = {"messages": [m.__dict__ for m in hub.inbox()]}
+            elif action in ("create_task", "update_status", "list_tasks", "get_task", "get_subtasks"):
+                if not hasattr(capability_subagent_comms, "_boards"):
+                    capability_subagent_comms._boards = {}
+                boards = capability_subagent_comms._boards
+                if session_id not in boards:
+                    boards[session_id] = TaskBoard(session_id)
+                board = boards[session_id]
+                if action == "create_task":
+                    task_id = board.create_task(
+                        body.get("title", ""),
+                        assignee=body.get("assignee"),
+                        parent=body.get("parent"),
+                    )
+                    result = {"task_id": task_id}
+                elif action == "update_status":
+                    board.update_status(body["task_id"], body.get("status", "pending"))
+                    result = {"updated": True}
+                elif action == "list_tasks":
+                    tasks = board.list_tasks(status=body.get("status"), assignee=body.get("assignee"))
+                    result = {"tasks": [t.__dict__ for t in tasks]}
+                elif action == "get_task":
+                    t = board.get_task(body["task_id"])
+                    result = {"task": t.__dict__ if t else None}
+                elif action == "get_subtasks":
+                    tasks = board.get_subtasks(body["parent_task_id"])
+                    result = {"tasks": [t.__dict__ for t in tasks]}
+            elif action in ("acquire", "release", "is_held"):
+                lock_id = body["lock_id"]
+                if not hasattr(capability_subagent_comms, "_locks"):
+                    capability_subagent_comms._locks = {}
+                locks = capability_subagent_comms._locks
+                if lock_id not in locks:
+                    locks[lock_id] = AdvisoryLock(lock_id, body.get("holder", session_id), body.get("timeout", 10.0))
+                lock = locks[lock_id]
+                if action == "acquire":
+                    result = {"acquired": lock.acquire()}
+                elif action == "release":
+                    lock.release()
+                    result = {"released": True}
+                elif action == "is_held":
+                    result = {"held": lock.is_held()}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"subagent_comms failed: {e}")
+        return result
+
+    @app.post("/v1/capability/version")
+    async def capability_version(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """M-35 方案版本化 (v1→v2) + M-27 LLM-as-Judge 单答评分
+        Body: {"action":"add|get|latest|diff|parse_rating|parse_battle","proposal_id":"p1",...}
+        """
+        from .capability.versioning import (
+            VersionStore, diff_versions, parse_rating, parse_battle,
+            swap_positions_battle,
+        )
+        if not hasattr(capability_version, "_stores"):
+            capability_version._stores = {}
+        stores = capability_version._stores
+        action = body.get("action", "add")
+        result = {}
+        try:
+            if action in ("add", "get", "latest", "diff"):
+                proposal_id = body.get("proposal_id", "default")
+                if proposal_id not in stores:
+                    stores[proposal_id] = VersionStore()
+                store = stores[proposal_id]
+                if action == "add":
+                    vid = store.add_version(
+                        proposal_id,
+                        body.get("content", ""),
+                        parent=body.get("parent"),
+                        critique=body.get("critique"),
+                        improvement=body.get("improvement"),
+                        created_by=body.get("created_by", "system"),
+                    )
+                    result = {"version_id": vid}
+                elif action == "get":
+                    chain = store.get_chain(proposal_id)
+                    result = {"chain": [v.__dict__ for v in chain.versions]}
+                elif action == "latest":
+                    v = store.latest(proposal_id)
+                    result = {"version": v.__dict__ if v else None}
+                elif action == "diff":
+                    v1 = store.get_version(proposal_id, body["v1"])
+                    v2 = store.get_version(proposal_id, body["v2"])
+                    if v1 and v2:
+                        result = {"diff": diff_versions(v1, v2)}
+            elif action == "parse_rating":
+                result = {"rating": parse_rating(body.get("judge_response", ""))}
+            elif action == "parse_battle":
+                w, c = parse_battle(body.get("judge_response", ""))
+                result = {"winner": w, "confidence": c}
+            elif action == "swap_battle":
+                # 2 轮位置交换
+                def judge(r, _a=body.get("response_a", ""), _b=body.get("response_b", "")):
+                    return parse_battle(r)[0]
+                # round 1
+                r1 = judge(body.get("judge_response", ""))
+                # round 2 swap
+                r2 = parse_battle(body.get("judge_response_swapped", ""))[0] if body.get("judge_response_swapped") else r1
+                result = {"round1": r1, "round2": r2, "consistent": r1 == r2}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except Exception as e:
+            raise HTTPException(500, f"version action failed: {e}")
+        return result
+
     # ========== WebUI Auth ==========
     @app.post("/api/auth/login")
     async def login(req: LoginRequest):
