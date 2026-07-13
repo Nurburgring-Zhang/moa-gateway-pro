@@ -347,7 +347,9 @@ def analyze_iteration(record: IterationRecord) -> Feedback:
     Returns:
         Feedback
     """
-    scores = record.panel_scores or {}
+    scores_raw = record.panel_scores or {}
+    # 修 37: 强转 keys 为 int(从 JSON 加载后 keys 是 str)
+    scores = {int(k): float(v) for k, v in scores_raw.items()}
 
     # consensus 计算
     score_values = list(scores.values())

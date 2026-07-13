@@ -1174,6 +1174,10 @@ def create_app() -> FastAPI:
                 result_actions = auto_balance(state, at)
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
         except Exception as e:
             raise HTTPException(500, f"self_heal action failed: {e}")
         return {
@@ -1366,6 +1370,10 @@ def create_app() -> FastAPI:
                 }
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
         except Exception as e:
             raise HTTPException(500, f"per_provider_rl action failed: {e}")
         return result
@@ -2011,6 +2019,10 @@ def create_app() -> FastAPI:
                 result = {"round1": r1, "round2": r2, "consistent": r1 == r2}
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
         except Exception as e:
             raise HTTPException(500, f"version action failed: {e}")
         return result
@@ -2058,6 +2070,10 @@ def create_app() -> FastAPI:
                 result = {"mode": mode.value}
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
         except Exception as e:
             raise HTTPException(500, f"config action failed: {e}")
         return result
@@ -2119,6 +2135,10 @@ def create_app() -> FastAPI:
                     result = {"cleared": count}
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
         except Exception as e:
             raise HTTPException(500, f"bubble action failed: {e}")
         return result
@@ -2158,6 +2178,10 @@ def create_app() -> FastAPI:
                 result = {"diff": diff_snapshots(snap1, snap2)}
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
         except Exception as e:
             raise HTTPException(500, f"worktree action failed: {e}")
         return result
@@ -2202,6 +2226,10 @@ def create_app() -> FastAPI:
                 result = {"tools": tools_for_tier(tier)}
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
         except Exception as e:
             raise HTTPException(500, f"route action failed: {e}")
         return result
@@ -2271,6 +2299,10 @@ def create_app() -> FastAPI:
                     result = {"tool": {"name": t.name, "description": t.description, "parameters": t.parameters} if t else None}
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
         except Exception as e:
             raise HTTPException(500, f"session_lock action failed: {e}")
         return result
@@ -2347,6 +2379,10 @@ def create_app() -> FastAPI:
                 result["strategy"] = body.get("strategy", "shortest_queue")
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
         except Exception as e:
             raise HTTPException(500, f"elo action failed: {e}")
         return result
@@ -2374,6 +2410,12 @@ def create_app() -> FastAPI:
                 result["advocates"] = dm.generate_advocates()
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+            raise  # 修 38: 让 4xx 直接返回(不被包 500)
+        except HTTPException:
+
+            raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
         except Exception as e:
             raise HTTPException(500, f"brainstorm action failed: {e}")
         return result
@@ -2411,6 +2453,10 @@ def create_app() -> FastAPI:
                 result = {"mode": r.mode.value, "output": r.output, "action_taken": r.action_taken}
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
         except Exception as e:
             raise HTTPException(500, f"cross_iter action failed: {e}")
         return result
@@ -2479,6 +2525,10 @@ def create_app() -> FastAPI:
                 result = {"merged": merger.merge()}
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
         except Exception as e:
             raise HTTPException(500, f"in_flight action failed: {e}")
         return result
@@ -2508,6 +2558,10 @@ def create_app() -> FastAPI:
                 result = {"output": mx_cli(anns, body.get("command", "list"))}
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
         except Exception as e:
             raise HTTPException(500, f"mx action failed: {e}")
         return result
@@ -2558,6 +2612,10 @@ def create_app() -> FastAPI:
                 result = {"cohabitation_safe": b1.cohabitation_check(body.get("parent_b", "p2"))}
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
         except Exception as e:
             raise HTTPException(500, f"tier_promo action failed: {e}")
         return result
@@ -2624,6 +2682,10 @@ def create_app() -> FastAPI:
                 result = {"panes": [p.__dict__ for p in orch.safe_layout()]}
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
         except Exception as e:
             raise HTTPException(500, f"artifact action failed: {e}")
         return result
@@ -2673,6 +2735,10 @@ def create_app() -> FastAPI:
                 result = {"sentinels": ALL_HARNESS_FROZEN_SENTINELS, "count": len(ALL_HARNESS_FROZEN_SENTINELS)}
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
         except Exception as e:
             raise HTTPException(500, f"frozen action failed: {e}")
         return result
