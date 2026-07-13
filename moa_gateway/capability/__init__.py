@@ -1,4 +1,4 @@
-"""moa_gateway.capability — 从 10 个参考项目迁移的能力集
+﻿"""moa_gateway.capability — 从 10 个参考项目迁移的能力集
 
 来源项目:
 01 gateswarm-router (TypeScript/Python — 智能路由)

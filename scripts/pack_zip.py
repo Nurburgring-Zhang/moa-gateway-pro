@@ -19,6 +19,7 @@ EXCLUDE_DIRS = {
     "extracted", ".moat", ".github", "node_modules",
     "ComfyUI",  # 系统级其他项目
     "参考",
+    "zip",  # 修: 排除 zip 自身,防止递归
 }
 EXCLUDE_FILES = {
     ".fernet_key", ".jwt_secret", "*.db", "*.log", "*.zip",
