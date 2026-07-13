@@ -1370,6 +1370,172 @@ def create_app() -> FastAPI:
             raise HTTPException(500, f"per_provider_rl action failed: {e}")
         return result
 
+    # ========== v1.5.4 Capability Endpoints — Wave 4 (HIGH 优先级) ==========
+    @app.post("/v1/capability/tier-recalibrate")
+    async def capability_tier_recalibrate(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """R-04 Tier 边界动态重校准 (网格搜索阈值 + demote/promote)
+        Body: {"tiers":[{"tier":"standard","p50_latency_ms":800,"p95_latency_ms":1500,...}]}
+        """
+        from .capability.tier_recalibrate import (
+            TierLabel, TierMetrics, recalibrate, should_retrain, grid_search_thresholds,
+        )
+        # tier 字段自动转小写以匹配 enum
+        tier_map = {"FREE": "free", "LITE": "lite", "STANDARD": "standard", "PREMIUM": "premium", "FLAGSHIP": "flagship"}
+        for t in body.get("tiers", []):
+            if isinstance(t.get("tier"), str):
+                t["tier"] = tier_map.get(t["tier"].upper(), t["tier"].lower())
+        metrics = [TierMetrics(**m) for m in body.get("tiers", [])]
+        plans = recalibrate(metrics)
+        return {
+            "plans": [{"old_tier": p.old_tier.value if hasattr(p.old_tier, 'value') else p.old_tier,
+                       "new_tier": p.new_tier.value if hasattr(p.new_tier, 'value') else p.new_tier,
+                       "reason": p.reason, "score_change": p.score_change,
+                       "expected_improvement": p.expected_improvement} for p in plans],
+            "should_retrain": should_retrain(plans),
+            "plan_count": len(plans),
+        }
+
+    @app.post("/v1/capability/consumption-intel")
+    async def capability_consumption_intel(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """R-06 消费智能引擎 (静态优先 + 动态 fallback + vision 降级)
+        Body: {"context":{...RequestContext...},"endpoints":[{...EndpointSpec...}]}
+        """
+        from .capability.consumption_intel import (
+            RequestContext, EndpointSpec, select_endpoint,
+        )
+        ctx = RequestContext(**body.get("context", {"query": ""}))
+        endpoints = [EndpointSpec(**e) for e in body.get("endpoints", [])]
+        decision = select_endpoint(ctx, endpoints)
+        return {
+            "selected_endpoint_id": decision.selected_endpoint_id,
+            "fallback_chain": decision.fallback_chain,
+            "vision_degraded_to": decision.vision_degraded_to,
+            "reason": decision.reason,
+            "estimated_cost_usd": decision.estimated_cost_usd,
+        }
+
+    @app.post("/v1/capability/importance-score")
+    async def capability_importance_score(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """R-13 重要性评分 (5 维加权 + top-k + 压缩决策)
+        Body: {"messages":[{...Message...}],"top_k":3}
+        """
+        from .capability.importance import (
+            Message, score_messages, select_top_k, should_compress,
+        )
+        msgs = [Message(**m) for m in body.get("messages", [])]
+        scores = score_messages(msgs)
+        top_k = body.get("top_k", 0)
+        return {
+            "scores": [{"message_idx": s.message_idx, "score": s.score, "reasons": s.reasons} for s in scores],
+            "top_k_indices": select_top_k(scores, top_k) if top_k else [],
+            "should_compress": should_compress(scores, body.get("threshold", 0.5)),
+        }
+
+    @app.post("/v1/capability/quorum-check")
+    async def capability_quorum_check(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """R-20 Quorum 宽限窗 (30s 宽限 + LLM-as-Judge 评分)
+        Body: {"participants":[{...Participant...}],"required":3,"grace_seconds":30,"at":100.0}
+        """
+        from .capability.quorum import (
+            QuorumConfig, Participant, check_quorum, should_wait, force_close,
+            parse_rating, parse_battle, swap_positions_battle,
+        )
+        config = QuorumConfig(
+            required=body.get("required", 3),
+            grace_seconds=body.get("grace_seconds", 30.0),
+            wait_for_laggards=body.get("wait_for_laggards", True),
+        )
+        participants = [Participant(**p) for p in body.get("participants", [])]
+        at = body.get("at")
+        status = check_quorum(participants, config, at=at)
+        result = {
+            "status": {
+                "reached": status.reached,
+                "reached_at": status.reached_at,
+                "responded_count": status.responded_count,
+                "missing": status.missing,
+                "within_grace": status.within_grace,
+            },
+            "should_wait": should_wait(status, config, at=at),
+        }
+        if body.get("force_close"):
+            responded, dropped = force_close(participants, config, at=at)
+            result["force_close"] = {
+                "responded": [p.participant_id for p in responded],
+                "dropped": dropped,
+            }
+        if body.get("judge_response"):
+            jr = body["judge_response"]
+            if "response_a" in body and "response_b" in body:
+                result["battle"] = {
+                    "winner": parse_battle(jr)[0],
+                    "swap_consistent": swap_positions_battle(
+                        body["response_a"], body["response_b"],
+                        lambda r: parse_battle(r),
+                    ) == "consistent",
+                }
+            else:
+                result["rating"] = parse_rating(jr)
+        return result
+
+    @app.post("/v1/capability/model-entry")
+    async def capability_model_entry(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """L-29 Provider 状态 12 字段 ModelEntry (capability check + filter + sort + budget)
+        Body: {"models":[{...ModelEntry...}],"filter":{},"sort":"cost_asc","max_budget_input":0.01}
+        """
+        from .capability.model_entry import (
+            ModelEntry, get_capability, filter_by_capability,
+            filter_by_modality, filter_by_min_context, sort_by_cost,
+            sort_by_context, find_within_budget, multimodal_score, Modality,
+        )
+        # modalities 元素转 Modality enum 实例 (value 已是 'TEXT'/'IMAGE' 大写)
+        for m in body.get("models", []):
+            if "modalities" in m:
+                m["modalities"] = [Modality(x.upper()) if isinstance(x, str) else x for x in m["modalities"]]
+        models = [ModelEntry(**m) for m in body.get("models", [])]
+        result_models = models
+        flt = body.get("filter", {})
+        if "capability" in flt:
+            result_models = filter_by_capability(result_models, flt["capability"], flt.get("value", True))
+        if "modality" in flt:
+            result_models = filter_by_modality(result_models, Modality(flt["modality"].upper()))
+        if "min_context" in flt:
+            result_models = filter_by_min_context(result_models, flt["min_context"])
+        if "max_budget_input" in body or "max_budget_output" in body:
+            result_models = find_within_budget(
+                result_models, body.get("max_budget_input"), body.get("max_budget_output"),
+            )
+        sort = body.get("sort", "")
+        if sort == "cost_asc":
+            result_models = sort_by_cost(result_models, ascending=True)
+        elif sort == "cost_desc":
+            result_models = sort_by_cost(result_models, ascending=False)
+        elif sort == "context_desc":
+            result_models = sort_by_context(result_models, descending=True)
+        query_modalities = [Modality(m.upper()) for m in body.get("query_modalities", [])]
+        return {
+            "models": [m.__dict__ for m in result_models],
+            "count": len(result_models),
+            "multimodal_scores": {
+                m.model_id: multimodal_score(m, query_modalities) for m in result_models
+            } if query_modalities else {},
+        }
+
     # ========== WebUI Auth ==========
     @app.post("/api/auth/login")
     async def login(req: LoginRequest):
