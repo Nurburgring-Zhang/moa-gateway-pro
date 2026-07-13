@@ -1536,6 +1536,237 @@ def create_app() -> FastAPI:
             } if query_modalities else {},
         }
 
+    # ========== v1.5.5 Capability Endpoints — Wave 5 (HIGH 优先级) ==========
+    @app.post("/v1/capability/tool-replay")
+    async def capability_tool_replay(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """M-07 Tool call 重放 + M-09 Tool choice 防循环
+        Body: {"proposals":[{...proposal with <tool_use>...}],"window":5}
+        """
+        from .capability.tool_replay import (
+            extract_tool_calls, replay_tool_calls, should_disable_tool_choice,
+            detect_tool_loop, format_tool_calls_for_aggregator,
+        )
+        proposals = body.get("proposals", [])
+        # extract
+        all_calls = []
+        for i, p in enumerate(proposals):
+            all_calls.extend(extract_tool_calls(p, i))
+        # replay
+        replay = replay_tool_calls(proposals, source_indices=list(range(len(proposals))))
+        # 防循环
+        disable = should_disable_tool_choice(len(all_calls), body.get("recent_count", len(all_calls)))
+        loop = detect_tool_loop(all_calls, window=body.get("window", 5))
+        formatted = format_tool_calls_for_aggregator(replay.tool_calls)
+        return {
+            "tool_calls": [tc.__dict__ for tc in replay.tool_calls],
+            "deduplicated_count": replay.deduplicated_count,
+            "conflicts_resolved": replay.conflicts_resolved,
+            "should_disable_tool_choice": disable,
+            "detected_loop": loop.__dict__ if loop else None,
+            "aggregator_format": formatted,
+        }
+
+    @app.post("/v1/capability/hook-events")
+    async def capability_hook_events(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-02 27 Hook 事件注册 + A-10 4 阶段 Ralph 反馈循环
+        Body: {"action":"trigger|ralph_advance","event":"PostToolUse","data":{},"session_id":"s1"}
+        """
+        from .capability.hook_events import (
+            HookEvent, HookRegistry, HookContext, RALPH_CYCLE,
+            ralph_loop,
+        )
+        # 全局 registry (in-memory)
+        if not hasattr(capability_hook_events, "_registry"):
+            capability_hook_events._registry = HookRegistry()
+        reg = capability_hook_events._registry
+        action = body.get("action", "ralph_advance")
+        result = {}
+        if action == "register":
+            # 需 callback 不能从 body 拿,只返回 event list
+            result = {"registered_event": body.get("event"), "total_handlers": len(reg.list_handlers())}
+        elif action == "trigger":
+            event_name = body.get("event", "SessionStart")
+            try:
+                event = HookEvent(event_name)
+            except ValueError:
+                raise HTTPException(400, f"unknown event: {event_name}")
+            ctx = HookContext(
+                event=event, session_id=body.get("session_id", ""),
+                timestamp=body.get("timestamp", 0.0), data=body.get("data", {}),
+            )
+            triggered = reg.trigger(event, ctx.__dict__)
+            result = {"triggered_count": len(triggered)}
+        elif action == "ralph_advance":
+            stage = body.get("stage", "analyze")
+            data = body.get("data", {})
+            if not hasattr(capability_hook_events, "_ralph"):
+                capability_hook_events._ralph = RALPH_CYCLE(max_iter=body.get("max_iter", 5))
+            cycle = capability_hook_events._ralph
+            next_stage = cycle.advance(data)
+            result = {
+                "current_stage": stage,
+                "next_stage": next_stage,
+                "iteration": cycle.iteration,
+                "terminated": cycle.terminated,
+            }
+        elif action == "list_events":
+            result = {"events": [e.value for e in HookEvent], "count": len(HookEvent)}
+        else:
+            raise HTTPException(400, f"unknown action: {action}")
+        return result
+
+    @app.post("/v1/capability/meta-prompt")
+    async def capability_meta_prompt(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """M-22 3 阶段元 Prompt 协议 + M-23 认知摩擦对抗 + M-26 冲突消解
+        Body: {"query":"...","action":"get_stages|clash|fuse","options":[...]}
+        """
+        from .capability.meta_prompt import (
+            get_stage_prompts, cognitively_clash, fuse_decision,
+        )
+        action = body.get("action", "get_stages")
+        query = body.get("query", "")
+        if action == "get_stages":
+            stages = get_stage_prompts(query)
+            return {
+                "stages": [s.__dict__ for s in stages],
+                "count": len(stages),
+            }
+        elif action == "clash":
+            role_a = body.get("role_a", "optimist")
+            role_b = body.get("role_b", "pessimist")
+            a, b = cognitively_clash(role_a, role_b, query)
+            return {"role_a_prompt": a, "role_b_prompt": b}
+        elif action == "fuse":
+            options = body.get("options", [])
+            winner = fuse_decision(options, body.get("context", query))
+            return {"winner": winner, "options_count": len(options)}
+        else:
+            raise HTTPException(400, f"unknown action: {action}")
+
+    @app.post("/v1/capability/task-tree")
+    async def capability_task_tree(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """A-18 Task Tree (TaskSegment) + A-34 Task 分解树
+        Body: {"tasks":[{...TaskSegment...}],"action":"add|ready|cycles|aggregates|depth","task_id":""}
+        """
+        from .capability.task_tree import (
+            TaskSegment, TaskTree, TaskStatus, compute_aggregates,
+            get_ready_tasks as _get_ready, detect_cycles, depth, is_leaf, is_root,
+            tree_to_dict, tree_from_dict,
+        )
+        # 构建/恢复 tree
+        tasks_data = body.get("tasks", [])
+        # 补 status 缺省值
+        for t in tasks_data:
+            if "status" not in t:
+                t["status"] = "pending"
+        tree = None
+        if tasks_data:
+            # 尝试 tree_from_dict 格式(若有完整 fields)
+            try:
+                tree = tree_from_dict({"tasks": tasks_data})
+            except Exception:
+                pass
+            if tree is None:
+                # 兜底:从 list 手动构建
+                root_id = next((t["id"] for t in tasks_data if t.get("parent_id") is None), tasks_data[0]["id"])
+                tree = TaskTree(root_id=root_id)
+                # 先 add root
+                root_data = next(t for t in tasks_data if t["id"] == root_id)
+                root_seg = {k: v for k, v in root_data.items() if k != "children_ids"}
+                tree.add_task(TaskSegment(**root_seg))
+                for t in tasks_data:
+                    if t["id"] == root_id:
+                        continue
+                    seg_data = {k: v for k, v in t.items() if k != "children_ids"}
+                    try:
+                        tree.add_task(TaskSegment(**seg_data))
+                    except ValueError:
+                        # 重复 id 跳过
+                        pass
+        if tree is None:
+            tree = TaskTree(root_id="root")
+            tree.add_task(TaskSegment(id="root", title="root", description="root", status="pending"))
+        else:
+            tree = TaskTree(root_id="root")
+        action = body.get("action", "ready")
+        task_id = body.get("task_id", "")
+        result = {}
+        if action == "ready":
+            result = {"ready_tasks": _get_ready(tree)}
+        elif action == "cycles":
+            cycles = detect_cycles(tree)
+            result = {"cycles": cycles, "has_cycle": len(cycles) > 0}
+        elif action == "aggregates":
+            result = compute_aggregates(tree, task_id) if task_id else {}
+        elif action == "depth":
+            result = {"task_id": task_id, "depth": depth(tree, task_id) if task_id else -1}
+        elif action == "is_leaf":
+            result = {"task_id": task_id, "is_leaf": is_leaf(tree, task_id) if task_id else False}
+        elif action == "is_root":
+            result = {"task_id": task_id, "is_root": is_root(tree, task_id) if task_id else False}
+        elif action == "set_status":
+            new_status = body.get("status", "completed")
+            try:
+                status_enum = TaskStatus(new_status)
+            except ValueError:
+                raise HTTPException(400, f"unknown status: {new_status}")
+            tree.set_status(task_id, status_enum)
+            result = {"set": True, "task_id": task_id, "status": new_status}
+        else:
+            raise HTTPException(400, f"unknown action: {action}")
+        result["tree"] = tree_to_dict(tree)
+        return result
+
+    @app.post("/v1/capability/distill")
+    async def capability_distill(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """M-15 Integrated synthesis + M-51 Multi-eval consensus averaging
+        Body: {"proposals":["..."],"keep_ratio":0.5,"evaluations":[{"TQ":40,"CO":35,...}]}
+        """
+        from .capability.distillation import (
+            distill_proposals, multi_eval_average, apply_bias_correction,
+        )
+        proposals = body.get("proposals", [])
+        keep_ratio = body.get("keep_ratio", 0.5)
+        distillation = distill_proposals(proposals, keep_ratio=keep_ratio)
+        result = {
+            "distillation": {
+                "kept_count": distillation.distilled_count,
+                "dropped_count": len(distillation.dropped_ideas),
+                "original_count": distillation.original_count,
+                "ratio": distillation.distillation_ratio,
+                "kept_ideas": [i.__dict__ for i in distillation.kept_ideas],
+            },
+        }
+        if "evaluations" in body:
+            evals = body["evaluations"]
+            avg = multi_eval_average(evals)
+            biases = avg.pop("biases", {})
+            result["multi_eval"] = {
+                "averages": avg,
+                "biases": biases,
+            }
+            if body.get("apply_bias_correction") and biases:
+                result["corrected"] = {
+                    dim: apply_bias_correction({dim: scores}, {dim: biases.get(dim, 0)}).get(dim, 0)
+                    for dim, scores in avg.items()
+                }
+        return result
+
     # ========== WebUI Auth ==========
     @app.post("/api/auth/login")
     async def login(req: LoginRequest):
