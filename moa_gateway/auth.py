@@ -1,5 +1,6 @@
 """moa_gateway.auth — 鉴权(API Key + WebUI JWT)"""
 from __future__ import annotations
+import re as _re
 import time
 import logging
 from typing import Optional, Dict, Any
@@ -16,12 +17,25 @@ logger = logging.getLogger(__name__)
 # 这里不再创建 CryptContext
 
 _api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
+# 修 P1-3: JWT 严格正则 (header.payload.signature, 3 段 base64url)
+_JWT_PATTERN = _re.compile(r"^eyJ[A-Za-z0-9_=\-]+\.eyJ[A-Za-z0-9_=\-]+\.[A-Za-z0-9_\-]+$")
+# 修 P1-6: token 长度上限(防内存炸弹)
+_MAX_TOKEN_LEN = 256
 
 
 def _bearer_or_raw(token: str) -> str:
+    """修 P1-6: 限 token 长度,逗号分隔取第一个"""
     if token.lower().startswith("bearer "):
-        return token[7:].strip()
-    return token.strip()
+        token = token[7:].strip()
+    else:
+        token = token.strip()
+    # 修 P1-6: 多值 header 用逗号分隔时取第一个
+    if "," in token:
+        token = token.split(",", 1)[0].strip()
+    # 修 P1-6: 长度上限
+    if len(token) > _MAX_TOKEN_LEN:
+        return ""
+    return token
 
 
 async def authenticate_api_key(request: Request) -> Optional[Dict[str, Any]]:
@@ -38,8 +52,8 @@ async def authenticate_api_key(request: Request) -> Optional[Dict[str, Any]]:
     if not token:
         return None
 
-    # 修24: 先试 admin JWT(WebUI 登录后拿的)
-    if token.count(".") == 2:  # JWT 格式:header.payload.signature
+    # 修 P1-3: 用严格正则判断 JWT(避免 "a.b.c" 这种非 JWT 也走 decode 路径)
+    if _JWT_PATTERN.match(token):
         info = decode_jwt_token(token)
         if info and info.get("role") == "admin":
             return {"source": "admin_jwt", "name": info.get("sub", "admin"),

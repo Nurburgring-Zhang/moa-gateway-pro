@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 import json
+import os  # 修 P0-3: _get_or_create_fernet 用 os.open/os.chmod/os.stat
 import time
 import sqlite3
 import logging
@@ -68,23 +69,60 @@ logger = logging.getLogger(__name__)
 
 # 加密用 key(在 data/.fernet_key 里)
 _FERNET_PATH = DATA_DIR / ".fernet_key"
+_FERNET_SINGLEFLIGHT = threading.Lock()
+_FERNET_INSTANCE: Optional[Fernet] = None
 
 
 def _get_or_create_fernet() -> Fernet:
-    """获取或创建 Fernet key(用于加密数据库里存储的 API key)"""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    if _FERNET_PATH.exists():
-        key = _FERNET_PATH.read_bytes()
-    else:
-        key = Fernet.generate_key()
-        _FERNET_PATH.write_bytes(key)
-        # 收紧文件权限(P2-2 加固)
-        try:
-            import os
-            os.chmod(_FERNET_PATH, 0o600)
-        except Exception:
-            pass
-    return Fernet(key)
+    """获取或创建 Fernet key(用于加密数据库里存储的 API key)
+
+    修 P0-3:
+    - 单例 + 进程内 lock(单次生成/读取,不在每次 encrypt 时都判断)
+    - 原子创建 (O_CREAT | O_EXCL),别人先创就直接读
+    - 启动时检查文件权限,mode & 0o077 != 0 直接报错(不再 silent pass)
+    """
+    global _FERNET_INSTANCE
+    if _FERNET_INSTANCE is not None:
+        return _FERNET_INSTANCE
+    with _FERNET_SINGLEFLIGHT:
+        if _FERNET_INSTANCE is not None:
+            return _FERNET_INSTANCE
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        # 修 P0-3: 启动时检查权限
+        if _FERNET_PATH.exists():
+            try:
+                st = os.stat(_FERNET_PATH)
+                # Windows 上 st_mode 可能不准确,只在有 group/other 读权限时报警
+                if hasattr(os, "getuid") and (st.st_mode & 0o077):
+                    raise RuntimeError(
+                        f".fernet_key has overly permissive mode {oct(st.st_mode & 0o777)}, "
+                        f"expected 0o600. Run: chmod 600 {_FERNET_PATH}"
+                    )
+            except OSError:
+                pass  # 平台不支持
+            key = _FERNET_PATH.read_bytes()
+        else:
+            key = Fernet.generate_key()
+            # 修 P0-3: 原子创建,避免 TOCTOU
+            try:
+                fd = os.open(str(_FERNET_PATH),
+                             os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                             0o600)
+                try:
+                    os.write(fd, key)
+                finally:
+                    os.close(fd)
+            except FileExistsError:
+                # 别人先创了,直接读
+                key = _FERNET_PATH.read_bytes()
+            else:
+                # 收紧权限(P2-2 加固,Windows 上 best-effort)
+                try:
+                    os.chmod(_FERNET_PATH, 0o600)
+                except Exception:
+                    pass
+        _FERNET_INSTANCE = Fernet(key)
+        return _FERNET_INSTANCE
 
 
 # ========== Schema ==========
@@ -544,31 +582,50 @@ class Storage:
 
     # ========== RateLimit counters ==========
     def incr_rpm(self, api_key_id: str, bucket: str) -> int:
+        """修 P0-1: 用 BEGIN IMMEDIATE 保证 inc+select 原子,避免 lost-update 限流穿透
+        原: 两步 (INSERT ON CONFLICT + SELECT) 在 sqlite 并发下不安全
+        """
         with self.conn() as c:
-            c.execute(
-                "INSERT INTO ratelimit_buckets (api_key_id, bucket, count, updated_at) "
-                "VALUES (?, ?, 1, ?) "
-                "ON CONFLICT(api_key_id, bucket) DO UPDATE SET count = count + 1, updated_at = ?",
-                (api_key_id, bucket, time.time(), time.time())
-            )
-            row = c.execute(
-                "SELECT count FROM ratelimit_buckets WHERE api_key_id = ? AND bucket = ?",
-                (api_key_id, bucket)
-            ).fetchone()
-            return int(row["count"]) if row else 0
+            # 修 P0-1: BEGIN IMMEDIATE 拿写锁,事务内 inc+select 原子
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                c.execute(
+                    "INSERT INTO ratelimit_buckets (api_key_id, bucket, count, updated_at) "
+                    "VALUES (?, ?, 1, ?) "
+                    "ON CONFLICT(api_key_id, bucket) DO UPDATE SET count = count + 1, updated_at = ?",
+                    (api_key_id, bucket, time.time(), time.time())
+                )
+                row = c.execute(
+                    "SELECT count FROM ratelimit_buckets WHERE api_key_id = ? AND bucket = ?",
+                    (api_key_id, bucket)
+                ).fetchone()
+                result = int(row["count"]) if row else 0
+                c.execute("COMMIT")
+                return result
+            except Exception:
+                c.execute("ROLLBACK")
+                raise
 
     def incr_daily_tokens(self, api_key_id: str, day: str, tokens: int) -> int:
+        """修 P0-1: atomic inc+select 防 lost-update"""
         with self.conn() as c:
-            c.execute(
-                "INSERT INTO ratelimit_tokens (api_key_id, day, tokens) VALUES (?, ?, ?) "
-                "ON CONFLICT(api_key_id, day) DO UPDATE SET tokens = tokens + ?",
-                (api_key_id, day, tokens, tokens)
-            )
-            row = c.execute(
-                "SELECT tokens FROM ratelimit_tokens WHERE api_key_id = ? AND day = ?",
-                (api_key_id, day)
-            ).fetchone()
-            return int(row["tokens"]) if row else tokens
+            c.execute("BEGIN IMMEDIATE")
+            try:
+                c.execute(
+                    "INSERT INTO ratelimit_tokens (api_key_id, day, tokens) VALUES (?, ?, ?) "
+                    "ON CONFLICT(api_key_id, day) DO UPDATE SET tokens = tokens + ?",
+                    (api_key_id, day, tokens, tokens)
+                )
+                row = c.execute(
+                    "SELECT tokens FROM ratelimit_tokens WHERE api_key_id = ? AND day = ?",
+                    (api_key_id, day)
+                ).fetchone()
+                result = int(row["tokens"]) if row else tokens
+                c.execute("COMMIT")
+                return result
+            except Exception:
+                c.execute("ROLLBACK")
+                raise
 
     def get_daily_tokens(self, api_key_id: str, day: str) -> int:
         with self.conn() as c:

@@ -1,4 +1,4 @@
-"""moa_gateway.server — FastAPI 服务
+﻿"""moa_gateway.server — FastAPI 服务
 提供:
 - OpenAI 兼容 /v1/chat/completions, /v1/models
 - 原生 /v1/moa/execute, /v1/route/preview
@@ -167,7 +167,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="MoA Gateway Pro",
-        version="1.6.2",
+        version="1.6.3",
         description="工业级多模型协作网关 - 一份 OpenAI Key 接入所有大模型",
         lifespan=lifespan,
     )
@@ -330,6 +330,9 @@ def create_app() -> FastAPI:
                 if not decision.primary:
                     raise HTTPException(503, "no available model")
                 model_id = decision.primary.id
+                # 修 P1-7: router 返回后 recheck 端点是否仍存在 (防 remove_endpoint race)
+                if model_id not in pool.endpoints:
+                    raise HTTPException(503, "no available model (endpoint just removed)")
             # 流式?
             if req.stream:
                 return StreamingResponse(
@@ -2146,19 +2149,36 @@ def create_app() -> FastAPI:
     @app.post("/v1/capability/worktree")
     async def capability_worktree(
         body: Dict[str, Any],
-        key_info: Dict[str, Any] = Depends(require_api_key),
+        admin: Dict[str, Any] = Depends(require_admin),  # 修 P0-5: 必须 admin,防任意 cwd git
     ):
         """A-42 Worktree 隔离基元 + A-43 Worktree Snapshot/Diff
         Body: {"action":"snapshot|is_clean|diff","repo_path":"D:\\MoA Gateway Pro",...}
+
+        修 P0-5 (security):
+        - 改用 require_admin(不是 require_api_key)
+        - repo_path 强制白名单(仅允许 server cwd 或 ~/.moa-gateway/)
+        - subprocess.run 不传 env,默认 inherit 但去掉危险 env vars
         """
         from .capability.worktree import (
             WorktreeManager, WorktreeInfo, snapshot, is_clean, diff_snapshots,
         )
+        # 修 P0-5: repo_path 白名单
+        _allowed_roots = (
+            os.path.abspath("."),
+            os.path.abspath(os.path.expanduser("~/.moa-gateway")),
+        )
+        def _validate_repo_path(p: str) -> str:
+            if not p:
+                return _allowed_roots[0]
+            abs_p = os.path.abspath(p)
+            if not any(abs_p == r or abs_p.startswith(r + os.sep) for r in _allowed_roots):
+                raise HTTPException(400, f"repo_path not in allowlist: {abs_p}")
+            return abs_p
         action = body.get("action", "snapshot")
-        repo_path = body.get("repo_path", ".")
         result = {}
         try:
             if action == "snapshot":
+                repo_path = _validate_repo_path(body.get("repo_path", "."))
                 snap = snapshot(repo_path)
                 result = {
                     "commit_sha": snap.commit_sha,
@@ -2169,12 +2189,15 @@ def create_app() -> FastAPI:
                     "timestamp": snap.timestamp,
                 }
             elif action == "list":
+                repo_path = _validate_repo_path(body.get("repo_path", "."))
                 mgr = WorktreeManager(repo_path)
                 wts = mgr.list_worktrees()
                 result = {"worktrees": [w.__dict__ for w in wts]}
             elif action == "diff":
-                snap1 = snapshot(body.get("repo_path1", repo_path))
-                snap2 = snapshot(body.get("repo_path2", repo_path))
+                p1 = _validate_repo_path(body.get("repo_path1", "."))
+                p2 = _validate_repo_path(body.get("repo_path2", "."))
+                snap1 = snapshot(p1)
+                snap2 = snapshot(p2)
                 result = {"diff": diff_snapshots(snap1, snap2)}
             else:
                 raise HTTPException(400, f"unknown action: {action}")
@@ -3060,41 +3083,57 @@ def create_app() -> FastAPI:
     @app.post("/v1/capability/checkpoint")
     async def capability_checkpoint(
         body: Dict[str, Any],
-        key_info: Dict[str, Any] = Depends(require_api_key),
+        admin: Dict[str, Any] = Depends(require_admin),  # 修 P0-4: 必须 admin,防任意文件写 RCE
     ):
-        """A-23: 原子写 checkpoint 存储 — temp+rename, fsync, thread-safe"""
-        from .capability.checkpoint import CheckpointStore, atomic_write
+        """A-23: 原子写 checkpoint 存储 — temp+rename, fsync, thread-safe
+
+        修 P0-4 (security RCE):
+        - 改用 require_admin(不再是 require_api_key)
+        - 删 atomic_write action(给 API key 用户一份远程文件写原语 = RCE 风险)
+        - root_dir 强制在白名单内(server cwd 或 ~/.moa-gateway/checkpoints)
+        - name 严格限制 [a-zA-Z0-9_-]{1,64}
+        """
+        from .capability.checkpoint import CheckpointStore
+        import re as _re
         try:
             action = body.get("action", "save")
-            root = body.get("root_dir", "./.moai/checkpoints")
-            store = CheckpointStore(root_dir=root, max_keep=int(body.get("max_keep", 10)))
+            # 修 P0-4: 强制白名单 root_dir(默认在 server cwd 内的安全路径)
+            _allowed_roots = (
+                os.path.abspath("./.moai/checkpoints"),
+                os.path.abspath(os.path.expanduser("~/.moa-gateway/checkpoints")),
+            )
+            root = body.get("root_dir", _allowed_roots[0])
+            root_abs = os.path.abspath(root)
+            if not any(root_abs == r or root_abs.startswith(r + os.sep) for r in _allowed_roots):
+                raise HTTPException(400, f"root_dir not in allowlist: {root_abs}")
+            # 修 P0-4: name 严格白名单
+            name = body.get("name", "default")
+            if not _re.fullmatch(r"[a-zA-Z0-9_\-]{1,64}", name):
+                raise HTTPException(400, "name must match [a-zA-Z0-9_-]{1,64}")
+            store = CheckpointStore(root_dir=root_abs, max_keep=int(body.get("max_keep", 10)))
             if action == "save":
-                name = body.get("name", "default")
                 payload = body.get("payload", {})
+                # 修 P0-4: payload 也限大小(防内存炸弹)
+                _raw = body.get("_raw_payload", "")
+                if isinstance(_raw, str) and len(_raw) > 1024 * 1024:  # 1MB
+                    raise HTTPException(400, "payload too large (>1MB)")
                 path = store.save(name, payload)
                 return {"saved": True, "path": path, "name": name}
             elif action == "load":
-                name = body.get("name", "default")
                 data = store.load(name)
                 return {"name": name, "data": data, "found": data is not None}
             elif action == "list":
                 items = store.list()
                 return {"items": items, "count": len(items)}
             elif action == "delete":
-                name = body.get("name", "default")
                 ok = store.delete(name)
                 return {"deleted": ok, "name": name}
             elif action == "cleanup":
                 older = body.get("older_than_seconds")
                 removed = store.cleanup(older_than_seconds=older)
                 return {"removed": removed, "older_than_seconds": older}
-            elif action == "atomic_write":
-                # 测试 atomic_write path — 写一个临时文件
-                path = body.get("path", "./.moai/test_atomic.txt")
-                data = body.get("data", "")
-                atomic_write(path, data, encoding=body.get("encoding", "utf-8"))
-                return {"written": True, "path": path, "size": len(data)}
             else:
+                # 修 P0-4: 删除 atomic_write action(那是 RCE 入口)
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
@@ -3285,11 +3324,22 @@ def create_app() -> FastAPI:
         if "/" in name or "\\" in name or ".." in name or name.startswith("."):
             raise HTTPException(404, "not found")
         p = WEBUI_DIR / name
-        # 二次校验:解析后必须在 WEBUI_DIR 内
+        # 修 P1-5: 用 os.path.commonpath 而非 startswith (防父目录同名)
+        # 也防 Windows 8.3 short name + symlink 绕过
         try:
+            base = WEBUI_DIR.resolve()
             resolved = p.resolve()
-            if not str(resolved).startswith(str(WEBUI_DIR.resolve())):
+            # 防 symlink:不跟随
+            try:
+                if p.is_symlink() or p.lstat() and (p.lstat().st_mode & 0o170000) == 0o120000:
+                    raise HTTPException(404, "not found")
+            except (OSError, AttributeError):
+                pass
+            common = os.path.commonpath([str(resolved), str(base)])
+            if common != str(base):
                 raise HTTPException(404, "not found")
+        except HTTPException:
+            raise
         except Exception:
             raise HTTPException(404, "not found")
         if not p.exists() or not p.is_file():

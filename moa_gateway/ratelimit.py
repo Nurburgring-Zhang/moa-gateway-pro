@@ -58,6 +58,9 @@ class RateLimiter:
         return used_rpm, rpm_limit, 0, daily_limit
 
     def incr_tokens(self, key_info: Dict[str, Any], tokens: int):
+        """修 P1-1: 先检查再 incr,避免超额后 counter 永远卡在 limit+1
+        原: 累加 → 判定 → 超 429,但 counter 已被加,用户永久锁死到下一天
+        """
         if not self.settings.enabled or tokens <= 0:
             return
         # 修 37: admin_jwt/yaml-config 没 key_id,跳过
@@ -67,12 +70,15 @@ class RateLimiter:
         # 修 36: per-key 限流
         daily_limit = key_info.get("quota_daily_tokens") or self.settings.per_key_daily_tokens
         day = _today()
-        cur = self.storage.incr_daily_tokens(key_id, day, tokens)
-        if cur > daily_limit:
+        # 修 P1-1: 先读 current,够才 incr
+        current = self.storage.get_daily_tokens(key_id, day)
+        if current + tokens > daily_limit:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"Daily token quota exceeded: {cur} > {daily_limit}",
+                detail=f"Daily token quota exceeded: {current} + {tokens} > {daily_limit}",
             )
+        # 修 P1-1: 检查通过,再累加
+        self.storage.incr_daily_tokens(key_id, day, tokens)
 
     def get_quota(self, key_info: Dict[str, Any]) -> Dict[str, int]:
         # 修 37: admin_jwt/yaml-config 没 key_id,返回全局视图

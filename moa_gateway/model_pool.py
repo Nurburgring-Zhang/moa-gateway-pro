@@ -136,6 +136,8 @@ class ModelPool:
         self._client: Optional[httpx.AsyncClient] = None
         self._health_task: Optional[asyncio.Task] = None
         self._lock = asyncio.Lock()
+        # 修 P0-2: 同步路径上需要关闭的旧 provider 队列 (stop() 时统一 await aclose)
+        self._pending_close: list = []
         self.refresh()
         # 修19: 订阅配置变更(WebUI 改配置后自动 reload)
         subscribe_settings_change(self._on_settings_change)
@@ -213,11 +215,13 @@ class ModelPool:
         self._rebuild_provider(ep)
 
     def _rebuild_provider(self, ep: ModelEndpoint) -> None:
+        """修 P0-2: 不再 sync fire-and-forget task (httpx aclose 可能永不执行)
+        - 改用 _pending_close 队列持有旧 provider
+        - ModelPool.stop() (async) 负责 await 所有 pending close
+        - 同步路径上不会触发 RuntimeError
+        """
         if ep.provider_obj:
-            try:
-                asyncio.get_event_loop().create_task(ep.provider_obj.aclose())
-            except Exception:
-                pass
+            self._pending_close.append(ep.provider_obj)
         ep.provider_obj = None
         # 即便 api_key 为空也创建 provider —— build_provider 会自动 fallback 到 MockProvider
         try:
@@ -281,9 +285,20 @@ class ModelPool:
             except (asyncio.CancelledError, Exception):
                 pass
             self._health_task = None
+        # 修 P0-2: 关闭所有 endpoints 的 provider
         for ep in self.endpoints.values():
             if ep.provider_obj:
-                await ep.provider_obj.aclose()
+                try:
+                    await ep.provider_obj.aclose()
+                except Exception:
+                    pass
+        # 修 P0-2: 关闭 _pending_close 队列里的旧 provider(sync 路径累积的)
+        while self._pending_close:
+            prov = self._pending_close.pop()
+            try:
+                await prov.aclose()
+            except Exception:
+                pass
         if self._client:
             await self._client.aclose()
             self._client = None
@@ -316,10 +331,11 @@ class ModelPool:
                     timeout=3.0
                 )
             except asyncio.TimeoutError:
-                # 把还没回的真 key 端点切 mock
+                # 修 P1-2: 死代码 `isinstance(getattr(ep.provider_obj, '__class__', None), type(None))`
+                # 改 `ep.provider_obj is not None` (语义: provider_obj 存在)
                 for ep in self.endpoints.values():
                     if (ep.config.enabled and ep.config.api_key_runtime
-                            and not isinstance(getattr(ep.provider_obj, '__class__', None), type(None))
+                            and ep.provider_obj is not None
                             and ep.provider_obj.__class__.__name__ != "MockProvider"):
                         logger.warning("%s: startup health check timeout → auto-fallback to MockProvider",
                                        ep.id)

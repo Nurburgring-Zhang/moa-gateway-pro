@@ -286,7 +286,11 @@ capabilities = [
 ]
 
 for name, body in capabilities:
-    s, b = call("POST", f"/v1/capability/{name}", body=body, headers=api_h, timeout=30)
+    # 修 v1.6.3: checkpoint/worktree 需要 admin 权限,其他用 api_h
+    if name in ("checkpoint", "worktree"):
+        s, b = call("POST", f"/v1/capability/{name}", body=body, headers=admin_h, timeout=30)
+    else:
+        s, b = call("POST", f"/v1/capability/{name}", body=body, headers=api_h, timeout=30)
     expect(name, 200, s, b)
 print(f"  tested {len(capabilities)} capability endpoints", flush=True)
 
