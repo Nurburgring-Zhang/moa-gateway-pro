@@ -167,7 +167,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="MoA Gateway Pro",
-        version="1.6.4",
+        version="1.6.5",
         description="工业级多模型协作网关 - 一份 OpenAI Key 接入所有大模型",
         lifespan=lifespan,
     )
@@ -3369,6 +3369,249 @@ def create_app() -> FastAPI:
             raise
         except Exception as e:
             raise HTTPException(500, f"input_fingerprint failed: {e}")
+
+    # ========== Wave 13 Capability Endpoints (5 new) ==========
+
+    @app.post("/v1/capability/tool-screening")
+    async def capability_tool_screening(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """S-37/A-37: 9 段 Tool Input 风险检测"""
+        from .capability.tool_screening import ToolScreener, RiskLevel, screen_input
+        try:
+            tool_name = body.get("tool_name", "unknown")
+            arguments = body.get("arguments", {})
+            screener = ToolScreener()
+            findings = screener.screen(tool_name, arguments)
+            return {
+                "findings": [f.__dict__ for f in findings],
+                "count": len(findings),
+                "risk_level": screener.classify(findings).value,
+                "should_block": screener.should_block(findings),
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"tool_screening failed: {e}")
+
+    @app.post("/v1/capability/anthropic-compat")
+    async def capability_anthropic_compat(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """L-04~L-15: Anthropic Messages API 兼容层"""
+        from .capability.anthropic_compat import (
+            parse_anthropic_request, format_anthropic_response,
+            format_anthropic_sse_chunk, format_anthropic_tool_use,
+            format_anthropic_tool_result, format_anthropic_error,
+        )
+        try:
+            action = body.get("action", "parse")
+            if action == "parse":
+                parsed = parse_anthropic_request(body.get("anthropic_request", {}))
+                return parsed
+            elif action == "format_response":
+                return format_anthropic_response(body.get("chat_response", {}))
+            elif action == "format_sse":
+                return {"sse": format_anthropic_sse_chunk(
+                    body.get("delta", ""), body.get("model", "unknown"),
+                    body.get("stop_reason"))}
+            elif action == "format_tool_use":
+                return format_anthropic_tool_use(
+                    body.get("tool_id", "toolu_xxx"),
+                    body.get("name", "tool"),
+                    body.get("input", {}))
+            elif action == "format_tool_result":
+                return format_anthropic_tool_result(
+                    body.get("tool_use_id", "toolu_xxx"),
+                    body.get("content", ""),
+                    body.get("is_error", False))
+            elif action == "format_error":
+                return format_anthropic_error(
+                    body.get("error_type", "api_error"),
+                    body.get("message", ""))
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"anthropic_compat failed: {e}")
+
+    @app.post("/v1/capability/token-bucket")
+    async def capability_token_bucket(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """F-32/R-17: Token Bucket 限流算法 (lazy refill)"""
+        from .capability.token_bucket import TokenBucket, MultiKeyTokenBucket
+        try:
+            action = body.get("action", "try_consume")
+            if action == "try_consume":
+                if not hasattr(capability_token_bucket, "_bucket"):
+                    capability_token_bucket._bucket = MultiKeyTokenBucket(
+                        default_capacity=int(body.get("capacity", 60)),
+                        default_refill_rate=float(body.get("refill_rate", 1.0)))
+                bucket = capability_token_bucket._bucket
+                key = body.get("key", "default")
+                tokens = int(body.get("tokens", 1))
+                allowed = bucket.try_consume(key, tokens)
+                state = bucket.all_states()
+                return {
+                    "allowed": allowed,
+                    "key": key,
+                    "state": state.get(key, {}),
+                    "size": bucket.size(),
+                }
+            elif action == "state":
+                if hasattr(capability_token_bucket, "_bucket"):
+                    return {"states": capability_token_bucket._bucket.all_states(),
+                            "size": capability_token_bucket._bucket.size()}
+                return {"states": {}, "size": 0}
+            elif action == "cleanup":
+                if hasattr(capability_token_bucket, "_bucket"):
+                    removed = capability_token_bucket._bucket.cleanup_inactive()
+                    return {"removed": removed, "size": capability_token_bucket._bucket.size()}
+                return {"removed": 0, "size": 0}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"token_bucket failed: {e}")
+
+    @app.post("/v1/capability/request-dedup")
+    async def capability_request_dedup(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """I-13/A-23: Request Dedup 重复请求检测"""
+        from .capability.request_dedup import (
+            RequestDedupIndex, DedupStrategy, hash_request,
+        )
+        try:
+            if not hasattr(capability_request_dedup, "_index"):
+                from .capability.request_dedup import DedupStrategy as _DS
+                strat_name = body.get("strategy", "normalized")
+                try:
+                    strategy = _DS(strat_name)
+                except ValueError:
+                    strategy = _DS.NORMALIZED
+                capability_request_dedup._index = RequestDedupIndex(
+                    strategy=strategy,
+                    ttl_seconds=int(body.get("ttl_seconds", 60)),
+                    max_size=int(body.get("max_size", 10000)),
+                )
+            idx = capability_request_dedup._index
+            method = body.get("method", "POST")
+            path = body.get("path", "/")
+            req_body = body.get("body")
+            source = body.get("source", "default")
+            action = body.get("action", "check")
+            if action == "check":
+                existing = idx.check(method, path, req_body, source)
+                if existing is not None:
+                    return {
+                        "is_duplicate": True,
+                        "entry": existing.__dict__,
+                        "has_cached_response": existing.response is not None,
+                    }
+                return {"is_duplicate": False, "size": idx.size()}
+            elif action == "record":
+                resp = body.get("response")
+                entry = idx.record(method, path, req_body, source, response=resp)
+                return {"recorded": True, "entry": entry.__dict__, "size": idx.size()}
+            elif action == "stats":
+                return {"stats": idx.stats(), "size": idx.size()}
+            elif action == "cleanup":
+                removed = idx.cleanup()
+                return {"removed": removed, "size": idx.size()}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"request_dedup failed: {e}")
+
+    @app.post("/v1/capability/trace")
+    async def capability_trace(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """T-13/L-32: W3C Trace Propagation 链路追踪"""
+        from .capability.trace import (
+            TraceCollector, new_trace, new_span,
+            format_traceparent, parse_traceparent,
+        )
+        try:
+            if not hasattr(capability_trace, "_collector"):
+                capability_trace._collector = TraceCollector(
+                    max_traces=int(body.get("max_traces", 10000)))
+            collector = capability_trace._collector
+            action = body.get("action", "start")
+            if action == "start":
+                traceparent = body.get("traceparent")
+                ctx = collector.start_trace(traceparent)
+                return {"trace_id": ctx.trace_id, "span_id": ctx.span_id,
+                        "traceparent": format_traceparent(ctx)}
+            elif action == "span":
+                trace_id = body.get("trace_id")
+                if not trace_id:
+                    raise HTTPException(400, "trace_id required")
+                # get parent ctx
+                existing = collector.get_trace(trace_id)
+                if not existing:
+                    raise HTTPException(404, f"trace {trace_id} not found")
+                from .capability.trace import TraceContext
+                parent = TraceContext(
+                    trace_id=trace_id,
+                    parent_span_id=None,
+                    span_id=existing.get("span_id", ""),
+                    start_ts=existing.get("start_ts", 0.0),
+                    tags={}, baggage={},
+                )
+                child = new_span(parent, body.get("name", "child"))
+                collector.record_span(child, body.get("name", "child"),
+                                       duration_ms=float(body.get("duration_ms", 0)))
+                return {"trace_id": child.trace_id, "span_id": child.span_id}
+            elif action == "end":
+                trace_id = body.get("trace_id")
+                if not trace_id:
+                    raise HTTPException(400, "trace_id required")
+                from .capability.trace import TraceContext
+                ctx = TraceContext(
+                    trace_id=trace_id, parent_span_id=None,
+                    span_id=body.get("span_id", ""),
+                    start_ts=0.0, tags={}, baggage={},
+                )
+                collector.end_trace(ctx, status=body.get("status", "ok"),
+                                    error=body.get("error"))
+                return {"ended": True, "trace_id": trace_id}
+            elif action == "get":
+                trace_id = body.get("trace_id")
+                if not trace_id:
+                    raise HTTPException(400, "trace_id required")
+                return collector.get_trace(trace_id) or {}
+            elif action == "query":
+                return {"traces": collector.query(
+                    since_ts=body.get("since_ts"),
+                    min_duration_ms=body.get("min_duration_ms"),
+                    status=body.get("status"),
+                    limit=int(body.get("limit", 100))),
+                    "stats": collector.stats()}
+            elif action == "parse_traceparent":
+                tp = body.get("traceparent", "")
+                ctx = parse_traceparent(tp)
+                if ctx is None:
+                    return {"parsed": None}
+                return {"parsed": {"trace_id": ctx.trace_id, "span_id": ctx.span_id,
+                                    "traceparent": format_traceparent(ctx)}}
+            else:
+                raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(500, f"trace failed: {e}")
 
     # ========== WebUI Auth ==========
     @app.post("/api/auth/login")

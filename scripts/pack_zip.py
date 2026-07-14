@@ -54,6 +54,7 @@ for p in ROOT.rglob("*"):
 
 print(f"will pack {len(file_list)} files, raw size {total_size/1024/1024:.1f} MB")
 sys.stdout.flush()
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # 修: Windows GBK 不能编码 ✓
 
 count = 0
 with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED, compresslevel=3) as zf:
@@ -66,6 +67,6 @@ with zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED, compresslevel=3) as zf:
             print(f"  {count}/{len(file_list)}")
             sys.stdout.flush()
 
-print(f"✓ {OUT}")
+print(f"[OK] {OUT}")
 print(f"  {count} files, raw {total_size/1024/1024:.1f} MB → zip {OUT.stat().st_size/1024/1024:.1f} MB")
 print(f"  path: {OUT}")
