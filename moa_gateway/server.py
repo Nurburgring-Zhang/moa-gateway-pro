@@ -167,7 +167,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="MoA Gateway Pro",
-        version="1.6.5",
+        version="1.6.6",
         description="工业级多模型协作网关 - 一份 OpenAI Key 接入所有大模型",
         lifespan=lifespan,
     )
@@ -978,6 +978,11 @@ def create_app() -> FastAPI:
         )
         proposers = [Proposer(**p) for p in body.get("proposers", [])]
         aggregators = [Aggregator(**a) for a in body.get("aggregators", [])]
+        # 修 v1.6.6: 校验前移,避免 500 包 400
+        if not proposers:
+            raise HTTPException(400, "proposers must be non-empty")
+        if len(aggregators) != 3:
+            raise HTTPException(400, f"3-layer MoA needs exactly 3 aggregators, got {len(aggregators)}")
         try:
             result = await run_three_layer_moa(
                 body.get("query", ""),
@@ -986,6 +991,12 @@ def create_app() -> FastAPI:
                 temperature=body.get("temperature", 0.6),
                 max_total_tokens=body.get("max_total_tokens", 0),
             )
+        except HTTPException:
+            raise
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"MoA run failed: {e}")
         return result
@@ -1181,6 +1192,12 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
+        except HTTPException:
+
+
+            raise  # patch v1.6.6: pass through 4xx
+
+
         except Exception as e:
             raise HTTPException(500, f"self_heal action failed: {e}")
         return {
@@ -1212,6 +1229,10 @@ def create_app() -> FastAPI:
             kwargs["curr_proposals"] = [Proposal(**p) for p in body["curr_proposals"]]
         try:
             result = run_synthesis(mode, proposals, **kwargs)
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"synthesis failed: {e}")
         return {
@@ -1304,6 +1325,10 @@ def create_app() -> FastAPI:
         if history_path:
             try:
                 save_feedback(history_path, feedback)
+            except HTTPException:
+
+                raise  # patch v1.6.6: pass through 4xx
+
             except Exception as e:
                 raise HTTPException(500, f"save_feedback failed: {e}")
         history = load_history(history_path) if history_path else []
@@ -1334,6 +1359,10 @@ def create_app() -> FastAPI:
             result = await aggregate_with_fallback(
                 provider, body.get("prompt", ""), body.get("model", "mock-stream-v1"),
             )
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"stream aggregate failed: {e}")
         return {
@@ -1380,11 +1409,13 @@ def create_app() -> FastAPI:
                 mpl.record(provider, body.get("request_count", 1), body.get("input_tokens", 0), body.get("at"))
                 result = {"recorded": True, "provider": provider}
             elif action == "mark_429":
-                limiter = mpl.limiters[provider]
+                # 修 v1.6.6: MultiProviderLimiter 用 _limiters (private),改用 _get
+                limiter = mpl._get(provider)
                 limiter.mark_429(body.get("cooldown_seconds", 60.0), at=body.get("at"))
                 result = {"marked_429": True, "provider": provider}
             elif action == "status":
-                limiter = mpl.limiters[provider]
+                # 修 v1.6.6: 用 _get 而非 .limiters
+                limiter = mpl._get(provider)
                 result = {
                     "current_rpm": limiter._current_rpm(body.get("at")),
                     "current_ipm": limiter._current_ipm(body.get("at")),
@@ -1395,6 +1426,12 @@ def create_app() -> FastAPI:
         except HTTPException:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
+        except HTTPException:
+
+
+            raise  # patch v1.6.6: pass through 4xx
+
 
         except Exception as e:
             raise HTTPException(500, f"per_provider_rl action failed: {e}")
@@ -1728,8 +1765,7 @@ def create_app() -> FastAPI:
         if tree is None:
             tree = TaskTree(root_id="root")
             tree.add_task(TaskSegment(id="root", title="root", description="root", status="pending"))
-        else:
-            tree = TaskTree(root_id="root")
+        # 修 v1.6.6: 删除 buggy "else: tree = TaskTree(root_id='root')" 覆盖代码
         action = body.get("action", "ready")
         task_id = body.get("task_id", "")
         result = {}
@@ -1844,18 +1880,26 @@ def create_app() -> FastAPI:
             tier_str = g.get("tier", "mechanical")
             if isinstance(tier_str, int):
                 tier_str = tier_map.get(tier_str, "mechanical")
-            g["tier"] = tier_str
-            goals.append(Goal(**g))
+            # 修 v1.6.6: Goal 实际 fields 是 (id, description, tier, criteria, evaluator_fn)
+            # 之前 server.py 用 (name, description, tier, metric, target, current) → TypeError
+            goal_id = g.get("id") or g.get("name") or "goal_" + str(len(goals))
+            description = g.get("description", "")
+            criteria = g.get("criteria") or g.get("metric", "default")
+            goals.append(Goal(
+                id=goal_id, description=description, tier=tier_str,
+                criteria=criteria,
+            ))
         output = body.get("output", "")
         results = [evaluate_goal(g, output).__dict__ for g in goals]
         ceiling = None
         if body.get("generate_ceiling"):
+            # 修 v1.6.6: baseline/residual_risk 不能为空,默认占位
             cr = generate_ceiling_report(
-                claim=body.get("claim", ""),
-                evidence=body.get("evidence", []),
-                baseline=body.get("baseline", ""),
-                gaps=body.get("gaps", []),
-                residual_risk=body.get("residual_risk", ""),
+                claim=body.get("claim") or "unspecified",
+                evidence=body.get("evidence") or [],
+                baseline=body.get("baseline") or "(no baseline provided)",
+                gaps=body.get("gaps") or [],
+                residual_risk=body.get("residual_risk") or "unknown",
             )
             ceiling = cr.__dict__
         return {"results": results, "ceiling_report": ceiling}
@@ -1977,6 +2021,10 @@ def create_app() -> FastAPI:
                     result = {"held": lock.is_held()}
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"subagent_comms failed: {e}")
         return result
@@ -2045,6 +2093,12 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
+        except HTTPException:
+
+
+            raise  # patch v1.6.6: pass through 4xx
+
+
         except Exception as e:
             raise HTTPException(500, f"version action failed: {e}")
         return result
@@ -2095,6 +2149,12 @@ def create_app() -> FastAPI:
         except HTTPException:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
+        except HTTPException:
+
+
+            raise  # patch v1.6.6: pass through 4xx
+
 
         except Exception as e:
             raise HTTPException(500, f"config action failed: {e}")
@@ -2161,6 +2221,12 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
+        except HTTPException:
+
+
+            raise  # patch v1.6.6: pass through 4xx
+
+
         except Exception as e:
             raise HTTPException(500, f"bubble action failed: {e}")
         return result
@@ -2224,6 +2290,12 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
+        except HTTPException:
+
+
+            raise  # patch v1.6.6: pass through 4xx
+
+
         except Exception as e:
             raise HTTPException(500, f"worktree action failed: {e}")
         return result
@@ -2271,6 +2343,12 @@ def create_app() -> FastAPI:
         except HTTPException:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
+        except HTTPException:
+
+
+            raise  # patch v1.6.6: pass through 4xx
+
 
         except Exception as e:
             raise HTTPException(500, f"route action failed: {e}")
@@ -2344,6 +2422,12 @@ def create_app() -> FastAPI:
         except HTTPException:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
+        except HTTPException:
+
+
+            raise  # patch v1.6.6: pass through 4xx
+
 
         except Exception as e:
             raise HTTPException(500, f"session_lock action failed: {e}")
@@ -2425,6 +2509,12 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
+        except HTTPException:
+
+
+            raise  # patch v1.6.6: pass through 4xx
+
+
         except Exception as e:
             raise HTTPException(500, f"elo action failed: {e}")
         return result
@@ -2457,6 +2547,12 @@ def create_app() -> FastAPI:
         except HTTPException:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
+        except HTTPException:
+
+
+            raise  # patch v1.6.6: pass through 4xx
+
 
         except Exception as e:
             raise HTTPException(500, f"brainstorm action failed: {e}")
@@ -2499,6 +2595,12 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
+        except HTTPException:
+
+
+            raise  # patch v1.6.6: pass through 4xx
+
+
         except Exception as e:
             raise HTTPException(500, f"cross_iter action failed: {e}")
         return result
@@ -2520,6 +2622,10 @@ def create_app() -> FastAPI:
         try:
             log = gate.audit(action_id, action_data)
             return log.__dict__
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"audit failed: {e}")
 
@@ -2571,6 +2677,12 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
+        except HTTPException:
+
+
+            raise  # patch v1.6.6: pass through 4xx
+
+
         except Exception as e:
             raise HTTPException(500, f"in_flight action failed: {e}")
         return result
@@ -2603,6 +2715,12 @@ def create_app() -> FastAPI:
         except HTTPException:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
+        except HTTPException:
+
+
+            raise  # patch v1.6.6: pass through 4xx
+
 
         except Exception as e:
             raise HTTPException(500, f"mx action failed: {e}")
@@ -2657,6 +2775,12 @@ def create_app() -> FastAPI:
         except HTTPException:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
+
+        except HTTPException:
+
+
+            raise  # patch v1.6.6: pass through 4xx
+
 
         except Exception as e:
             raise HTTPException(500, f"tier_promo action failed: {e}")
@@ -2728,6 +2852,12 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
+        except HTTPException:
+
+
+            raise  # patch v1.6.6: pass through 4xx
+
+
         except Exception as e:
             raise HTTPException(500, f"artifact action failed: {e}")
         return result
@@ -2781,6 +2911,12 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
+        except HTTPException:
+
+
+            raise  # patch v1.6.6: pass through 4xx
+
+
         except Exception as e:
             raise HTTPException(500, f"frozen action failed: {e}")
         return result
@@ -2818,6 +2954,10 @@ def create_app() -> FastAPI:
                 }
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"turboquant failed: {e}")
         return result
@@ -2855,6 +2995,10 @@ def create_app() -> FastAPI:
                 "total_tokens": moa_result.total_tokens,
                 "total_latency_ms": moa_result.total_latency_ms,
             }
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"MoA run failed: {e}")
         return result
@@ -2901,6 +3045,10 @@ def create_app() -> FastAPI:
                     result = {"criteria": {k: v.__dict__ for k, v in tree._criteria.items()}}
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"acceptance failed: {e}")
         return result
@@ -2950,6 +3098,10 @@ def create_app() -> FastAPI:
                     result = {"error": "all_failed", "providers": e.providers, "errors": e.errors}
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"llm_merge failed: {e}")
         return result
@@ -2989,6 +3141,10 @@ def create_app() -> FastAPI:
                 result = {"warnings": [w.__dict__ for w in warnings], "count": len(warnings)}
             else:
                 raise HTTPException(400, f"unknown action: {action}")
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"grace failed: {e}")
         return result
@@ -3012,6 +3168,10 @@ def create_app() -> FastAPI:
             return {"results": results, "count": len(results), "query": query}
         except HTTPException:
             raise
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"rag_search failed: {e}")
 
@@ -3028,6 +3188,10 @@ def create_app() -> FastAPI:
             return result
         except HTTPException:
             raise
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"plan_act failed: {e}")
 
@@ -3066,6 +3230,10 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"channels failed: {e}")
 
@@ -3096,6 +3264,10 @@ def create_app() -> FastAPI:
             return result
         except HTTPException:
             raise
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"reference_router failed: {e}")
 
@@ -3156,6 +3328,10 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"checkpoint failed: {e}")
 
@@ -3214,6 +3390,10 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"audit failed: {e}")
 
@@ -3249,6 +3429,10 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"canary failed: {e}")
 
@@ -3291,6 +3475,10 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"wrap_output failed: {e}")
 
@@ -3326,6 +3514,10 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"fuzzy_dedup failed: {e}")
 
@@ -3367,6 +3559,10 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"input_fingerprint failed: {e}")
 
@@ -3392,6 +3588,10 @@ def create_app() -> FastAPI:
             }
         except HTTPException:
             raise
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"tool_screening failed: {e}")
 
@@ -3435,6 +3635,10 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"anthropic_compat failed: {e}")
 
@@ -3477,6 +3681,10 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"token_bucket failed: {e}")
 
@@ -3530,6 +3738,10 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"request_dedup failed: {e}")
 
@@ -3610,6 +3822,10 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"trace failed: {e}")
 
@@ -3677,6 +3893,10 @@ def create_app() -> FastAPI:
         ep_dict = req.model_dump()
         try:
             ep = pool.upsert_endpoint(ep_dict)
+        except HTTPException:
+
+            raise  # patch v1.6.6: pass through 4xx
+
         except Exception as e:
             raise HTTPException(500, f"upsert failed: {e}")
         return {"ok": True, "id": ep.id}
