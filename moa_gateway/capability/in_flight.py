@@ -28,10 +28,8 @@ import json
 import os
 import time
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional
-
 
 __all__ = [
     "Phase",
@@ -61,7 +59,7 @@ class Phase(str, Enum):
 
 
 # 全局顺序, 用于 detect_phase_transition 的"下一阶段"查找
-PHASE_ORDER: List[str] = [Phase.ANALYZE.value, Phase.IMPLEMENT.value, Phase.TEST.value, Phase.REVIEW.value, Phase.COMPLETE.value]
+PHASE_ORDER: list[str] = [Phase.ANALYZE.value, Phase.IMPLEMENT.value, Phase.TEST.value, Phase.REVIEW.value, Phase.COMPLETE.value]
 
 
 # ============ Dataclass 定义 ============
@@ -71,9 +69,9 @@ class PhaseState:
     """单 session 的阶段状态"""
     phase: Phase
     started_at: float
-    completed_at: Optional[float] = None
+    completed_at: float | None = None
     interrupted: bool = False
-    checkpoint_data: Dict = field(default_factory=dict)
+    checkpoint_data: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -81,8 +79,8 @@ class Checkpoint:
     """团队 checkpoint 的单条记录"""
     session_id: str
     phase: Phase
-    data: Dict
-    timestamp: float = field(default_factory=lambda: time.time())
+    data: dict
+    timestamp: float = field(default_factory=time.time)
 
 
 # ============ InFlightDetector ============
@@ -98,7 +96,7 @@ class InFlightDetector:
         self.state_dir = state_dir
         self.state_file = os.path.join(state_dir, "in_flight.json")
         # session_id -> List[PhaseState] (按时间序追加)
-        self._states: Dict[str, List[PhaseState]] = {}
+        self._states: dict[str, list[PhaseState]] = {}
         # 优先从磁盘恢复 (best effort, 失败不抛)
         self._load()
 
@@ -107,7 +105,7 @@ class InFlightDetector:
         try:
             if not os.path.isfile(self.state_file):
                 return
-            with open(self.state_file, "r", encoding="utf-8") as f:
+            with open(self.state_file, encoding="utf-8") as f:
                 raw = json.load(f)
             # raw: {session_id: [PhaseState dict, ...]}
             self._states = {}
@@ -135,8 +133,8 @@ class InFlightDetector:
     def record_start(
         self,
         phase: Phase,
-        at: Optional[float] = None,
-        session_id: Optional[str] = None,
+        at: float | None = None,
+        session_id: str | None = None,
     ) -> str:
         """开启一个 phase, 分配 (或接受) session_id, 写入 started_at。
 
@@ -159,7 +157,7 @@ class InFlightDetector:
         self,
         session_id: str,
         phase: Phase,
-        at: Optional[float] = None,
+        at: float | None = None,
     ) -> None:
         """关闭 session 的当前 phase (写入 completed_at)。
 
@@ -191,19 +189,19 @@ class InFlightDetector:
                 break
         self._save()
 
-    def detect_in_flight(self, at: Optional[float] = None) -> List[PhaseState]:
+    def detect_in_flight(self, at: float | None = None) -> list[PhaseState]:
         """返回所有 started 但 !completed 的 PhaseState (跨 session 聚合)。
 
         参数 at: 当前时间 (可选, 仅用于将来扩展; 当前不参与判定, 但保留签名)。
         """
-        result: List[PhaseState] = []
+        result: list[PhaseState] = []
         for ps_list in self._states.values():
             for ps in ps_list:
                 if ps.started_at > 0 and ps.completed_at is None:
                     result.append(ps)
         return result
 
-    def detect_phase_transition(self, session_id: str) -> Optional[Phase]:
+    def detect_phase_transition(self, session_id: str) -> Phase | None:
         """推断 session 的下一合法 phase。
 
         规则:
@@ -247,17 +245,17 @@ class TeamCheckpointMerger:
 
     def __init__(self) -> None:
         # session_id -> List[Checkpoint]
-        self._checkpoints: Dict[str, List[Checkpoint]] = {}
+        self._checkpoints: dict[str, list[Checkpoint]] = {}
 
     def add_checkpoint(self, ckpt: Checkpoint) -> None:
         """追加一个 checkpoint。"""
         self._checkpoints.setdefault(ckpt.session_id, []).append(ckpt)
 
-    def _merge_data(self, ckpts: List[Checkpoint]) -> Dict:
+    def _merge_data(self, ckpts: list[Checkpoint]) -> dict:
         """按 key 前缀的语义合并一组 checkpoint 的 data。"""
-        merged: Dict = {}
+        merged: dict = {}
         # 累加型 key 跟踪 int/float 累计值
-        accum_values: Dict[str, float] = {}
+        accum_values: dict[str, float] = {}
         # 最后写入型 key 跟踪是否已被设置 (用于决定是否覆盖)
         for ckpt in ckpts:
             for k, v in ckpt.data.items():
@@ -276,23 +274,23 @@ class TeamCheckpointMerger:
         merged.update(accum_values)
         return merged
 
-    def merge(self) -> Dict:
+    def merge(self) -> dict:
         """按 phase 维度合并, 返回 {phase_value: {session_id: merged_data, ...}, ...}。"""
         # phase_value -> session_id -> List[Checkpoint]
-        by_phase: Dict[str, Dict[str, List[Checkpoint]]] = {}
+        by_phase: dict[str, dict[str, list[Checkpoint]]] = {}
         for sid, ckpts in self._checkpoints.items():
             for ckpt in ckpts:
                 by_phase.setdefault(ckpt.phase.value, {}).setdefault(sid, []).append(ckpt)
 
-        result: Dict = {}
+        result: dict = {}
         for phase_value, sid_map in by_phase.items():
-            phase_result: Dict = {}
+            phase_result: dict = {}
             for sid, ckpts in sid_map.items():
                 phase_result[sid] = self._merge_data(ckpts)
             result[phase_value] = phase_result
         return result
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """导出完整状态 (供 JSON 序列化)。
 
         结构:
@@ -301,7 +299,7 @@ class TeamCheckpointMerger:
             "merged": {phase_value: {session_id: merged_data, ...}, ...}
           }
         """
-        all_ckpts: List[Dict] = []
+        all_ckpts: list[dict] = []
         for sid, ckpts in self._checkpoints.items():
             for ckpt in ckpts:
                 d = checkpoint_to_dict(ckpt)
@@ -328,7 +326,7 @@ def phase_from_str(s: str) -> Phase:
     raise ValueError(f"Unknown phase: {s!r}")
 
 
-def phase_state_to_dict(ps: PhaseState) -> Dict:
+def phase_state_to_dict(ps: PhaseState) -> dict:
     """PhaseState → dict (Phase 转 value, datetime 用 float 保持)。"""
     return {
         "phase": ps.phase.value,
@@ -339,7 +337,7 @@ def phase_state_to_dict(ps: PhaseState) -> Dict:
     }
 
 
-def phase_state_from_dict(d: Dict) -> PhaseState:
+def phase_state_from_dict(d: dict) -> PhaseState:
     """dict → PhaseState (宽容地容忍缺失字段)。"""
     return PhaseState(
         phase=phase_from_str(d.get("phase", Phase.ANALYZE.value)),
@@ -350,7 +348,7 @@ def phase_state_from_dict(d: Dict) -> PhaseState:
     )
 
 
-def checkpoint_to_dict(ckpt: Checkpoint) -> Dict:
+def checkpoint_to_dict(ckpt: Checkpoint) -> dict:
     """Checkpoint → dict"""
     return {
         "phase": ckpt.phase.value,
@@ -359,7 +357,7 @@ def checkpoint_to_dict(ckpt: Checkpoint) -> Dict:
     }
 
 
-def checkpoint_from_dict(d: Dict) -> Checkpoint:
+def checkpoint_from_dict(d: dict) -> Checkpoint:
     """dict → Checkpoint (session_id 需调用方单独提供)"""
     return Checkpoint(
         session_id=d.get("session_id", ""),

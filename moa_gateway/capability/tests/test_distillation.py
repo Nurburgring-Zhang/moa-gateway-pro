@@ -3,6 +3,7 @@
 真实 assert, 严禁 mock。
 """
 from __future__ import annotations
+
 import json
 import sys
 from pathlib import Path
@@ -12,18 +13,17 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.distillation import (
-    DistilledIdea,
+    MIN_WORDS_PER_IDEA,
     DistillationResult,
-    extract_ideas,
+    DistilledIdea,
+    apply_bias_correction,
     curate_ideas,
     distill_proposals,
-    multi_eval_average,
-    apply_bias_correction,
-    result_to_json,
+    extract_ideas,
     idea_to_json,
-    MIN_WORDS_PER_IDEA,
+    multi_eval_average,
+    result_to_json,
 )
-
 
 # ============ 1. extract_ideas ============
 

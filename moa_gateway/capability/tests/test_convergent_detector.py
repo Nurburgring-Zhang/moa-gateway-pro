@@ -3,7 +3,7 @@
 真实 assert, 严禁 mock。
 """
 from __future__ import annotations
-import pytest
+
 import sys
 from pathlib import Path
 
@@ -13,17 +13,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from moa_gateway.capability.convergent_detector import (
     Idea,
     Proposal,
-    ConvergentIdea,
-    ConflictPair,
-    extract_ideas,
-    detect_convergent,
-    detect_conflicting,
     arbitrate_conflicts,
     convergent_summary,
-    STOPWORDS,
-    JACCARD_THRESHOLD,
+    detect_conflicting,
+    detect_convergent,
+    extract_ideas,
 )
-
 
 # ============ 辅助: 构造 Proposal ============
 
@@ -253,7 +248,7 @@ def test_arbitrate_conflicts_multiple_independent():
     results = arbitrate_conflicts(conflicts, viability)
     assert len(results) == len(conflicts)
     # 每个结果都是 (ConflictPair, "A"/"B", float)
-    for conflict, winner, confidence in results:
+    for _conflict, winner, confidence in results:
         assert winner in ("A", "B")
         assert 0.0 <= confidence <= 1.0
 

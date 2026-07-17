@@ -11,10 +11,9 @@
 - system (0.10): system role → +0.10
 """
 from __future__ import annotations
-import json
-from dataclasses import dataclass, field, asdict
-from typing import List
 
+import json
+from dataclasses import asdict, dataclass, field
 
 __all__ = [
     "Message",
@@ -75,7 +74,7 @@ class ImportanceScore:
     """单条消息的重要性评分"""
     message_idx: int
     score: float          # 0-1
-    reasons: List[str] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -121,7 +120,7 @@ def _recency_factor(current_idx: int, target_idx: int) -> float:
 
 def score_message(
     msg: Message,
-    all_messages: List[Message],
+    all_messages: list[Message],
     current_idx: int,
 ) -> ImportanceScore:
     """对单条消息做 5 维加权评分
@@ -134,7 +133,7 @@ def score_message(
     Returns:
         ImportanceScore (score 范围 [0, 1])
     """
-    reasons: List[str] = []
+    reasons: list[str] = []
 
     # 1) recency — 找 msg 在 all_messages 中的真实 idx
     target_idx = -1
@@ -189,7 +188,7 @@ def score_message(
     )
 
 
-def score_messages(messages: List[Message]) -> List[ImportanceScore]:
+def score_messages(messages: list[Message]) -> list[ImportanceScore]:
     """批量评分 — 以列表最后一条作为 current_idx 锚点"""
     n = len(messages)
     if n == 0:
@@ -200,7 +199,7 @@ def score_messages(messages: List[Message]) -> List[ImportanceScore]:
 
 # ============ 选择 / 决策函数 ============
 
-def select_top_k(scores: List[ImportanceScore], k: int) -> List[int]:
+def select_top_k(scores: list[ImportanceScore], k: int) -> list[int]:
     """返回 top-k message indices (按 score 降序)
 
     - k <= 0 → []
@@ -221,7 +220,7 @@ def select_top_k(scores: List[ImportanceScore], k: int) -> List[int]:
 
 
 def should_compress(
-    scores: List[ImportanceScore],
+    scores: list[ImportanceScore],
     threshold: float = 0.5,
 ) -> bool:
     """压缩决策: 所有 score < threshold → True (可压)
@@ -235,10 +234,10 @@ def should_compress(
 
 
 def select_within_radius(
-    scores: List[ImportanceScore],
+    scores: list[ImportanceScore],
     current_idx: int,
     radius: int = 3,
-) -> List[int]:
+) -> list[int]:
     """返回 current_idx ± radius 内的 message indices (含端点)
 
     边界处理: 超界 idx 自动裁剪到 [0, len(scores)-1]
@@ -250,12 +249,12 @@ def select_within_radius(
     hi = min(n - 1, current_idx + radius)
     if lo > hi:
         return []
-    return [i for i in range(lo, hi + 1)]
+    return list(range(lo, hi + 1))
 
 
 # ============ JSON 序列化 ============
 
-def scores_to_json(scores: List[ImportanceScore]) -> str:
+def scores_to_json(scores: list[ImportanceScore]) -> str:
     """批量序列化为 JSON 字符串"""
     return json.dumps(
         [s.to_dict() for s in scores],
@@ -264,7 +263,7 @@ def scores_to_json(scores: List[ImportanceScore]) -> str:
     )
 
 
-def scores_from_json(text: str) -> List[ImportanceScore]:
+def scores_from_json(text: str) -> list[ImportanceScore]:
     """从 JSON 字符串还原"""
     raw = json.loads(text)
     return [

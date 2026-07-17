@@ -1,12 +1,16 @@
 """mx_annot tests — A-39 MX + A-40 fan-in + A-44 mx CLI"""
 import sys
-import pytest
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from moa_gateway.capability.mx_annot import (
-    MXTag, MXAnnotation, parse_mx_annotations, compute_fanin, mx_cli,
-    annotations_to_json, MX_SYNTAX,
+    MXAnnotation,
+    MXTag,
+    annotations_to_json,
+    compute_fanin,
+    mx_cli,
+    parse_mx_annotations,
 )
 
 

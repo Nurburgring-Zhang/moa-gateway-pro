@@ -13,28 +13,23 @@
 - 空 query / 长 query
 - ChannelResult 字段完整性
 """
+import asyncio
 import sys
 import time
-import asyncio
-import random
 from pathlib import Path
-from typing import List
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.channels import (
-    ChannelType,
-    ChannelResult,
-    ChannelError,
-    CLIErrorKind,
-    Channel,
-    SubagentChannel,
-    CLIChannel,
     APIChannel,
     ChannelChain,
+    ChannelError,
+    ChannelResult,
+    ChannelType,
+    CLIChannel,
+    SubagentChannel,
     classify_error,
 )
-
 
 # ============ Helpers ============
 
@@ -471,7 +466,7 @@ def test_chain_execute_safe_sync_runner():
 # ============ runner ============
 
 def _run_all():
-    tests: List = [
+    tests: list = [
         test_channel_type_values,
         test_channel_result_field_completeness,
         test_ch1_subagent_sync_runner,

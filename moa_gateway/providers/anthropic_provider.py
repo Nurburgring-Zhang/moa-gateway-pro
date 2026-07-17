@@ -2,13 +2,16 @@
 使用 Anthropic 的 /v1/messages 端点,与 OpenAI 协议不同。
 """
 from __future__ import annotations
-import time
-import logging
-from typing import Dict, List, Any, Optional, AsyncIterator
-import httpx
-import json
 
-from .base import Provider, ChatRequest, ChatResponse, ProviderError
+import json
+import logging
+import time
+from collections.abc import AsyncIterator
+from typing import Any
+
+import httpx
+
+from .base import ChatRequest, ChatResponse, Provider, ProviderError
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +20,7 @@ class AnthropicProvider(Provider):
     """Anthropic Claude 专用实现"""
 
     def __init__(self, api_base: str, api_key: str, timeout: int = 120,
-                 client: Optional[httpx.AsyncClient] = None):
+                 client: httpx.AsyncClient | None = None):
         super().__init__(api_base, api_key, timeout, client)
         # Anthropic 的 base url 是 https://api.anthropic.com,API 在 /v1/messages
         if not self.api_base.endswith("/v1"):
@@ -26,14 +29,14 @@ class AnthropicProvider(Provider):
     async def chat(self, req: ChatRequest) -> ChatResponse:
         # 拆 system
         system = ""
-        user_messages: List[Dict[str, Any]] = []
+        user_messages: list[dict[str, Any]] = []
         for m in req.messages:
             if m.get("role") == "system":
                 system += (m.get("content") or "") + "\n"
             else:
                 user_messages.append(m)
 
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "model": req.model,
             "messages": user_messages,
             "max_tokens": req.max_tokens,
@@ -72,17 +75,17 @@ class AnthropicProvider(Provider):
                 timeout=httpx.Timeout(req.timeout)
             )
         except httpx.TimeoutException as e:
-            raise ProviderError(f"timeout: {e}", status=408)
+            raise ProviderError(f"timeout: {e}", status=408) from e
         except httpx.HTTPError as e:
-            raise ProviderError(f"http error: {e}", status=502)
+            raise ProviderError(f"http error: {e}", status=502) from e
 
         if resp.status_code != 200:
             raise ProviderError(f"HTTP {resp.status_code}: {resp.text[:500]}",
                                 status=resp.status_code)
         data = resp.json()
         content_blocks = data.get("content") or []
-        text_parts: List[str] = []
-        tool_calls: List[Dict[str, Any]] = []
+        text_parts: list[str] = []
+        tool_calls: list[dict[str, Any]] = []
         for blk in content_blocks:
             if blk.get("type") == "text":
                 text_parts.append(blk.get("text", ""))
@@ -114,14 +117,14 @@ class AnthropicProvider(Provider):
     async def chat_stream(self, req: ChatRequest) -> AsyncIterator[str]:
         """Anthropic SSE 流式"""
         system = ""
-        user_messages: List[Dict[str, Any]] = []
+        user_messages: list[dict[str, Any]] = []
         for m in req.messages:
             if m.get("role") == "system":
                 system += (m.get("content") or "") + "\n"
             else:
                 user_messages.append(m)
 
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "model": req.model,
             "messages": user_messages,
             "max_tokens": req.max_tokens,
@@ -161,9 +164,9 @@ class AnthropicProvider(Provider):
                         if delta.get("type") == "text_delta":
                             yield delta.get("text", "")
         except httpx.TimeoutException as e:
-            raise ProviderError(f"timeout: {e}", status=408)
+            raise ProviderError(f"timeout: {e}", status=408) from e
         except httpx.HTTPError as e:
-            raise ProviderError(f"http error: {e}", status=502)
+            raise ProviderError(f"http error: {e}", status=502) from e
 
     async def health_check(self) -> bool:
         if not self.api_key:

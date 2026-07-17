@@ -15,10 +15,8 @@ from __future__ import annotations
 import json
 import re
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional
-
 
 # ============ 5 发散人格 enum ============
 
@@ -34,7 +32,7 @@ class PersonaType(str, Enum):
 # ============ 5 persona 模板(系统 prompt 模板) ============
 # 模板中 {topic} 会被替换
 
-PERSONA_TEMPLATES: Dict[PersonaType, Dict[str, str]] = {
+PERSONA_TEMPLATES: dict[PersonaType, dict[str, str]] = {
     PersonaType.RADICAL_INNOVATOR: {
         "name": "Radical Innovator",
         "system_prompt": (
@@ -126,23 +124,23 @@ def build_persona(p: PersonaType, topic: str) -> Persona:
 # ============ 启发式发散生成 ============
 
 # 关键词 → 行业映射(用于 CROSS_INDUSTRY_TRANSPLANTER)
-INDUSTRY_KEYWORDS: Dict[str, List[str]] = {
+INDUSTRY_KEYWORDS: dict[str, list[str]] = {
     "aviation": ["safety", "checklist", "preflight", "cockpit", "atc", "黑匣子", "airworthiness"],
     "healthcare": ["patient", "diagnosis", "triage", "icu", "clinical", "副作用", "ehr"],
     "finance": ["risk", "audit", "ledger", "margin", "settlement", "对账", "hedge"],
 }
 
 
-def _extract_topic_keywords(topic: str) -> List[str]:
+def _extract_topic_keywords(topic: str) -> list[str]:
     """从 topic 提取关键词(简单分词)"""
     t = topic.lower()
     tokens = re.findall(r"[a-zA-Z\u4e00-\u9fff]+", t)
     return [w for w in tokens if len(w) >= 2]
 
 
-def _detect_industries(keywords: List[str]) -> List[str]:
+def _detect_industries(keywords: list[str]) -> list[str]:
     """根据 topic 关键词,推断最相关的 3 个行业"""
-    scores: Dict[str, int] = {}
+    scores: dict[str, int] = {}
     for industry, kws in INDUSTRY_KEYWORDS.items():
         scores[industry] = sum(1 for k in keywords if k in kws)
     ranked = sorted(scores.items(), key=lambda x: -x[1])
@@ -249,7 +247,7 @@ class BrainstormIdea:
     idea: str
     timestamp: float = field(default_factory=time.time)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         d = asdict(self)
         d["persona_type"] = self.persona_type.value
         return d
@@ -263,22 +261,22 @@ class BrainstormSession:
         ideas = s.generate_ideas()  # 5 persona × 1 idea
     """
 
-    DEFAULT_PERSONAS: List[PersonaType] = list(PersonaType)
+    DEFAULT_PERSONAS: list[PersonaType] = list(PersonaType)
 
-    def __init__(self, topic: str, personas: Optional[List[PersonaType]] = None):
+    def __init__(self, topic: str, personas: list[PersonaType] | None = None):
         self.topic = topic
-        self.personas: List[PersonaType] = (
+        self.personas: list[PersonaType] = (
             list(personas) if personas is not None else list(self.DEFAULT_PERSONAS)
         )
-        self._cache: Dict[PersonaType, str] = {}
+        self._cache: dict[PersonaType, str] = {}
 
-    def personas_for_topic(self) -> List[Persona]:
+    def personas_for_topic(self) -> list[Persona]:
         """返回所有 persona 的 Persona 实例(已渲染 topic)"""
         return [build_persona(p, self.topic) for p in self.personas]
 
-    def generate_ideas(self) -> Dict[PersonaType, str]:
+    def generate_ideas(self) -> dict[PersonaType, str]:
         """每个 persona 输出一个启发式发散 idea"""
-        ideas: Dict[PersonaType, str] = {}
+        ideas: dict[PersonaType, str] = {}
         for p in self.personas:
             gen = HEURISTIC_GENERATORS.get(p)
             if gen is None:
@@ -288,9 +286,9 @@ class BrainstormSession:
             self._cache[p] = ideas[p]
         return ideas
 
-    def generate_ideas_detailed(self) -> Dict[PersonaType, BrainstormIdea]:
+    def generate_ideas_detailed(self) -> dict[PersonaType, BrainstormIdea]:
         """每个 persona 输出一个 BrainstormIdea(含元数据)"""
-        detailed: Dict[PersonaType, BrainstormIdea] = {}
+        detailed: dict[PersonaType, BrainstormIdea] = {}
         for p in self.personas:
             persona = build_persona(p, self.topic)
             gen = HEURISTIC_GENERATORS.get(p)
@@ -303,7 +301,7 @@ class BrainstormSession:
             )
         return detailed
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "topic": self.topic,
             "personas": [p.value for p in self.personas],
@@ -333,7 +331,7 @@ class Advocate:
     system_prompt: str
     thinking_style: str = "advocacy / steelman / one-sided-defense"
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -358,25 +356,25 @@ class DecideMode:
         advs = d.generate_advocates()  # 3 个 advocate 各 1 段
     """
 
-    def __init__(self, topic: str, options: List[str]):
+    def __init__(self, topic: str, options: list[str]):
         self.topic = topic
-        self.options: List[str] = list(options)
+        self.options: list[str] = list(options)
 
-    def generate_advocates(self) -> Dict[str, str]:
+    def generate_advocates(self) -> dict[str, str]:
         """每个 option 生成一段 advocate 论述"""
-        out: Dict[str, str] = {}
+        out: dict[str, str] = {}
         for opt in self.options:
             adv = build_advocate(opt)
             out[adv.advocate_id] = self._heuristic_advocate(opt)
         return out
 
-    def generate_advocates_detailed(self) -> Dict[str, Advocate]:
+    def generate_advocates_detailed(self) -> dict[str, Advocate]:
         """返回完整 Advocate 对象"""
         return {a.advocate_id: a for a in (build_advocate(o) for o in self.options)}
 
     def _heuristic_advocate(self, option: str) -> str:
         """为该 option 写一段(启发式:topic + option + 4 个论据维度)"""
-        opt_lc = option.lower()
+        option.lower()
         return (
             f"[advocate_{sanitize_advocate_id(option)} · arguing FOR '{option}']\n"
             f"Topic: {self.topic}\n"
@@ -391,13 +389,13 @@ class DecideMode:
             f"and dominates on the dimensions that matter most for {self.topic}."
         )
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "topic": self.topic,
             "options": list(self.options),
             "advocates": {
                 f"advocate_{sanitize_advocate_id(o)}": text
-                for o, text in zip(self.options, self._iter_advocate_texts())
+                for o, text in zip(self.options, self._iter_advocate_texts(), strict=False)
             },
         }
 

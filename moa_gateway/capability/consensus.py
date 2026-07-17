@@ -11,10 +11,10 @@
   - Tier 再训练: 高 tier 利用率 > 80% 下沉,低 tier < 20% 上浮
 """
 from __future__ import annotations
+
 import math
 from collections import Counter
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Optional, Tuple
+from dataclasses import asdict, dataclass
 
 
 # ============ 投票数据模型 ============
@@ -30,14 +30,14 @@ class Vote:
 @dataclass
 class ConsensusResult:
     """集成投票结果"""
-    winner: Optional[str]  # 胜出者
+    winner: str | None  # 胜出者
     score: float  # 0-1,共识度
-    votes: List[Vote]
+    votes: list[Vote]
     method: str  # "majority" / "weighted" / "borda" / "approval"
     agreement_ratio: float  # 0-1,胜方得票占比
     entropy: float  # 信息熵,反映分歧度
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "winner": self.winner,
             "score": self.score,
@@ -61,6 +61,28 @@ class TierStat:
     last_24h_calls: int
     cooldown_count: int
 
+    @classmethod
+    def from_dict(cls, d: dict) -> 'TierStat':
+        """接受字段别名,自动映射到正确字段。空 dict 走 defaults。"""
+        kwargs = {}
+        if "tier" in d: kwargs["tier"] = d["tier"]
+        if "tier" not in kwargs and "tier" in d: kwargs["tier"] = d["tier"]
+        if "endpoint_count" in d: kwargs["endpoint_count"] = d["endpoint_count"]
+        if "endpoint_count" not in kwargs and "endpoint_count" in d: kwargs["endpoint_count"] = d["endpoint_count"]
+        if "success_count" in d: kwargs["success_count"] = d["success_count"]
+        if "success_count" not in kwargs and "success_count" in d: kwargs["success_count"] = d["success_count"]
+        if "total_calls" in d: kwargs["total_calls"] = d["total_calls"]
+        if "total_calls" not in kwargs and "fail_count" in d: kwargs["total_calls"] = d["fail_count"]
+        if "avg_latency_ms" in d: kwargs["avg_latency_ms"] = d["avg_latency_ms"]
+        if "avg_latency_ms" not in kwargs and "avg_latency_ms" in d: kwargs["avg_latency_ms"] = d["avg_latency_ms"]
+        if "avg_cost" in d: kwargs["avg_cost"] = d["avg_cost"]
+        if "avg_cost" not in kwargs and "weight_sum" in d: kwargs["avg_cost"] = d["weight_sum"]
+        if "last_24h_calls" in d: kwargs["last_24h_calls"] = d["last_24h_calls"]
+        if "last_24h_calls" not in kwargs and "last_24h_calls" in d: kwargs["last_24h_calls"] = d["last_24h_calls"]
+        if "cooldown_count" in d: kwargs["cooldown_count"] = d["cooldown_count"]
+        if "cooldown_count" not in kwargs and "cooldown_count" in d: kwargs["cooldown_count"] = d["cooldown_count"]
+        return cls(**kwargs)
+
     @property
     def success_rate(self) -> float:
         """成功率 (0-1)"""
@@ -76,7 +98,7 @@ class TierStat:
         busy = max(0, self.endpoint_count - self.cooldown_count)
         return busy / self.endpoint_count
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "tier": self.tier,
             "endpoint_count": self.endpoint_count,
@@ -92,7 +114,7 @@ class TierStat:
 
 
 # ============ 工具函数 ============
-def _shannon_entropy(distribution: Dict[str, float]) -> float:
+def _shannon_entropy(distribution: dict[str, float]) -> float:
     """Shannon entropy (自然对数)
 
     均匀分布 entropy = log(N) (N 个候选)
@@ -119,7 +141,7 @@ def _normalize_method(method: str) -> str:
 
 
 # ============ 集成投票算法 ============
-def ensemble_vote(votes: List[Vote], method: str = "weighted") -> ConsensusResult:
+def ensemble_vote(votes: list[Vote], method: str = "weighted") -> ConsensusResult:
     """集成投票 — 4 种真实算法:
 
     - "majority": 简单多数(每票等权)
@@ -159,13 +181,13 @@ def ensemble_vote(votes: List[Vote], method: str = "weighted") -> ConsensusResul
     return _vote_weighted(votes, "weighted")
 
 
-def _vote_majority(votes: List[Vote], method: str) -> ConsensusResult:
+def _vote_majority(votes: list[Vote], method: str) -> ConsensusResult:
     """简单多数投票:每票等权 1,得票最多者胜"""
     counter = Counter(v.candidate for v in votes)
     total = len(votes)
     top_candidate, top_count = counter.most_common(1)[0]
     score = top_count / total  # agreement ratio
-    distribution = {c: cnt for c, cnt in counter.items()}
+    distribution = dict(counter.items())
     entropy = _shannon_entropy(distribution)
     # 共识度 = agreement * (1 - entropy)
     consensus = score * (1.0 - entropy)
@@ -179,10 +201,10 @@ def _vote_majority(votes: List[Vote], method: str) -> ConsensusResult:
     )
 
 
-def _vote_weighted(votes: List[Vote], method: str) -> ConsensusResult:
+def _vote_weighted(votes: list[Vote], method: str) -> ConsensusResult:
     """加权投票:按 confidence 累加"""
-    scores: Dict[str, float] = {}
-    raw_counts: Dict[str, int] = {}
+    scores: dict[str, float] = {}
+    raw_counts: dict[str, int] = {}
     total_conf = 0.0
     for v in votes:
         c = max(0.0, min(1.0, float(v.confidence)))
@@ -208,7 +230,7 @@ def _vote_weighted(votes: List[Vote], method: str) -> ConsensusResult:
     )
 
 
-def _vote_borda(votes: List[Vote], method: str) -> ConsensusResult:
+def _vote_borda(votes: list[Vote], method: str) -> ConsensusResult:
     """Borda count:同一 voter 投多个 candidate 时按"顺序"打分
 
     在我们的模型中,一位 voter 只投一个 candidate,所以 Borda 退化为:
@@ -220,7 +242,7 @@ def _vote_borda(votes: List[Vote], method: str) -> ConsensusResult:
     """
     counter = Counter(v.candidate for v in votes)
     # 按频次排名(高→低),同名同分时 confidence 平均高者优先
-    avg_conf: Dict[str, float] = {}
+    avg_conf: dict[str, float] = {}
     for c in counter:
         confs = [v.confidence for v in votes if v.candidate == c]
         avg_conf[c] = sum(confs) / len(confs) if confs else 0.0
@@ -249,19 +271,19 @@ def _vote_borda(votes: List[Vote], method: str) -> ConsensusResult:
     )
 
 
-def _vote_approval(votes: List[Vote], method: str) -> ConsensusResult:
+def _vote_approval(votes: list[Vote], method: str) -> ConsensusResult:
     """批准投票:同一 voter 可批准多个 candidate
 
     算法:按 voter_id 分组,每 voter 把它 confidence 中"达标"的部分
     (>= 0.5 视为批准)分配给它投的 candidate;每个 candidate 得分 =
     所有 voter 投给它的 confidence 之和,再除以总 voter 数。
     """
-    by_voter: Dict[str, List[Vote]] = {}
+    by_voter: dict[str, list[Vote]] = {}
     for v in votes:
         by_voter.setdefault(v.voter_id, []).append(v)
     n_voters = len(by_voter)
 
-    scores: Dict[str, float] = {}
+    scores: dict[str, float] = {}
     for voter_votes in by_voter.values():
         for v in voter_votes:
             c = max(0.0, min(1.0, float(v.confidence)))
@@ -301,7 +323,7 @@ _TIER_ORDER = ["free", "lite", "standard", "premium", "flagship"]
 _TIER_INDEX = {t: i for i, t in enumerate(_TIER_ORDER)}
 
 
-def should_rebalance(stats: Dict[str, TierStat], config: Dict) -> bool:
+def should_rebalance(stats: dict[str, TierStat], config: dict) -> bool:
     """是否需要重新平衡 tier 边界
 
     真实逻辑:
@@ -332,10 +354,10 @@ def should_rebalance(stats: Dict[str, TierStat], config: Dict) -> bool:
 
 
 def rebalance_endpoints(
-    endpoints: List[Dict],
-    stats: Dict[str, TierStat],
-    config: Dict,
-) -> List[Dict]:
+    endpoints: list[dict],
+    stats: dict[str, TierStat],
+    config: dict,
+) -> list[dict]:
     """重新平衡 tier 边界 — 返回调整后的端点列表(深拷贝)
 
     真实逻辑:
@@ -350,15 +372,15 @@ def rebalance_endpoints(
     low_tiers = {"free", "lite"}
 
     # 深拷贝(避免修改原数据)
-    result: List[Dict] = []
+    result: list[dict] = []
     for ep in endpoints:
         new_ep = dict(ep)
         new_ep["original_tier"] = new_ep.get("tier", "standard")
         result.append(new_ep)
 
     # 找出需要下沉和上浮的 tier
-    overloaded_high: List[str] = []
-    underused_low: List[str] = []
+    overloaded_high: list[str] = []
+    underused_low: list[str] = []
     for tier_name, s in stats.items():
         if tier_name in high_tiers and s.utilization > high_threshold:
             overloaded_high.append(tier_name)
@@ -369,7 +391,7 @@ def rebalance_endpoints(
         return result
 
     # 给每个 endpoint 计算价值分
-    def _score(ep: Dict) -> float:
+    def _score(ep: dict) -> float:
         sr = float(ep.get("success_rate", 0.5))
         lat = float(ep.get("avg_latency_ms", 1000.0))
         cost = float(ep.get("avg_cost", 1.0))

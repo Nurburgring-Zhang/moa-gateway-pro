@@ -56,17 +56,13 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import random
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import (
     Any,
-    AsyncIterator,
-    Dict,
-    List,
     Literal,
-    Optional,
     Protocol,
     runtime_checkable,
 )
@@ -133,12 +129,12 @@ class StreamChunk:
     chunk_idx: int
     content: str
     delta_type: DeltaType = "text"
-    tool_call_id: Optional[str] = None
-    tool_call_name: Optional[str] = None
-    tool_call_args_delta: Optional[str] = None
+    tool_call_id: str | None = None
+    tool_call_name: str | None = None
+    tool_call_args_delta: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = {
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
             "chunk_idx": self.chunk_idx,
             "content": self.content,
             "delta_type": self.delta_type,
@@ -166,10 +162,10 @@ class StreamResult:
         streaming_succeeded: 是否成功走完流式;失败时 False 但 chunks 仍保留
     """
 
-    chunks: List[StreamChunk] = field(default_factory=list)
+    chunks: list[StreamChunk] = field(default_factory=list)
     full_content: str = ""
-    tool_calls: List[Dict[str, Any]] = field(default_factory=list)
-    finish_reason: Optional[str] = None
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    finish_reason: str | None = None
     total_chunks: int = 0
     streaming_succeeded: bool = False
 
@@ -216,13 +212,13 @@ class MockStreamingProvider:
     """
 
     def __init__(
-        self, fail_prob: float = 0.1, seed: Optional[int] = None
+        self, fail_prob: float = 0.1, seed: int | None = None
     ) -> None:
         if not 0.0 <= fail_prob <= 1.0:
             raise ValueError(f"fail_prob must be in [0, 1], got {fail_prob}")
         self.fail_prob = fail_prob
         self._rng = random.Random(seed)
-        self._stats: Dict[str, int] = {
+        self._stats: dict[str, int] = {
             "n_stream_calls": 0,
             "n_stream_failures": 0,
             "n_stream_success": 0,
@@ -347,15 +343,14 @@ class MockStreamingProvider:
     # ---- helpers ----------------------------------------------------------
 
     @staticmethod
-    def _split_into_pieces(text: str, size: int) -> List[str]:
+    def _split_into_pieces(text: str, size: int) -> list[str]:
         """按 size 切分 text → list[str]"""
-        if size < 1:
-            size = 1
+        size = max(size, 1)
         if not text:
             return []
         return [text[i : i + size] for i in range(0, len(text), size)]
 
-    def stats(self) -> Dict[str, int]:
+    def stats(self) -> dict[str, int]:
         return dict(self._stats)
 
 
@@ -364,7 +359,7 @@ class MockStreamingProvider:
 # =============================================================================
 
 
-def merge_deltas(chunks: List[StreamChunk]) -> Dict[str, Any]:
+def merge_deltas(chunks: list[StreamChunk]) -> dict[str, Any]:
     """把同一 tool_call_id 的 args_delta 拼成完整 tool_call
 
     输入: StreamChunk 列表(可能含 text / tool_call_start / tool_call_delta / finish)
@@ -378,9 +373,9 @@ def merge_deltas(chunks: List[StreamChunk]) -> Dict[str, Any]:
     若有多个 tool_call → 仅合并第一个(aggregate_stream 内部按需循环);
     该函数处理单个 tool_call 的合并,聚合多个 tool_call 由 aggregate_stream 完成。
     """
-    tc_id: Optional[str] = None
-    tc_name: Optional[str] = None
-    args_parts: List[str] = []
+    tc_id: str | None = None
+    tc_name: str | None = None
+    args_parts: list[str] = []
 
     for ch in chunks:
         if ch.delta_type == "tool_call_start":
@@ -427,7 +422,7 @@ async def aggregate_stream(
             finish_reason=None
     """
     result = StreamResult()
-    tool_calls_map: Dict[str, Dict[str, Any]] = {}
+    tool_calls_map: dict[str, dict[str, Any]] = {}
 
     try:
         agen = provider.chat_stream(prompt, model=model)
@@ -469,7 +464,7 @@ async def aggregate_stream(
     finally:
         result.total_chunks = len(result.chunks)
         # 顺序按 tool_call_id 首次出现
-        seen_order: List[str] = []
+        seen_order: list[str] = []
         for ch in result.chunks:
             if (
                 ch.delta_type == "tool_call_start"
@@ -518,7 +513,7 @@ async def aggregate_with_fallback(
         return stream_result
 
     # wrap 成 chunks
-    chunks: List[StreamChunk] = []
+    chunks: list[StreamChunk] = []
     idx = 0
     if full_text:
         chunks.append(

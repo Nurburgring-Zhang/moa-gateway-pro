@@ -18,11 +18,12 @@
 """
 from __future__ import annotations
 
-import re
 import json
+import re
 import time
-from dataclasses import dataclass, field, asdict
-from typing import List, Optional, Tuple, Callable, Dict, Any, Set
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 
 # ============ 数据模型 ============
@@ -31,13 +32,13 @@ class ProposalVersion:
     """单个方案版本"""
     version_id: str  # "v1", "v2", ...
     content: str
-    parent_version_id: Optional[str] = None
+    parent_version_id: str | None = None
     created_at: float = 0.0
     created_by: str = "system"
-    critique: Optional[str] = None
-    improvement_summary: Optional[str] = None
+    critique: str | None = None
+    improvement_summary: str | None = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -45,9 +46,9 @@ class ProposalVersion:
 class VersionChain:
     """同一 proposal 的版本链 (按时间顺序)"""
     proposal_id: str
-    versions: List[ProposalVersion] = field(default_factory=list)
+    versions: list[ProposalVersion] = field(default_factory=list)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "proposal_id": self.proposal_id,
             "versions": [v.to_dict() for v in self.versions],
@@ -129,7 +130,7 @@ _BATTLE_PATTERNS = [
 ]
 
 
-def parse_battle(judge_response: str) -> Tuple[str, int]:
+def parse_battle(judge_response: str) -> tuple[str, int]:
     """解析 judge 对战响应, 返回 (winner, confidence 0-1)
 
     winner ∈ {"A", "B", "tie"}
@@ -152,10 +153,9 @@ def parse_battle(judge_response: str) -> Tuple[str, int]:
 
     if winner_m is None:
         for idx, (pat, label) in enumerate(_BATTLE_PATTERNS):
-            if label in ("A", "B"):
-                if pat.search(text):
-                    winner_m = (label, idx)
-                    break
+            if label in ("A", "B") and pat.search(text):
+                winner_m = (label, idx)
+                break
 
     if winner_m is None:
         if tie_m:
@@ -224,7 +224,7 @@ class VersionStore:
     """
 
     # 停用词: 不计入"关键词"统计的常见词
-    _STOPWORDS: Set[str] = {
+    _STOPWORDS: set[str] = {
         "the", "a", "an", "is", "are", "was", "were", "be", "been",
         "of", "in", "on", "at", "to", "for", "with", "by", "from",
         "and", "or", "but", "not", "no", "yes", "this", "that",
@@ -237,17 +237,17 @@ class VersionStore:
 
     def __init__(self) -> None:
         # proposal_id → VersionChain
-        self._chains: Dict[str, VersionChain] = {}
+        self._chains: dict[str, VersionChain] = {}
 
     def add_version(
         self,
         proposal_id: str,
         content: str,
-        parent: Optional[str] = None,
-        critique: Optional[str] = None,
-        improvement: Optional[str] = None,
+        parent: str | None = None,
+        critique: str | None = None,
+        improvement: str | None = None,
         created_by: str = "system",
-        created_at: Optional[float] = None,
+        created_at: float | None = None,
     ) -> str:
         """添加新版本, 返回 version_id (e.g. "v1")
 
@@ -290,7 +290,7 @@ class VersionStore:
         """获取版本链; 不存在则返回空链 (而非抛错)"""
         return self._chains.get(proposal_id, VersionChain(proposal_id=proposal_id))
 
-    def get_version(self, proposal_id: str, version_id: str) -> Optional[ProposalVersion]:
+    def get_version(self, proposal_id: str, version_id: str) -> ProposalVersion | None:
         """获取指定版本; 不存在返回 None"""
         chain = self._chains.get(proposal_id)
         if not chain:
@@ -300,19 +300,19 @@ class VersionStore:
                 return v
         return None
 
-    def latest(self, proposal_id: str) -> Optional[ProposalVersion]:
+    def latest(self, proposal_id: str) -> ProposalVersion | None:
         """获取最新版本; 不存在返回 None"""
         chain = self._chains.get(proposal_id)
         if not chain or not chain.versions:
             return None
         return chain.versions[-1]
 
-    def all_proposal_ids(self) -> List[str]:
+    def all_proposal_ids(self) -> list[str]:
         return list(self._chains.keys())
 
 
 # ============ diff_versions ============
-def _extract_keywords(text: str, stopwords: Set[str]) -> Set[str]:
+def _extract_keywords(text: str, stopwords: set[str]) -> set[str]:
     """提取小写关键词 (去停用词, 长度 ≥ 3)"""
     if not text:
         return set()
@@ -323,8 +323,8 @@ def _extract_keywords(text: str, stopwords: Set[str]) -> Set[str]:
 def diff_versions(
     v1: ProposalVersion,
     v2: ProposalVersion,
-    stopwords: Optional[Set[str]] = None,
-) -> Dict[str, Any]:
+    stopwords: set[str] | None = None,
+) -> dict[str, Any]:
     """对比两个版本的差异
 
     返回:

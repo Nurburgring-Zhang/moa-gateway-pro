@@ -1,0 +1,36 @@
+﻿=== Phase 0: 启动 server ===
+  ✓ server ready in 3.0s
+
+=== Phase 1: Auth ===
+  ✓ admin token len=217
+
+=== Phase 2: API Keys ===
+  ✓ created key: mgw-jAIZD6YqQeVBllw5... id=key_02c6e4ede9e8
+
+=== Phase 3: Endpoints ===
+  ✓ 0 endpoints
+
+=== Phase 4: Observability ===
+
+=== Phase 5: Models & Quota ===
+  ✓ 0 models
+
+=== Phase 6: MoA Pipeline ===
+
+=== Phase 7: Chat Completions ===
+
+=== Phase 8: All 60+ Capability Endpoints ===
+  tested 92 capability endpoints
+
+=== Phase 9: Error Handling ===
+
+=== Phase 10: Rate Limit ===
+  rate_test create: status=200 key=mgw-OMQnMj1cLuJQbg1K  body={'key_id': 'key_a3742584050f', 'key': 'mgw-OMQnMj1cLuJQbg1KCNHjc35SYDjd68Im', 'name': 'rate_test', 'quota_rpm': 3, 'quota_daily_tokens': 1000000}
+  rate limit test: 3 OK + 5 429
+  ✓ rate limit works
+
+=== Phase 11: Storage CRUD ===
+
+============================================================
+  Total: 137 pass, 0 fail
+============================================================

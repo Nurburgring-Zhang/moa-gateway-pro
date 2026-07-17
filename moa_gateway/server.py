@@ -1,4 +1,4 @@
-﻿"""moa_gateway.server — FastAPI 服务
+"""moa_gateway.server — FastAPI 服务
 提供:
 - OpenAI 兼容 /v1/chat/completions, /v1/models
 - 原生 /v1/moa/execute, /v1/route/preview
@@ -113,8 +113,10 @@ def create_app() -> FastAPI:
     pool = get_model_pool()
     metrics = Metrics.instance()
 
+
+
     @asynccontextmanager
-    async def lifespan(app: FastAPI):
+    async def lifespan(application: FastAPI):
         logger.info("MoA Gateway Pro starting up…")
         await pool.start()
         logger.info("Model pool started: %d endpoints", len(pool.endpoints))
@@ -171,6 +173,111 @@ def create_app() -> FastAPI:
         description="工业级多模型协作网关 - 一份 OpenAI Key 接入所有大模型",
         lifespan=lifespan,
     )
+
+    # ============ Round-1 修复:全局异常 handler (P0-1/P0-2/P0-3 P1-1) ============
+    from fastapi.exceptions import RequestValidationError
+    from fastapi.responses import JSONResponse
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+
+    @app.exception_handler(RequestValidationError)
+    async def _validation_handler(request, exc: RequestValidationError):
+        """Pydantic / FastAPI 422 校验错 — 透传细节"""
+        try:
+            detail = exc.errors()
+        except Exception:
+            detail = str(exc)
+        return JSONResponse(
+            status_code=422,
+            content={"detail": "validation error", "errors": detail},
+        )
+
+    @app.exception_handler(ValueError)
+    async def _value_handler(request, exc: ValueError):
+        """业务 ValueError → 400 (不是 500)"""
+        msg = str(exc) or exc.__class__.__name__
+        return JSONResponse(
+            status_code=400,
+            content={"detail": f"value error: {msg}"},
+        )
+
+    @app.exception_handler(TypeError)
+    async def _type_handler(request, exc: TypeError):
+        """类型错 → 422 (业务期望类型 vs 实际类型)"""
+        msg = str(exc) or exc.__class__.__name__
+        return JSONResponse(
+            status_code=422,
+            content={"detail": f"type error: {msg}"},
+        )
+
+    @app.exception_handler(KeyError)
+    async def _key_handler(request, exc: KeyError):
+        """缺字段 → 422"""
+        return JSONResponse(
+            status_code=422,
+            content={"detail": f"missing required field: {exc.args[0] if exc.args else 'unknown'}"},
+        )
+
+    @app.exception_handler(AttributeError)
+    async def _attr_handler(request, exc: AttributeError):
+        """对象属性错 → 422 (业务类型不匹配)"""
+        msg = str(exc) or exc.__class__.__name__
+        return JSONResponse(
+            status_code=422,
+            content={"detail": f"attribute error: {msg}"},
+        )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def _http_handler(request, exc: StarletteHTTPException):
+        """HTTPException 透传 — 防止被 500 包掉"""
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=exc.headers,
+        )
+
+    @app.exception_handler(json.JSONDecodeError)
+    async def _json_handler(request, exc: json.JSONDecodeError):
+        """JSON 解析错 → 400"""
+        return JSONResponse(
+            status_code=400,
+            content={"detail": f"invalid JSON: {exc.msg}"},
+        )
+
+    @app.exception_handler(IndexError)
+    async def _index_handler(request, exc: IndexError):
+        """index 错 → 422"""
+        return JSONResponse(
+            status_code=422,
+            content={"detail": f"index out of range: {exc}"},
+        )
+
+    @app.exception_handler(ZeroDivisionError)
+    async def _zero_handler(request, exc: ZeroDivisionError):
+        """除零 → 422"""
+        return JSONResponse(
+            status_code=422,
+            content={"detail": f"division by zero: {exc}"},
+        )
+
+    def _err_500(e: Exception, action: str) -> "HTTPException":
+        """智能 500 包装:输入错误 → 4xx,真服务端错 → 500.
+
+        Round-1 修复:不要把所有错都包 500,TypeError/KeyError/AttributeError 等是用户输入错,
+        应该 4xx 让客户端能 retry / fix。
+        """
+        if isinstance(e, HTTPException):
+            return e  # 透传
+        if isinstance(e, (TypeError, AttributeError, IndexError, KeyError)):
+            logger.warning("%s: input error: %s", action, e)
+            return HTTPException(422, f"{action}: invalid input - {e}")
+        if isinstance(e, ValueError):
+            msg = str(e) or ""
+            logger.warning("%s: business validation failed: %s", action, msg[:200])
+            return HTTPException(400, f"{action}: {msg[:200]}" if msg else f"{action}: invalid value")
+        # 真服务端错 → 500
+        logger.exception("%s: server error", action, exc_info=e)
+        return HTTPException(500, f"{action}: {e}")
+
 
     app.add_middleware(
         CORSMiddleware,
@@ -976,8 +1083,18 @@ def create_app() -> FastAPI:
         from .capability.n_layer_moa import (
             Proposer, Aggregator, run_three_layer_moa,
         )
-        proposers = [Proposer(**p) for p in body.get("proposers", [])]
-        aggregators = [Aggregator(**a) for a in body.get("aggregators", [])]
+        # Round-1: 输入校验 (避免 500 包 422)
+        raw_query = body.get("query", "")
+        if not isinstance(raw_query, str):
+            raise HTTPException(422, f"query must be a string, got {type(raw_query).__name__}")
+        try:
+            proposers = [Proposer(**p) for p in body.get("proposers", [])]
+        except (TypeError, KeyError, ValueError) as e:
+            raise HTTPException(422, f"invalid proposer: {e}") from e
+        try:
+            aggregators = [Aggregator(**a) for a in body.get("aggregators", [])]
+        except (TypeError, KeyError, ValueError) as e:
+            raise HTTPException(422, f"invalid aggregator: {e}") from e
         # 修 v1.6.6: 校验前移,避免 500 包 400
         if not proposers:
             raise HTTPException(400, "proposers must be non-empty")
@@ -993,12 +1110,9 @@ def create_app() -> FastAPI:
             )
         except HTTPException:
             raise
-        except HTTPException:
-
-            raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"MoA run failed: {e}")
+            raise _err_500(e, 'MoA run failed')
         return result
 
     @app.post("/v1/capability/convergent-detect")
@@ -1192,14 +1306,9 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
-        except HTTPException:
-
-
-            raise  # patch v1.6.6: pass through 4xx
-
 
         except Exception as e:
-            raise HTTPException(500, f"self_heal action failed: {e}")
+            raise _err_500(e, 'self_heal action failed:')
         return {
             "actions": [a.__dict__ for a in result_actions],
             "state": state_to_dict(state),
@@ -1234,7 +1343,7 @@ def create_app() -> FastAPI:
             raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"synthesis failed: {e}")
+            raise _err_500(e, 'synthesis failed:')
         return {
             "mode": result.mode.value,
             "output": result.output,
@@ -1330,7 +1439,7 @@ def create_app() -> FastAPI:
                 raise  # patch v1.6.6: pass through 4xx
 
             except Exception as e:
-                raise HTTPException(500, f"save_feedback failed: {e}")
+                raise _err_500(e, 'save_feedback failed:')
         history = load_history(history_path) if history_path else []
         conv = detect_convergence(history) if history else {"converged": False, "std": 0.0, "trend": "stable"}
         prompt = format_next_iter_prompt(history_path) if history_path else ""
@@ -1364,7 +1473,7 @@ def create_app() -> FastAPI:
             raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"stream aggregate failed: {e}")
+            raise _err_500(e, 'stream aggregate failed:')
         return {
             "full_content": result.full_content,
             "tool_calls": result.tool_calls,
@@ -1427,14 +1536,9 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
-        except HTTPException:
-
-
-            raise  # patch v1.6.6: pass through 4xx
-
 
         except Exception as e:
-            raise HTTPException(500, f"per_provider_rl action failed: {e}")
+            raise _err_500(e, 'per_provider_rl action failed:')
         return result
 
     # ========== v1.5.4 Capability Endpoints — Wave 4 (HIGH 优先级) ==========
@@ -2026,7 +2130,7 @@ def create_app() -> FastAPI:
             raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"subagent_comms failed: {e}")
+            raise _err_500(e, 'subagent_comms failed:')
         return result
 
     @app.post("/v1/capability/version")
@@ -2093,14 +2197,9 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
-        except HTTPException:
-
-
-            raise  # patch v1.6.6: pass through 4xx
-
 
         except Exception as e:
-            raise HTTPException(500, f"version action failed: {e}")
+            raise _err_500(e, 'version action failed:')
         return result
 
     # ========== v1.5.7 Capability Endpoints — Wave 7 (HIGH 优先级) ==========
@@ -2150,14 +2249,9 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
-        except HTTPException:
-
-
-            raise  # patch v1.6.6: pass through 4xx
-
 
         except Exception as e:
-            raise HTTPException(500, f"config action failed: {e}")
+            raise _err_500(e, 'config action failed:')
         return result
 
     @app.post("/v1/capability/bubble")
@@ -2221,14 +2315,9 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
-        except HTTPException:
-
-
-            raise  # patch v1.6.6: pass through 4xx
-
 
         except Exception as e:
-            raise HTTPException(500, f"bubble action failed: {e}")
+            raise _err_500(e, 'bubble action failed:')
         return result
 
     @app.post("/v1/capability/worktree")
@@ -2290,14 +2379,9 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
-        except HTTPException:
-
-
-            raise  # patch v1.6.6: pass through 4xx
-
 
         except Exception as e:
-            raise HTTPException(500, f"worktree action failed: {e}")
+            raise _err_500(e, 'worktree action failed:')
         return result
 
     @app.post("/v1/capability/route")
@@ -2344,14 +2428,9 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
-        except HTTPException:
-
-
-            raise  # patch v1.6.6: pass through 4xx
-
 
         except Exception as e:
-            raise HTTPException(500, f"route action failed: {e}")
+            raise _err_500(e, 'route action failed:')
         return result
 
     @app.post("/v1/capability/session-lock")
@@ -2423,14 +2502,9 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
-        except HTTPException:
-
-
-            raise  # patch v1.6.6: pass through 4xx
-
 
         except Exception as e:
-            raise HTTPException(500, f"session_lock action failed: {e}")
+            raise _err_500(e, 'session_lock action failed:')
         return result
 
     # ========== v1.5.8 Capability Endpoints — Wave 8 (HIGH 优先级) ==========
@@ -2509,14 +2583,9 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
-        except HTTPException:
-
-
-            raise  # patch v1.6.6: pass through 4xx
-
 
         except Exception as e:
-            raise HTTPException(500, f"elo action failed: {e}")
+            raise _err_500(e, 'elo action failed:')
         return result
 
     @app.post("/v1/capability/brainstorm")
@@ -2544,18 +2613,10 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
-        except HTTPException:
-
-            raise  # 修 38: 让 4xx 直接返回(不被包 500)
-
-        except HTTPException:
-
-
-            raise  # patch v1.6.6: pass through 4xx
 
 
         except Exception as e:
-            raise HTTPException(500, f"brainstorm action failed: {e}")
+            raise _err_500(e, 'brainstorm action failed:')
         return result
 
     @app.post("/v1/capability/cross-iter")
@@ -2595,14 +2656,9 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
-        except HTTPException:
-
-
-            raise  # patch v1.6.6: pass through 4xx
-
 
         except Exception as e:
-            raise HTTPException(500, f"cross_iter action failed: {e}")
+            raise _err_500(e, 'cross_iter action failed:')
         return result
 
     @app.post("/v1/capability/audit")
@@ -2627,7 +2683,7 @@ def create_app() -> FastAPI:
             raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"audit failed: {e}")
+            raise _err_500(e, 'audit failed:')
 
     # ========== v1.5.9 Capability Endpoints — Wave 9 (HIGH 优先级) ==========
     @app.post("/v1/capability/in-flight")
@@ -2677,14 +2733,9 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
-        except HTTPException:
-
-
-            raise  # patch v1.6.6: pass through 4xx
-
 
         except Exception as e:
-            raise HTTPException(500, f"in_flight action failed: {e}")
+            raise _err_500(e, 'in_flight action failed:')
         return result
 
     @app.post("/v1/capability/mx")
@@ -2716,14 +2767,9 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
-        except HTTPException:
-
-
-            raise  # patch v1.6.6: pass through 4xx
-
 
         except Exception as e:
-            raise HTTPException(500, f"mx action failed: {e}")
+            raise _err_500(e, 'mx action failed:')
         return result
 
     @app.post("/v1/capability/tier-promo")
@@ -2776,14 +2822,9 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
-        except HTTPException:
-
-
-            raise  # patch v1.6.6: pass through 4xx
-
 
         except Exception as e:
-            raise HTTPException(500, f"tier_promo action failed: {e}")
+            raise _err_500(e, 'tier_promo action failed:')
         return result
 
     @app.post("/v1/capability/artifact")
@@ -2852,14 +2893,9 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
-        except HTTPException:
-
-
-            raise  # patch v1.6.6: pass through 4xx
-
 
         except Exception as e:
-            raise HTTPException(500, f"artifact action failed: {e}")
+            raise _err_500(e, 'artifact action failed:')
         return result
 
     @app.post("/v1/capability/frozen")
@@ -2911,14 +2947,9 @@ def create_app() -> FastAPI:
 
             raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
-        except HTTPException:
-
-
-            raise  # patch v1.6.6: pass through 4xx
-
 
         except Exception as e:
-            raise HTTPException(500, f"frozen action failed: {e}")
+            raise _err_500(e, 'frozen action failed:')
         return result
 
     # ========== v1.5.10 Capability Endpoints — Wave 10 (HIGH 优先级) ==========
@@ -2959,7 +2990,7 @@ def create_app() -> FastAPI:
             raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"turboquant failed: {e}")
+            raise _err_500(e, 'turboquant failed:')
         return result
 
     @app.post("/v1/capability/moa-engine")
@@ -3000,7 +3031,7 @@ def create_app() -> FastAPI:
             raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"MoA run failed: {e}")
+            raise _err_500(e, 'MoA run failed')
         return result
 
     @app.post("/v1/capability/acceptance")
@@ -3050,7 +3081,7 @@ def create_app() -> FastAPI:
             raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"acceptance failed: {e}")
+            raise _err_500(e, 'acceptance failed:')
         return result
 
     @app.post("/v1/capability/llm-merge")
@@ -3103,7 +3134,7 @@ def create_app() -> FastAPI:
             raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"llm_merge failed: {e}")
+            raise _err_500(e, 'llm_merge failed:')
         return result
 
     @app.post("/v1/capability/grace")
@@ -3146,7 +3177,7 @@ def create_app() -> FastAPI:
             raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"grace failed: {e}")
+            raise _err_500(e, 'grace failed:')
         return result
 
     # ========== Wave 11 Capability Endpoints (5 new) ==========
@@ -3168,12 +3199,9 @@ def create_app() -> FastAPI:
             return {"results": results, "count": len(results), "query": query}
         except HTTPException:
             raise
-        except HTTPException:
-
-            raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"rag_search failed: {e}")
+            raise _err_500(e, 'rag_search failed:')
 
     @app.post("/v1/capability/plan-act")
     async def capability_plan_act(
@@ -3188,12 +3216,9 @@ def create_app() -> FastAPI:
             return result
         except HTTPException:
             raise
-        except HTTPException:
-
-            raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"plan_act failed: {e}")
+            raise _err_500(e, 'plan_act failed:')
 
     @app.post("/v1/capability/channels")
     async def capability_channels(
@@ -3230,12 +3255,9 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
-        except HTTPException:
-
-            raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"channels failed: {e}")
+            raise _err_500(e, 'channels failed:')
 
     @app.post("/v1/capability/reference-router")
     async def capability_reference_router(
@@ -3264,12 +3286,9 @@ def create_app() -> FastAPI:
             return result
         except HTTPException:
             raise
-        except HTTPException:
-
-            raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"reference_router failed: {e}")
+            raise _err_500(e, 'reference_router failed:')
 
     @app.post("/v1/capability/checkpoint")
     async def capability_checkpoint(
@@ -3328,12 +3347,9 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
-        except HTTPException:
-
-            raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"checkpoint failed: {e}")
+            raise _err_500(e, 'checkpoint failed:')
 
     # ========== Wave 12 Capability Endpoints (5 new) ==========
 
@@ -3390,12 +3406,9 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
-        except HTTPException:
-
-            raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"audit failed: {e}")
+            raise _err_500(e, 'audit failed:')
 
     @app.post("/v1/capability/canary")
     async def capability_canary(
@@ -3429,12 +3442,9 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
-        except HTTPException:
-
-            raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"canary failed: {e}")
+            raise _err_500(e, 'canary failed:')
 
     @app.post("/v1/capability/wrap-output")
     async def capability_wrap_output(
@@ -3475,12 +3485,9 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
-        except HTTPException:
-
-            raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"wrap_output failed: {e}")
+            raise _err_500(e, 'wrap_output failed:')
 
     @app.post("/v1/capability/fuzzy-dedup")
     async def capability_fuzzy_dedup(
@@ -3514,12 +3521,9 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
-        except HTTPException:
-
-            raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"fuzzy_dedup failed: {e}")
+            raise _err_500(e, 'fuzzy_dedup failed:')
 
     @app.post("/v1/capability/input-fingerprint")
     async def capability_input_fingerprint(
@@ -3559,12 +3563,9 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
-        except HTTPException:
-
-            raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"input_fingerprint failed: {e}")
+            raise _err_500(e, 'input_fingerprint failed:')
 
     # ========== Wave 13 Capability Endpoints (5 new) ==========
 
@@ -3588,12 +3589,9 @@ def create_app() -> FastAPI:
             }
         except HTTPException:
             raise
-        except HTTPException:
-
-            raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"tool_screening failed: {e}")
+            raise _err_500(e, 'tool_screening failed:')
 
     @app.post("/v1/capability/anthropic-compat")
     async def capability_anthropic_compat(
@@ -3635,12 +3633,9 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
-        except HTTPException:
-
-            raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"anthropic_compat failed: {e}")
+            raise _err_500(e, 'anthropic_compat failed:')
 
     @app.post("/v1/capability/token-bucket")
     async def capability_token_bucket(
@@ -3681,12 +3676,9 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
-        except HTTPException:
-
-            raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"token_bucket failed: {e}")
+            raise _err_500(e, 'token_bucket failed:')
 
     @app.post("/v1/capability/request-dedup")
     async def capability_request_dedup(
@@ -3738,12 +3730,9 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
-        except HTTPException:
-
-            raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"request_dedup failed: {e}")
+            raise _err_500(e, 'request_dedup failed:')
 
     @app.post("/v1/capability/trace")
     async def capability_trace(
@@ -3822,18 +3811,37 @@ def create_app() -> FastAPI:
                 raise HTTPException(400, f"unknown action: {action}")
         except HTTPException:
             raise
-        except HTTPException:
-
-            raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"trace failed: {e}")
+            raise _err_500(e, 'trace failed:')
 
     # ========== WebUI Auth ==========
     @app.post("/api/auth/login")
-    async def login(req: LoginRequest):
-        # 修11: 异步 bcrypt — 在线程池里跑,不阻塞 event loop
+    async def login(req: LoginRequest, request: Request):
+        # Round-1 (P1-9): IP-based rate limit 防暴力破解
+        client_ip = request.client.host if request.client else "unknown"
         storage = get_storage()
+        # 检查 IP 登录尝试次数(每 IP 每 60s 最多 10 次)
+        with storage.conn() as c:
+            row = c.execute(
+                "SELECT count, window_start FROM login_attempts WHERE ip = ?",
+                (client_ip,),
+            ).fetchone()
+            now = time.time()
+            if row and (now - float(row["window_start"])) < 60.0:
+                if int(row["count"]) >= 10:
+                    raise HTTPException(429, "too many login attempts, try again later")
+                c.execute(
+                    "UPDATE login_attempts SET count = count + 1 WHERE ip = ?",
+                    (client_ip,),
+                )
+            else:
+                c.execute(
+                    "INSERT OR REPLACE INTO login_attempts (ip, count, window_start) "
+                    "VALUES (?, 1, ?)",
+                    (client_ip, now),
+                )
+        # 修11: 异步 bcrypt — 在线程池里跑,不阻塞 event loop
         # 先取 hash,再在线程池里 verify
         from .storage import async_bcrypt_verify
         with storage.conn() as c:
@@ -3898,7 +3906,7 @@ def create_app() -> FastAPI:
             raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise HTTPException(500, f"upsert failed: {e}")
+            raise _err_500(e, 'upsert failed:')
         return {"ok": True, "id": ep.id}
 
     @app.delete("/api/endpoints/{eid}")
@@ -4042,6 +4050,120 @@ def create_app() -> FastAPI:
         if not p.exists() or not p.is_file():
             raise HTTPException(404, "not found")
         return FileResponse(str(p))
+
+    # ========== Agent Dispatch — 统一入口调用任意 Service.method ==========
+    @app.get("/v1/agent/list")
+    async def agent_list(key_info: Dict[str, Any] = Depends(require_api_key)):
+        """列出所有已注册的 service / method."""
+        from .services.dispatcher import get_dispatcher
+        return {"agents": get_dispatcher().list_agents()}
+
+    @app.post("/v1/agent/dispatch")
+    async def agent_dispatch(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """Agent Dispatch — 统一入口调用任意 Service.method.
+
+        Body: {"service": "moa", "method": "run_three_layer", "payload": {...}}
+        Returns: ServiceResult envelope (ok, data, error, error_code, latency_ms, ...)
+        """
+        from .services.dispatcher import get_dispatcher
+        service_name = body.get("service", "")
+        method_name = body.get("method", "")
+        payload = body.get("payload") or {}
+        if not service_name or not method_name:
+            raise HTTPException(422, "service and method are required")
+        result = await get_dispatcher().dispatch(service_name, method_name, payload)
+        # 用 raise_if_failed 把失败转成对应 4xx
+        result.raise_if_failed()
+        return result.to_dict()
+
+    @app.post("/v1/agent/dispatch_batch")
+    async def agent_dispatch_batch(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """批量 dispatch, 并行执行多个 service.method 调用.
+
+        Body: {"calls": [{"service":"x","method":"y","payload":{...}, "alias":"step1"}, ...]}
+        Returns: {"results": [...ServiceResult], "latency_ms": ...}
+        """
+        from .services.dispatcher import get_dispatcher
+        import time as _t
+        calls = body.get("calls") or []
+        if not isinstance(calls, list):
+            raise HTTPException(422, "calls must be a list")
+        t0 = _t.perf_counter()
+        results = await get_dispatcher().dispatch_batch(calls)
+        return {
+            "results": [r.to_dict() for r in results],
+            "latency_ms": (_t.perf_counter() - t0) * 1000.0,
+        }
+
+    @app.get("/v1/agent/workflows")
+    async def agent_workflows(key_info: Dict[str, Any] = Depends(require_api_key)):
+        """列出所有已注册的 workflow 模板."""
+        from .services.dispatcher import get_dispatcher
+        return {"workflows": get_dispatcher().list_workflows()}
+
+    @app.post("/v1/agent/workflow/register")
+    async def agent_workflow_register(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """动态注册一个 workflow 模板.
+
+        Body: {"name": "wf1", "description": "...",
+               "steps": [
+                 {"name": "step1", "service": "moa", "method": "validate_config",
+                  "payload": {...}, "depends_on": [], "input_map": {}, "optional": false},
+                 ...
+               ]}
+        """
+        from .services.dispatcher import get_dispatcher, Workflow, WorkflowStep
+        name = body.get("name", "")
+        description = body.get("description", "")
+        steps_data = body.get("steps") or []
+        if not name or not isinstance(steps_data, list):
+            raise HTTPException(422, "name and steps (list) are required")
+        steps = []
+        for s in steps_data:
+            steps.append(WorkflowStep(
+                name=s.get("name", ""),
+                service=s.get("service", ""),
+                method=s.get("method", ""),
+                payload=s.get("payload") or {},
+                depends_on=s.get("depends_on") or [],
+                input_map=s.get("input_map") or {},
+                optional=bool(s.get("optional", False)),
+                description=s.get("description", ""),
+            ))
+        wf = Workflow(name=name, description=description, steps=steps)
+        get_dispatcher().register_workflow(name, wf)
+        return {"name": name, "steps_count": len(steps), "ok": True}
+
+    @app.post("/v1/agent/workflow/run")
+    async def agent_workflow_run(
+        body: Dict[str, Any],
+        key_info: Dict[str, Any] = Depends(require_api_key),
+    ):
+        """执行一个 workflow 模板 — 多 service.method DAG 执行, 真实数据流转.
+
+        Body: {"name": "wf_name", "input": {...}}
+        Returns: WorkflowResult (每个 step 的输入输出 + 整体 ok)
+        """
+        from .services.dispatcher import get_dispatcher
+        name = body.get("name", "")
+        input_payload = body.get("input") or {}
+        if not name:
+            raise HTTPException(422, "name is required")
+        wf_result = await get_dispatcher().run_workflow(name, input_payload)
+        if not wf_result.ok:
+            if "not found" in (wf_result.error or ""):
+                raise HTTPException(404, wf_result.error)
+            raise HTTPException(500, f"workflow failed: {wf_result.error}")
+        return wf_result.to_dict()
 
     # ========== 辅助 ==========
     def _format_chat_response(request_id: str, model: str, content: str,

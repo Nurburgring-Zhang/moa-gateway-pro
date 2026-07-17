@@ -11,10 +11,8 @@ from __future__ import annotations
 
 import json
 import time
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional
-from dataclasses import dataclass, asdict, field
-
 
 # ============ HARNESS_FROZEN_* 8 sentinels ============
 # 哨兵常量:用于在文件 / 模块 / 路径上挂载"冰冻声明",
@@ -31,7 +29,7 @@ HARNESS_FROZEN_BOOTSTRAP    = "HARNESS_FROZEN_BOOTSTRAP"
 HARNESS_FROZEN_CONFIG       = "HARNESS_FROZEN_CONFIG"
 
 # 8 个哨兵集中导出,便于测试 / 反射校验
-ALL_HARNESS_FROZEN_SENTINELS: List[str] = [
+ALL_HARNESS_FROZEN_SENTINELS: list[str] = [
     HARNESS_FROZEN_CANONICAL,
     HARNESS_FROZEN_SAFETY,
     HARNESS_FROZEN_TUNING,
@@ -43,7 +41,7 @@ ALL_HARNESS_FROZEN_SENTINELS: List[str] = [
 ]
 
 # zone → 默认 sentinel 的映射;FrozenEntry 缺省时也用这张表兜底
-_ZONE_DEFAULT_SENTINEL: Dict["Zone", str] = {}
+_ZONE_DEFAULT_SENTINEL: dict[Zone, str] = {}
 
 
 # ============ Zone 枚举 ============
@@ -128,7 +126,7 @@ class FrozenEntry:
         if not self.sentinel:
             self.sentinel = _ZONE_DEFAULT_SENTINEL[self.zone]
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """JSON 友好字典"""
         d = asdict(self)
         d["zone"] = self.zone.value
@@ -149,7 +147,7 @@ class FrozenRegistry:
     """
 
     def __init__(self) -> None:
-        self._entries: Dict[str, FrozenEntry] = {}
+        self._entries: dict[str, FrozenEntry] = {}
 
     # ----- mutators -----
     def add(self, entry: FrozenEntry) -> None:
@@ -169,12 +167,12 @@ class FrozenRegistry:
         self._entries.clear()
 
     # ----- queries -----
-    def get_zone(self, path: str) -> Optional[Zone]:
+    def get_zone(self, path: str) -> Zone | None:
         """查 path 的 zone;不存在返回 None"""
         e = self._entries.get(path)
         return e.zone if e is not None else None
 
-    def get_sentinel(self, path: str) -> Optional[str]:
+    def get_sentinel(self, path: str) -> str | None:
         """查 path 的 sentinel;不存在返回 None"""
         e = self._entries.get(path)
         return e.sentinel if e is not None else None
@@ -193,15 +191,15 @@ class FrozenRegistry:
             return False
         return e.zone.is_evolvable
 
-    def get(self, path: str) -> Optional[FrozenEntry]:
+    def get(self, path: str) -> FrozenEntry | None:
         """原始 entry 查询"""
         return self._entries.get(path)
 
-    def list_paths(self) -> List[str]:
+    def list_paths(self) -> list[str]:
         """所有已注册 path(拷贝)"""
         return list(self._entries.keys())
 
-    def list_entries(self) -> List[FrozenEntry]:
+    def list_entries(self) -> list[FrozenEntry]:
         """所有已注册 entry(拷贝)"""
         return list(self._entries.values())
 
@@ -220,7 +218,7 @@ class FrozenRegistry:
             sort_keys=True,
         )
 
-    def to_dict(self) -> Dict[str, Dict]:
+    def to_dict(self) -> dict[str, dict]:
         """整张注册表序列化为 dict[path → entry-dict]"""
         return {p: e.to_dict() for p, e in self._entries.items()}
 

@@ -7,7 +7,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from moa_gateway.capability.tool_replay import (
     DEFAULT_LOOP_THRESHOLD,
-    DEFAULT_LOOP_WINDOW,
     ReplayResult,
     ToolCall,
     detect_tool_loop,
@@ -17,7 +16,6 @@ from moa_gateway.capability.tool_replay import (
     replay_tool_calls,
     should_disable_tool_choice,
 )
-
 
 # =============================================================================
 # extract_tool_calls
@@ -349,7 +347,7 @@ def test_format_tool_calls_for_aggregator():
     assert '"q": "weather"' in out
     assert "total=2" in out
     assert "unique_args=2" in out
-    print(f"  ✓ test_format_tool_calls_for_aggregator")
+    print("  ✓ test_format_tool_calls_for_aggregator")
     return True
 
 
@@ -371,7 +369,7 @@ def test_format_tool_calls_duplicate_args_count():
     out = format_tool_calls_for_aggregator(calls)
     assert "total=2" in out
     assert "unique_args=1" in out
-    print(f"  ✓ test_format_tool_calls_duplicate_args_count")
+    print("  ✓ test_format_tool_calls_duplicate_args_count")
     return True
 
 
@@ -457,7 +455,6 @@ def test_hash_arguments_stable():
 
 def _run_all() -> int:
     """执行本文件所有 test_* 函数,返回失败数"""
-    import inspect
     tests = sorted(
         [(n, f) for n, f in globals().items()
          if n.startswith("test_") and callable(f)],

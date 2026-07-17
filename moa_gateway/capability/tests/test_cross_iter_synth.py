@@ -3,6 +3,7 @@
 真实 assert, 严禁 mock。
 """
 from __future__ import annotations
+
 import json
 import sys
 from pathlib import Path
@@ -10,25 +11,21 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.cross_iter_synth import (
-    IterationSnapshot,
-    SynthesisMode,
-    SynthesisResult,
-    Step5Mode,
-    Step5Result,
     JACCARD_CONVERGENCE_THRESHOLD,
-    ADOPTION_RATIO,
-    convergence_mode,
+    IterationSnapshot,
+    Step5Mode,
+    SynthesisMode,
     best_of_each_mode,
+    convergence_mode,
     recommended_adoption_mode,
-    run_step5,
-    snapshot_to_dict,
     result_to_dict,
-    step5_result_to_dict,
+    run_step5,
     snapshot_from_dict,
-    synth_payload,
+    snapshot_to_dict,
     step5_payload,
+    step5_result_to_dict,
+    synth_payload,
 )
-
 
 # ============ 辅助: 构造 IterationSnapshot ============
 
@@ -299,7 +296,7 @@ def test_sources_iter_indices_correct():
         for idx in res.sources:
             assert isinstance(idx, int)
         # sources 应保持原始顺序
-        assert res.sources == sorted(res.sources) or res.sources == [0, 3] or res.sources == [0, 3, 7]
+        assert res.sources == sorted(res.sources) or res.sources in ([0, 3], [0, 3, 7])
 
 
 # ============ JSON 序列化测试 ============

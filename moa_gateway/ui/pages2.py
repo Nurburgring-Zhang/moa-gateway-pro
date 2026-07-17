@@ -1,12 +1,13 @@
 """moa_gateway.ui.pages2 — Benchmark / Prompts / Settings(flet 控件)"""
 from __future__ import annotations
-import asyncio
+
+import contextlib
 import math
-import urllib.parse
-from typing import Optional, Dict, Any, List
+
 import flet as ft
-from .theme import DARK, LIGHT, THEMES
-from .pages import page_header, card, primary_button, ghost_button, badge, http_get, http_post
+
+from .pages import http_get, http_post, page_header, primary_button
+from .theme import DARK, THEMES
 
 logger = ...
 
@@ -29,7 +30,7 @@ def html_to_image(html: str, width: int = 800, height: int = 400) -> ft.Containe
 
 
 # ========== 4. Benchmark ==========
-def build_benchmark(state: Dict, sr) -> ft.Control:
+def build_benchmark(state: dict, sr) -> ft.Control:
     palette = state["palette"]
     base = f"http://127.0.0.1:{sr.port or 8765}"
 
@@ -473,8 +474,9 @@ def draw_flask_svg(scores, palette) -> str:
     dims = list(scores.keys())
     n = len(dims)
     cx, cy, R = 200, 200, 130
-    angle = lambda i: i * 2 * math.pi / n - math.pi / 2
-    svg = f'<svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">'
+    def angle(i):
+        return i * 2 * math.pi / n - math.pi / 2
+    svg = '<svg width="400" height="400" xmlns="http://www.w3.org/2000/svg">'
     for r in range(1, 6):
         pts = " ".join(f"{cx + math.cos(angle(i))*R*r/5:.1f},{cy + math.sin(angle(i))*R*r/5:.1f}" for i in range(n))
         svg += f'<polygon points="{pts}" fill="none" stroke="rgba(128,128,128,0.3)"/>'
@@ -493,7 +495,7 @@ def draw_flask_svg(scores, palette) -> str:
 
 
 # ========== 5. Prompts ==========
-def build_prompts(state: Dict, sr) -> ft.Control:
+def build_prompts(state: dict, sr) -> ft.Control:
     palette = state["palette"]
     base = f"http://127.0.0.1:{sr.port or 8765}"
 
@@ -504,8 +506,8 @@ def build_prompts(state: Dict, sr) -> ft.Control:
     )
     lbl_name = ft.Text("—", size=16, weight=ft.FontWeight.BOLD, color=palette.text)
     lbl_meta = ft.Text("", size=11, color=palette.text_dim)
-    templates: List[Dict] = []
-    current_name: List[Optional[str]] = [None]
+    templates: list[dict] = []
+    current_name: list[str | None] = [None]
 
     def load_templates(e=None):
         if not sr.is_running:
@@ -599,7 +601,7 @@ def build_prompts(state: Dict, sr) -> ft.Control:
             try:
                 r = await http_post(f"{base}/v1/moa/prompts/{current_name[0]}/__delete", {}, timeout=10, token=sr.admin_token)
                 return r
-            except Exception as ex:
+            except Exception:
                 # 用 httpx DELETE
                 import httpx
                 async with httpx.AsyncClient(timeout=10) as c:
@@ -653,7 +655,7 @@ def build_prompts(state: Dict, sr) -> ft.Control:
 
 
 # ========== 6. Settings ==========
-def build_settings(state: Dict, sr, apply_theme, toggle_server, server_runner) -> ft.Control:
+def build_settings(state: dict, sr, apply_theme, toggle_server, server_runner) -> ft.Control:
     palette = state["palette"]
 
     def set_theme(name):
@@ -679,19 +681,15 @@ def build_settings(state: Dict, sr, apply_theme, toggle_server, server_runner) -
             server_status.value = f"🟢 运行中  ·  :{server_runner.port}  ·  http://127.0.0.1:{server_runner.port}"
         else:
             server_status.value = "⚪ 未启动"
-        try:
+        with contextlib.suppress(Exception):
             server_status.update()
-        except Exception:
-            pass
 
     import threading
     def periodic():
         import time
         while True:
-            try:
+            with contextlib.suppress(Exception):
                 refresh_server_status()
-            except Exception:
-                pass
             time.sleep(2)
     threading.Thread(target=periodic, daemon=True).start()
     refresh_server_status()

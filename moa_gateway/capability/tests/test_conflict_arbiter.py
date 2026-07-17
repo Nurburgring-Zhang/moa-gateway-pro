@@ -3,38 +3,37 @@
 真实 assert, 严禁 mock。
 """
 from __future__ import annotations
-import pytest
+
 import sys
 from pathlib import Path
+
+import pytest
 
 # 允许直接 import
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.conflict_arbiter import (
+    WEIGHT_COMPILABLE,
+    WEIGHT_EMPIRICAL,
+    WEIGHT_SUPPORT,
+    WEIGHT_VIABILITY,
     ConflictOption,
     ConflictVerdict,
-    build_conflict_from_proposals,
-    score_option,
     arbitrate,
+    build_conflict_from_proposals,
     fuse_decision,
     option_to_dict,
+    score_option,
     verdict_to_dict,
-    WEIGHT_VIABILITY,
-    WEIGHT_SUPPORT,
-    WEIGHT_EMPIRICAL,
-    WEIGHT_COMPILABLE,
-    EMPIRICAL_SATURATION,
-    JACCARD_THRESHOLD,
 )
-
 
 # ============ 辅助 ============
 
 def make_option(
     oid: str,
     desc: str,
-    support: List[int],
-    viab: Dict[int, float],
+    support: list[int],
+    viab: dict[int, float],
     compilable=None,
     empirical: int = 0,
 ) -> ConflictOption:

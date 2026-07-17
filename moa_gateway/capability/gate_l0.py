@@ -8,9 +8,9 @@ from __future__ import annotations
 import ast
 import operator
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
-from typing import Callable, Dict, List, Optional, Tuple
 
 __all__ = [
     "GateVerdict",
@@ -40,16 +40,16 @@ class GateVerdict:
     shortcut_answer: str  # 如果 passed=True,直接回答(可能 empty)
     estimated_complexity: int  # 1-10
     matched_pattern: str = ""  # 调试用:命中的具体模式
-    metadata: Dict = field(default_factory=dict)
+    metadata: dict = field(default_factory=dict)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         d = asdict(self)
         return d
 
 
 # ============ 已知机械验证模式(正则) ============
 
-def _eval_arithmetic(expr: str) -> Tuple[bool, str]:
+def _eval_arithmetic(expr: str) -> tuple[bool, str]:
     """真实算术求值(支持 + - * / 括号)
     用 Python ast 安全求值,不用 eval
     """
@@ -96,7 +96,7 @@ def _eval_arithmetic(expr: str) -> Tuple[bool, str]:
         return (False, "")
 
     # AST 安全检查:只允许 Constant / BinOp / UnaryOp / 数字运算
-    _BIN_OPS: Dict[type, Callable] = {
+    _BIN_OPS: dict[type, Callable] = {
         ast.Add: operator.add,
         ast.Sub: operator.sub,
         ast.Mult: operator.mul,
@@ -105,7 +105,7 @@ def _eval_arithmetic(expr: str) -> Tuple[bool, str]:
         ast.Mod: operator.mod,
         ast.Pow: operator.pow,
     }
-    _UNARY_OPS: Dict[type, Callable] = {
+    _UNARY_OPS: dict[type, Callable] = {
         ast.UAdd: operator.pos,
         ast.USub: operator.neg,
     }
@@ -137,7 +137,7 @@ def _eval_arithmetic(expr: str) -> Tuple[bool, str]:
     return (True, formatted)
 
 
-def _handle_arithmetic(query: str) -> Tuple[bool, str, str]:
+def _handle_arithmetic(query: str) -> tuple[bool, str, str]:
     """检测并计算算术表达式"""
     # 整个 query 即表达式
     if re.match(r"^[\d\s\+\-\*\/\.\(\)]+$", query.strip()):
@@ -156,7 +156,7 @@ def _handle_arithmetic(query: str) -> Tuple[bool, str, str]:
     return (False, "", "")
 
 
-def _handle_datetime(query: str) -> Tuple[bool, str, str]:
+def _handle_datetime(query: str) -> tuple[bool, str, str]:
     """日期/时间查询 — 真实返回当前时间"""
     q = query.lower()
     triggers = ["today", "now", "current date", "current time", "current year",
@@ -174,7 +174,7 @@ def _handle_datetime(query: str) -> Tuple[bool, str, str]:
 
 
 # 单位转换表 (to canonical unit)
-_UNIT_TO_BASE: Dict[str, Tuple[str, float]] = {
+_UNIT_TO_BASE: dict[str, tuple[str, float]] = {
     # length -> meter
     "m": ("length", 1.0), "meter": ("length", 1.0), "meters": ("length", 1.0), "metre": ("length", 1.0), "metres": ("length", 1.0),
     "km": ("length", 1000.0), "kilometer": ("length", 1000.0), "kilometers": ("length", 1000.0),
@@ -202,7 +202,7 @@ _UNIT_TO_BASE: Dict[str, Tuple[str, float]] = {
 }
 
 
-def _convert_temperature(value: float, from_u: str, to_u: str) -> Optional[float]:
+def _convert_temperature(value: float, from_u: str, to_u: str) -> float | None:
     """温度转换: 先转 Celsius,再转目标"""
     from_u = from_u.lower()
     to_u = to_u.lower()
@@ -225,7 +225,7 @@ def _convert_temperature(value: float, from_u: str, to_u: str) -> Optional[float
     return None
 
 
-def handle_unit_convert(query: str) -> Tuple[bool, str, str]:
+def handle_unit_convert(query: str) -> tuple[bool, str, str]:
     """convert X unit to unit"""
     m = re.search(r"convert\s+(\d+\.?\d*)\s*([a-zA-Z]+)\s+to\s+([a-zA-Z]+)", query, re.IGNORECASE)
     if not m:
@@ -259,7 +259,7 @@ def handle_unit_convert(query: str) -> Tuple[bool, str, str]:
     return (True, f"{raw_value} {from_u} = {result:.6g} {to_u}", m.group(0))
 
 
-def handle_validator(query: str) -> Tuple[bool, str, str]:
+def handle_validator(query: str) -> tuple[bool, str, str]:
     """validate json/regex/email/url/ip"""
     m = re.match(r"^validate\s+(json|regex|email|url|ip)$", query.strip(), re.IGNORECASE)
     if not m:
@@ -269,7 +269,7 @@ def handle_validator(query: str) -> Tuple[bool, str, str]:
     return (True, f"please provide the {target} value to validate", m.group(0))
 
 
-def handle_encode(query: str) -> Tuple[bool, str, str]:
+def handle_encode(query: str) -> tuple[bool, str, str]:
     """what is the color/hex/md5/sha/base64 of X — 这些都需要上下文,直接转交 MoA
     这里只识别模式,实际不计算 (因为是部分 query)
     """
@@ -281,7 +281,7 @@ def handle_encode(query: str) -> Tuple[bool, str, str]:
 
 
 # 机械模式表 (pattern, name, handler)
-MECHANICAL_PATTERNS: List[Tuple[str, str, Optional[Callable]]] = [
+MECHANICAL_PATTERNS: list[tuple[str, str, Callable | None]] = [
     # 算术: 纯表达式 / "what is X" / "calculate X" — 宽松模式,handler 内自检
     (r"^[\d\s\+\-\*\/\.\(\)]+$|^(?:calculate|compute|evaluate|what(?:'s| is)?)\s+[\d\(]", "arithmetic", _handle_arithmetic),
     (r"today|now|current (?:date|time|year)|what\s+(?:day|date|year)", "datetime", _handle_datetime),
@@ -293,7 +293,7 @@ MECHANICAL_PATTERNS: List[Tuple[str, str, Optional[Callable]]] = [
 
 # ============ Trivial 模式(不需要 MoA,直接 chat) ============
 
-TRIVIAL_PATTERNS: List[str] = [
+TRIVIAL_PATTERNS: list[str] = [
     r"^hi\b|^hello\b|^hey\b|^yo\b",
     r"^thanks?\b|^thank\s+you\b|^thx\b|^ty\b",
     r"^bye\b|^goodbye\b|^see\s+you\b",
@@ -305,7 +305,7 @@ TRIVIAL_PATTERNS: List[str] = [
 
 # ============ 复杂模式(需要 MoA) ============
 
-COMPLEX_PATTERNS: List[str] = [
+COMPLEX_PATTERNS: list[str] = [
     r"compare\s+.+\s+(?:vs\.?|versus|and|or)\s+",
     r"design\s+.+(?:system|architecture|api|database|service|module)",
     r"analyze\s+.+(?:code|article|paper|dataset|text|log|file|function)",
@@ -325,7 +325,7 @@ COMPLEX_PATTERNS: List[str] = [
 # ============ 安全 hook ============
 
 # 危险模式:即便内容本身是复杂/对话,如果 query 包含恶意代码痕迹,直接转 MoA 让大模型处理
-_DANGEROUS_PATTERNS: List[str] = [
+_DANGEROUS_PATTERNS: list[str] = [
     r"__import__",
     r"\bos\.system\b",
     r"\bsubprocess\b",
@@ -339,9 +339,9 @@ _DANGEROUS_PATTERNS: List[str] = [
 
 # ============ 工具函数 ============
 
-def _extract_numbers(text: str) -> List[float]:
+def _extract_numbers(text: str) -> list[float]:
     """从文本提取数字 (含负号、小数、百分号)"""
-    result: List[float] = []
+    result: list[float] = []
     for m in re.finditer(r"-?\d+\.?\d*", text):
         try:
             result.append(float(m.group(0)))
@@ -368,7 +368,7 @@ def _word_count(text: str) -> int:
 
 # ============ 主闸门函数 ============
 
-def gate(query: str, context: Optional[List[Dict]] = None) -> GateVerdict:
+def gate(query: str, context: list[dict] | None = None) -> GateVerdict:
     """L0 闸门主函数
 
     真实逻辑:
@@ -417,7 +417,7 @@ def gate(query: str, context: Optional[List[Dict]] = None) -> GateVerdict:
             try:
                 ok, answer, matched = handler(q)
             except Exception:
-                ok, answer, matched = False, "", ""
+                ok, answer, _matched = False, "", ""
             if ok:
                 return GateVerdict(
                     passed=True,

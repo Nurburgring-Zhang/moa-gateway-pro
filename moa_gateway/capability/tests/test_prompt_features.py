@@ -3,26 +3,24 @@
 真实 assert, 严禁 mock。所有测试基于真实启发式逻辑。
 """
 from __future__ import annotations
-import pytest
+
 import sys
-import math
 from pathlib import Path
 
 # 允许直接 import
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.prompt_features import (
-    PromptFeatures,
-    extract_features,
-    domain_classify,
-    complexity_score,
-    urgency_score,
-    should_use_pro_model,
-    features_to_dict,
-    features_from_dict,
     FEATURE_NAMES,
+    PromptFeatures,
+    complexity_score,
+    domain_classify,
+    extract_features,
+    features_from_dict,
+    features_to_dict,
+    should_use_pro_model,
+    urgency_score,
 )
-
 
 # ============ length 边界测试 ============
 

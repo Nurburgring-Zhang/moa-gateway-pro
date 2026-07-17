@@ -1,13 +1,15 @@
 """consensus 真实测试(非 mock)"""
 import sys
-import math
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.consensus import (
-    Vote, ConsensusResult, TierStat,
-    ensemble_vote, should_rebalance, rebalance_endpoints,
+    TierStat,
+    Vote,
+    ensemble_vote,
+    rebalance_endpoints,
+    should_rebalance,
 )
 
 
@@ -125,7 +127,7 @@ def test_should_rebalance_high_tier():
     }
     cfg = {"high_utilization_threshold": 0.8}
     assert should_rebalance(stats, cfg) is True
-    print(f"  ✓ test_should_rebalance_high_tier: True (premium util=1.0)")
+    print("  ✓ test_should_rebalance_high_tier: True (premium util=1.0)")
     return True
 
 
@@ -139,7 +141,7 @@ def test_should_rebalance_low_tier():
     }
     cfg = {"low_utilization_threshold": 0.2}
     assert should_rebalance(stats, cfg) is True
-    print(f"  ✓ test_should_rebalance_low_tier: True (free util=0.2)")
+    print("  ✓ test_should_rebalance_low_tier: True (free util=0.2)")
     return True
 
 
@@ -155,7 +157,7 @@ def test_should_rebalance_balanced():
     }
     cfg = {"high_utilization_threshold": 0.8, "low_utilization_threshold": 0.2}
     assert should_rebalance(stats, cfg) is False
-    print(f"  ✓ test_should_rebalance_balanced: False")
+    print("  ✓ test_should_rebalance_balanced: False")
     return True
 
 
@@ -213,7 +215,7 @@ def test_consensus_with_no_votes():
     assert r.agreement_ratio == 0.0
     assert r.entropy == 0.0
     assert len(r.votes) == 0
-    print(f"  ✓ test_consensus_with_no_votes: winner=None, score=0")
+    print("  ✓ test_consensus_with_no_votes: winner=None, score=0")
     return True
 
 
@@ -283,7 +285,7 @@ def test_rebalance_endpoints_no_change_when_balanced():
     result = rebalance_endpoints(endpoints, stats, cfg)
     for ep in result:
         assert "rebalance_action" not in ep, f"unexpected action on {ep['id']}: {ep.get('rebalance_action')}"
-    print(f"  ✓ test_rebalance_endpoints_no_change_when_balanced: all unchanged")
+    print("  ✓ test_rebalance_endpoints_no_change_when_balanced: all unchanged")
     return True
 
 

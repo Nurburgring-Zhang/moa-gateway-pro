@@ -51,7 +51,7 @@ import logging
 import re
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -143,10 +143,10 @@ class ToolCall:
 
     id: str
     name: str
-    arguments: Dict[str, Any] = field(default_factory=dict)
-    source_proposal_idx: Optional[int] = None
+    arguments: dict[str, Any] = field(default_factory=dict)
+    source_proposal_idx: int | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """OpenAI 风格 dict: {id, type, function: {name, arguments(JSON str)}}"""
         return {
             "id": self.id,
@@ -174,8 +174,8 @@ class ReplayResult:
                             (每个 name 只算 1 次)
     """
 
-    tool_calls: List[ToolCall] = field(default_factory=list)
-    aggregated_arguments: Dict[str, Any] = field(default_factory=dict)
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    aggregated_arguments: dict[str, Any] = field(default_factory=dict)
     deduplicated_count: int = 0
     conflicts_resolved: int = 0
 
@@ -185,7 +185,7 @@ class ReplayResult:
 # =============================================================================
 
 
-def extract_tool_calls(proposal_text: str, proposal_idx: int = 0) -> List[ToolCall]:
+def extract_tool_calls(proposal_text: str, proposal_idx: int = 0) -> list[ToolCall]:
     """从 proposal 文本中解析 <tool_use> 标签
 
     支持形式:
@@ -202,7 +202,7 @@ def extract_tool_calls(proposal_text: str, proposal_idx: int = 0) -> List[ToolCa
     if not proposal_text:
         return []
 
-    out: List[ToolCall] = []
+    out: list[ToolCall] = []
     for m in _TOOL_USE_PATTERN.finditer(proposal_text):
         name = m.group("name").strip()
         raw_id = m.group("id")
@@ -213,7 +213,7 @@ def extract_tool_calls(proposal_text: str, proposal_idx: int = 0) -> List[ToolCa
             continue
 
         # arguments JSON 解析;失败 → 空 dict(不抛)
-        args: Dict[str, Any] = {}
+        args: dict[str, Any] = {}
         if body:
             try:
                 parsed = json.loads(body)
@@ -250,8 +250,8 @@ def extract_tool_calls(proposal_text: str, proposal_idx: int = 0) -> List[ToolCa
 
 
 def replay_tool_calls(
-    proposals: List[str],
-    source_indices: Optional[List[int]] = None,
+    proposals: list[str],
+    source_indices: list[int] | None = None,
 ) -> ReplayResult:
     """跨 proposals 收集 tool_calls → 去重 + 冲突解决
 
@@ -271,7 +271,7 @@ def replay_tool_calls(
     Returns:
         ReplayResult
     """
-    all_calls: List[ToolCall] = []
+    all_calls: list[ToolCall] = []
     for i, text in enumerate(proposals):
         idx = source_indices[i] if source_indices is not None and i < len(source_indices) else i
         all_calls.extend(extract_tool_calls(text, proposal_idx=idx))
@@ -287,18 +287,18 @@ def replay_tool_calls(
     total_input = len(all_calls)
 
     # ---- 按 name 分组 ----
-    by_name: Dict[str, List[ToolCall]] = {}
+    by_name: dict[str, list[ToolCall]] = {}
     for tc in all_calls:
         by_name.setdefault(tc.name, []).append(tc)
 
-    merged: List[ToolCall] = []
+    merged: list[ToolCall] = []
     conflicts_resolved = 0
-    aggregated: Dict[str, Any] = {}
+    aggregated: dict[str, Any] = {}
 
     for name, group in by_name.items():
         # ---- 同 name 内按 args_hash 计数 ----
         hash_counter: Counter[str] = Counter()
-        hash_to_first: Dict[str, ToolCall] = {}
+        hash_to_first: dict[str, ToolCall] = {}
         for tc in group:
             h = tc.args_hash()
             hash_counter[h] += 1
@@ -391,9 +391,9 @@ def should_disable_tool_choice(
 
 
 def detect_tool_loop(
-    tool_calls: List[ToolCall],
+    tool_calls: list[ToolCall],
     window: int = DEFAULT_LOOP_WINDOW,
-) -> Optional[ToolCall]:
+) -> ToolCall | None:
     """滑窗检测同一 tool 重复出现
 
     语义:
@@ -412,7 +412,7 @@ def detect_tool_loop(
         return None
 
     tail = tool_calls[-window:]
-    seen: Dict[str, ToolCall] = {}
+    seen: dict[str, ToolCall] = {}
     counts: Counter[str] = Counter()
     for tc in tail:
         key = f"{tc.name}|{tc.args_hash()}"
@@ -431,7 +431,7 @@ def detect_tool_loop(
 # =============================================================================
 
 
-def format_tool_calls_for_aggregator(tool_calls: List[ToolCall]) -> str:
+def format_tool_calls_for_aggregator(tool_calls: list[ToolCall]) -> str:
     """把 ToolCall 列表格式化成 LLM aggregator 友好的字符串
 
     输出格式(每个 tool 一段):
@@ -450,7 +450,7 @@ def format_tool_calls_for_aggregator(tool_calls: List[ToolCall]) -> str:
     if not tool_calls:
         return "total=0  unique_args=0"
 
-    lines: List[str] = []
+    lines: list[str] = []
     for i, tc in enumerate(tool_calls, start=1):
         args_json = json.dumps(tc.arguments, ensure_ascii=False, sort_keys=True)
         lines.append(

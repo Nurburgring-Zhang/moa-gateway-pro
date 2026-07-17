@@ -15,19 +15,21 @@
 - 独立温度(reference / aggregator)
 """
 from __future__ import annotations
+
 import asyncio
-import time
-import uuid
-import re
+import contextlib
 import json
 import logging
+import re
+import time
+import uuid
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Any
 
-from .model_pool import ModelPool, ModelEndpoint, ModelTier, get_model_pool
-from .router import IntelligentRouter, ComplexityLevel, get_router
-from .config import get_settings, MoAPresetConfig, ReferenceModelConfig
+from .config import MoAPresetConfig, ReferenceModelConfig, get_settings
+from .model_pool import ModelEndpoint, ModelPool, ModelTier, get_model_pool
 from .prompts import get_prompt
+from .router import IntelligentRouter, get_router
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +51,8 @@ class ReferenceResult:
 @dataclass
 class CriticResult:
     model_id: str
-    issues: List[str] = field(default_factory=list)
-    suggestions: List[str] = field(default_factory=list)
+    issues: list[str] = field(default_factory=list)
+    suggestions: list[str] = field(default_factory=list)
     refined_content: str = ""
     success: bool = False
     error: str = ""
@@ -74,9 +76,9 @@ class MoAResult:
     query: str
     preset: str
     strategy: str
-    references: List[ReferenceResult] = field(default_factory=list)
-    critics: List[CriticResult] = field(default_factory=list)
-    chain_steps: List[ChainStepResult] = field(default_factory=list)
+    references: list[ReferenceResult] = field(default_factory=list)
+    critics: list[CriticResult] = field(default_factory=list)
+    chain_steps: list[ChainStepResult] = field(default_factory=list)
     aggregated_content: str = ""
     final_content: str = ""
     aggregator_model: str = ""
@@ -85,14 +87,14 @@ class MoAResult:
     total_latency_ms: float = 0.0
     total_cost: float = 0.0
     fallback_used: bool = False
-    pipeline_stages: List[Dict[str, Any]] = field(default_factory=list)
+    pipeline_stages: list[dict[str, Any]] = field(default_factory=list)
     layers_count: int = 0
-    layer_outputs: Dict[str, Any] = field(default_factory=dict)
+    layer_outputs: dict[str, Any] = field(default_factory=dict)
     winner_model: str = ""
-    ranker_output: Optional[Dict[str, Any]] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    ranker_output: dict[str, Any] | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "request_id": self.request_id,
             "query": self.query,
@@ -198,22 +200,22 @@ VERDICT: PASS
 class MoAOrchestrator:
     """MoA 编排引擎"""
 
-    def __init__(self, model_pool: Optional[ModelPool] = None,
-                 router: Optional[IntelligentRouter] = None):
+    def __init__(self, model_pool: ModelPool | None = None,
+                 router: IntelligentRouter | None = None):
         self.pool = model_pool or get_model_pool()
         self.router = router or get_router()
         self.settings = get_settings()
 
     async def execute(self, query: str,
-                      context: Optional[List[Dict]] = None,
-                      tools: Optional[List[Dict]] = None,
-                      preset: Optional[str] = None,
-                      strategy: Optional[str] = None,
-                      reference_count: Optional[int] = None,
-                      aggregator: Optional[str] = None,
-                      critic_rounds: Optional[int] = None,
-                      temperature: Optional[float] = None,
-                      max_tokens: Optional[int] = None,
+                      context: list[dict] | None = None,
+                      tools: list[dict] | None = None,
+                      preset: str | None = None,
+                      strategy: str | None = None,
+                      reference_count: int | None = None,
+                      aggregator: str | None = None,
+                      critic_rounds: int | None = None,
+                      temperature: float | None = None,
+                      max_tokens: int | None = None,
                       stream: bool = False) -> MoAResult:
         """统一执行入口,根据 preset/strategy 分发"""
         request_id = "moa_" + uuid.uuid4().hex[:12]
@@ -291,7 +293,7 @@ class MoAOrchestrator:
                                            rounds, ref_temp, agg_temp, max_tok, start)
         except Exception as e:
             logger.exception("MoA execute failed: %s", e)
-            raise RuntimeError(f"MoA execute failed: {e}")
+            raise RuntimeError(f"MoA execute failed: {e}") from e
 
         result.total_latency_ms = (time.time() - start) * 1000
         logger.info("MoA[%s] strategy=%s preset=%s done in %.0fms cost=$%.4f",
@@ -301,7 +303,7 @@ class MoAOrchestrator:
 
     # ========== single ==========
     async def _run_single(self, result: MoAResult, messages, tools,
-                          agg_id: Optional[str],
+                          agg_id: str | None,
                           temperature: float, max_tokens: int, start: float):
         result.strategy = "single"
         ep = None
@@ -331,7 +333,7 @@ class MoAOrchestrator:
     # ========== parallel (OpenSquilla 核心) ==========
     async def _run_parallel(self, result: MoAResult, messages, tools,
                               preset_cfg: MoAPresetConfig, reference_count: int,
-                              aggregator_id: Optional[str], critic_rounds: int,
+                              aggregator_id: str | None, critic_rounds: int,
                               ref_temp: float, agg_temp: float,
                               max_tokens: int, start: float):
         # 选参考模型(显式 > 动态)
@@ -387,9 +389,9 @@ class MoAOrchestrator:
             refine_messages = agg_messages + [
                 {"role": "assistant", "content": current_content},
                 {"role": "user", "content": (
-                    f"你的初稿收到以下评审意见:\n\n"
-                    f"**问题**:\n" + "\n".join(f"- {i}" for i in critic.issues) +
-                    f"\n\n**建议**:\n" + "\n".join(f"- {s}" for s in critic.suggestions) +
+                    "你的初稿收到以下评审意见:\n\n"
+                    "**问题**:\n" + "\n".join(f"- {i}" for i in critic.issues) +
+                    "\n\n**建议**:\n" + "\n".join(f"- {s}" for s in critic.suggestions) +
                     "\n\n请基于这些反馈修订答案,保持原结构同时解决以上问题。"
                 )}
             ]
@@ -418,9 +420,9 @@ class MoAOrchestrator:
         """
         result.strategy = "compose"
         explicit_refs = preset_cfg.reference_models
-        roles_used: List[str] = []
-        ref_endpoints: List[ModelEndpoint] = []
-        ref_roles: Dict[str, str] = {}  # model_id -> role
+        roles_used: list[str] = []
+        ref_endpoints: list[ModelEndpoint] = []
+        ref_roles: dict[str, str] = {}  # model_id -> role
 
         if explicit_refs and any(r.role for r in explicit_refs):
             # 显式列表里配了 role
@@ -476,7 +478,7 @@ class MoAOrchestrator:
                                                           ref_temp, max_tokens, role))
         responses = await asyncio.gather(*tasks, return_exceptions=True)
         ref_results = []
-        for ep, r in zip(ref_endpoints, responses):
+        for ep, r in zip(ref_endpoints, responses, strict=False):
             if isinstance(r, Exception):
                 ref_results.append(ReferenceResult(
                     model_id=ep.id, content="", role=ref_roles.get(ep.id, ""),
@@ -525,7 +527,7 @@ class MoAOrchestrator:
     # ========== judge(单模型多轮反思) ==========
     async def _run_judge(self, result: MoAResult, messages, tools,
                           preset_cfg: MoAPresetConfig,
-                          agg_id: Optional[str],
+                          agg_id: str | None,
                           temperature: float, max_tokens: int, start: float):
         """Judge:单模型生成 + 多轮自我反思修订
         成本敏感场景 — 用一个模型完成多角度协作。
@@ -697,11 +699,11 @@ class MoAOrchestrator:
 
     # ========== 模型解析(显式 > 动态) ==========
     def _resolve_models(self, preset_cfg: MoAPresetConfig, ref_count: int,
-                        aggregator_id: Optional[str]
-                        ) -> Tuple[List[ModelEndpoint], Optional[ModelEndpoint]]:
+                        aggregator_id: str | None
+                        ) -> tuple[list[ModelEndpoint], ModelEndpoint | None]:
         """从 preset_cfg 解析参考模型和聚合器。
         优先用显式列表,否则动态选。"""
-        ref_endpoints: List[ModelEndpoint] = []
+        ref_endpoints: list[ModelEndpoint] = []
         # 显式列表
         for ref_cfg in preset_cfg.reference_models:
             ep = self._pick_endpoint_for_ref(ref_cfg)
@@ -725,7 +727,7 @@ class MoAOrchestrator:
             aggregator = self.pool.select_one(ModelTier(preset_cfg.aggregator_tier))
         return ref_endpoints, aggregator
 
-    def _pick_endpoint_for_ref(self, ref_cfg: ReferenceModelConfig) -> Optional[ModelEndpoint]:
+    def _pick_endpoint_for_ref(self, ref_cfg: ReferenceModelConfig) -> ModelEndpoint | None:
         """根据 ReferenceModelConfig 选一个 endpoint"""
         if ref_cfg.id and self.pool.endpoints.get(ref_cfg.id):
             return self.pool.endpoints[ref_cfg.id]
@@ -750,7 +752,7 @@ class MoAOrchestrator:
                  for ep in refs]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         out = []
-        for ep, r in zip(refs, results):
+        for ep, r in zip(refs, results, strict=False):
             if isinstance(r, Exception):
                 out.append(ReferenceResult(model_id=ep.id, content="",
                                             success=False, error=str(r), role=""))
@@ -825,7 +827,7 @@ class MoAOrchestrator:
                 last_err = e
                 logger.warning("call %s failed: %s", cur.id, e)
                 await asyncio.sleep(min(2 ** attempt, 8))
-        raise RuntimeError(f"all fallbacks failed: {last_err}")
+        raise RuntimeError(f"all fallbacks failed: {last_err}") from e
 
     async def _run_critic(self, current_content, ref_results, aggregator_ep,
                            temperature, max_tokens):
@@ -925,9 +927,9 @@ class MoAOrchestrator:
             return ModelTier.STANDARD
 
     # ========== 评估端点(横向对比) ==========
-    async def evaluate(self, query: str, candidates: List[str],
-                       reference_answer: Optional[str] = None,
-                       temperature: float = 0.3) -> Dict[str, Any]:
+    async def evaluate(self, query: str, candidates: list[str],
+                       reference_answer: str | None = None,
+                       temperature: float = 0.3) -> dict[str, Any]:
         """让 critic 模型给一组候选答案打分(0-100),返回 JSON 对比"""
         if not self.pool.endpoints:
             raise RuntimeError("no available models")
@@ -961,22 +963,22 @@ class MoAOrchestrator:
 - 实用性:对用户有无实际帮助?
 
 参考标准答案:
-%s
+{}
 
 各模型回答:
-%s
+{}
 
 请以 JSON 格式输出评分,格式:
 ```json
-{
+{{
   "scores": [
-    {"model": "模型ID", "accuracy": 0-25, "completeness": 0-25, "logic": 0-25, "practicality": 0-25, "total": 0-100, "comment": "简短评语"},
+    {{"model": "模型ID", "accuracy": 0-25, "completeness": 0-25, "logic": 0-25, "practicality": 0-25, "total": 0-100, "comment": "简短评语"}},
     ...
   ],
   "winner": "最佳模型ID",
   "ranking": ["模型1", "模型2", ...]
-}
-```""" % (reference_answer or "(无)",
+}}
+```""".format(reference_answer or "(无)",
             "\n\n".join(f"【{r['model']}】\n{r.get('answer', r.get('error', ''))}" for r in results))
 
         judge_resp = await self.pool.call(judge_ep.id,
@@ -987,10 +989,8 @@ class MoAOrchestrator:
         scores_json = None
         m = re.search(r"```json\s*(\{.*?\})\s*```", scores_text, re.DOTALL)
         if m:
-            try:
+            with contextlib.suppress(Exception):
                 scores_json = json.loads(m.group(1))
-            except Exception:
-                pass
         return {
             "judge_model": judge_ep.id,
             "judge_cost": judge_resp.cost,
@@ -1002,7 +1002,7 @@ class MoAOrchestrator:
     # ========== Layered MoA(论文 §2.2:多层 L1→L2→L3 真分层架构) ==========
     async def _run_layered(self, result: MoAResult, messages, tools,
                             preset_cfg: MoAPresetConfig,
-                            aggregator_id: Optional[str],
+                            aggregator_id: str | None,
                             ref_temp: float, agg_temp: float,
                             max_tokens: int, start: float):
         """Layered MoA:Together AI 论文核心架构。
@@ -1021,13 +1021,13 @@ class MoAOrchestrator:
         if not l1_eps:
             raise RuntimeError("no available model for layered L1")
 
-        prev_results: List[ReferenceResult] = []
-        prev_layers_outputs: List[List[ReferenceResult]] = []  # 每层输出
+        prev_results: list[ReferenceResult] = []
+        prev_layers_outputs: list[list[ReferenceResult]] = []  # 每层输出
         current_eps = l1_eps
 
         for layer_idx in range(1, layer_count + 1):
             is_final = (layer_idx == layer_count)
-            layer_outputs: List[ReferenceResult] = []
+            layer_outputs: list[ReferenceResult] = []
 
             if is_final and aggregator_id and self.pool.endpoints.get(aggregator_id):
                 # 最后一层用显式 aggregator(单个)
@@ -1075,7 +1075,7 @@ class MoAOrchestrator:
                     role=f"L{layer_idx}"))
 
             responses = await asyncio.gather(*tasks, return_exceptions=True)
-            for ep, r in zip(current_eps, responses):
+            for ep, r in zip(current_eps, responses, strict=False):
                 if isinstance(r, Exception):
                     layer_outputs.append(ReferenceResult(
                         model_id=ep.id, content="", success=False,
@@ -1127,7 +1127,7 @@ class MoAOrchestrator:
     # ========== Single-Proposer(论文 §3.3 Table 3) ==========
     async def _run_single_proposer(self, result: MoAResult, messages, tools,
                                     preset_cfg: MoAPresetConfig,
-                                    aggregator_id: Optional[str],
+                                    aggregator_id: str | None,
                                     ref_temp: float, max_tokens: int, start: float):
         """Single-Proposer setting:同一个模型高温采样多次(reference_count 次)
         论文发现:Multi-Proposer > Single-Proposer > Single。
@@ -1202,7 +1202,7 @@ class MoAOrchestrator:
     # ========== LLM Ranker baseline(论文 §3.3 Figure 4) ==========
     async def _run_ranker(self, result: MoAResult, messages, tools,
                            preset_cfg: MoAPresetConfig,
-                           aggregator_id: Optional[str],
+                           aggregator_id: str | None,
                            ref_temp: float, max_tokens: int, start: float):
         """LLM Ranker baseline(论文 §3.3 Figure 4):
         并行调用参考模型,然后让一个 strong aggregator **选择最佳**而不是生成新答案。
@@ -1219,7 +1219,7 @@ class MoAOrchestrator:
             for ep in ref_eps]
         responses = await asyncio.gather(*tasks, return_exceptions=True)
         ref_results = []
-        for ep, r in zip(ref_eps, responses):
+        for ep, r in zip(ref_eps, responses, strict=False):
             if isinstance(r, Exception):
                 ref_results.append(ReferenceResult(
                     model_id=ep.id, content="", success=False,
@@ -1281,17 +1281,13 @@ Ranking should be from best to worst. "winner" must equal ranking[0].
         scores_json = None
         m = re.search(r"```json\s*(\{.*?\})\s*```", ranker_resp["content"], re.DOTALL)
         if m:
-            try:
+            with contextlib.suppress(Exception):
                 scores_json = json.loads(m.group(1))
-            except Exception:
-                pass
         else:
             m2 = re.search(r"\{[\s\S]*\}", ranker_resp["content"])
             if m2:
-                try:
+                with contextlib.suppress(Exception):
                     scores_json = json.loads(m2.group(0))
-                except Exception:
-                    pass
 
         # 找出 winner 对应的内容
         winner_idx = -1
@@ -1314,14 +1310,14 @@ Ranking should be from best to worst. "winner" must equal ranking[0].
 
     # ========== 相似度评分(论文 §3.3 Spearman correlation) ==========
     async def compute_similarity(self, query: str, candidate_a: str,
-                                  candidate_b: str, model_id: Optional[str] = None
-                                  ) -> Dict[str, Any]:
+                                  candidate_b: str, model_id: str | None = None
+                                  ) -> dict[str, Any]:
         """计算两个候选答案之间的多维度相似度(BLEU n-gram / Levenshtein / TF-IDF)
         用于论文 §3.3 Figure 4 的 Spearman correlation 分析。
         """
         try:
-            from collections import Counter
             import math
+            from collections import Counter
 
             def tokenize(text):
                 # 中英文混合分词:简单的字符级 + 词级
@@ -1399,7 +1395,7 @@ Ranking should be from best to worst. "winner" must equal ranking[0].
             # 让 LLM 做语义相似度评分(可选)
             semantic = None
             if model_id and self.pool.endpoints.get(model_id):
-                ep = self.pool.endpoints[model_id]
+                self.pool.endpoints[model_id]
                 judge_p = f"""比较以下两个回答对问题 "{query}" 的语义相似度(0-1)。
 回答 A:
 {candidate_a[:1500]}
@@ -1455,9 +1451,9 @@ Ranking should be from best to worst. "winner" must equal ranking[0].
     ]
 
     async def flask_score(self, query: str, response: str,
-                          reference: Optional[str] = None,
-                          judge_model: Optional[str] = None
-                          ) -> Dict[str, Any]:
+                          reference: str | None = None,
+                          judge_model: str | None = None
+                          ) -> dict[str, Any]:
         """FLASK-style 多维评分(论文 §3.2):12 维评分
         用一个 judge 模型分别对每个维度打分(1-5)。
         返回 dict: {dimension: {score: int, reason: str}}
@@ -1488,7 +1484,7 @@ Ranking should be from best to worst. "winner" must equal ranking[0].
 # 模型回答
 {response[:3000]}
 
-{f"# 参考回答" + chr(10) + reference[:2000] if reference else ""}
+{"# 参考回答" + chr(10) + reference[:2000] if reference else ""}
 
 # 评分维度
 {rubric_text}
@@ -1516,17 +1512,13 @@ Ranking should be from best to worst. "winner" must equal ranking[0].
             scores = {}
             m = re.search(r"```json\s*(\{[\s\S]*?\})\s*```", scores_raw)
             if m:
-                try:
+                with contextlib.suppress(Exception):
                     scores = json.loads(m.group(1))
-                except Exception:
-                    pass
             if not scores:
                 m2 = re.search(r"\{[\s\S]*\}", scores_raw)
                 if m2:
-                    try:
+                    with contextlib.suppress(Exception):
                         scores = json.loads(m2.group(0))
-                    except Exception:
-                        pass
 
             # 归一化为 0-100
             normalized = {}
@@ -1561,7 +1553,7 @@ Ranking should be from best to worst. "winner" must equal ranking[0].
             return {"error": str(e), "judge_model": judge_ep.id if judge_ep else None}
 
 
-_moa: Optional[MoAOrchestrator] = None
+_moa: MoAOrchestrator | None = None
 
 
 def get_moa() -> MoAOrchestrator:

@@ -3,8 +3,8 @@
 真实 assert, 严禁 mock。
 """
 from __future__ import annotations
+
 import json
-import math
 import sys
 from pathlib import Path
 
@@ -14,18 +14,16 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.multi_mode_synth import (
-    SynthesisMode,
     Proposal,
+    SynthesisMode,
     SynthResult,
     classify_proposals,
-    integrated_synthesis,
-    final_selection,
     cross_iteration,
+    final_selection,
+    integrated_synthesis,
     run_synthesis,
     should_run_integration,
-    CONSENSUS_STDDEV_THRESHOLD,
 )
-
 
 # ============ 辅助: 构造 Proposal ============
 
@@ -50,7 +48,7 @@ def test_synthesis_mode_enum_all_four():
 def test_synthesis_mode_str_membership():
     """枚举可作 string 匹配"""
     assert SynthesisMode.CLASSIFICATION in SynthesisMode
-    assert "classification" == SynthesisMode.CLASSIFICATION.value
+    assert SynthesisMode.CLASSIFICATION.value == "classification"
 
 
 # ============ 2. CLASSIFICATION 模式 ============
@@ -117,7 +115,7 @@ def test_integrated_extracts_real_sentences():
     assert result.mode == SynthesisMode.INTEGRATED_SYNTHESIS
     assert result.output  # 非空
     # output 拼起来的所有句必须能在某个 proposal 中找到
-    all_text = " ".join(p.text for p in props)
+    " ".join(p.text for p in props)
     # 至少包含一个原句的关键短语
     output_lower = result.output.lower()
     assert "caching" in output_lower
@@ -132,7 +130,7 @@ def test_integrated_source_attribution_correct():
     ]
     result = integrated_synthesis(props, target_chars=600)
     # source_attribution key 必须是 proposals 里的 idx
-    for key in result.source_attribution.keys():
+    for key in result.source_attribution:
         assert key in (0, 1), f"unexpected source idx: {key}"
     # 至少 1 个 attribution
     assert len(result.source_attribution) >= 1

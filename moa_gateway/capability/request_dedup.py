@@ -40,6 +40,7 @@
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -49,7 +50,7 @@ import time
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ _SIMHASH_MAX_GRAMS = 8192
 _SIMHASH_NGRAM = 1
 
 
-def _canonicalize_body(body: Optional[Dict[str, Any]]) -> str:
+def _canonicalize_body(body: dict[str, Any] | None) -> str:
     """body → 稳定字符串
 
     用于 EXACT 策略: 排序键 + ensure_ascii=False + 紧凑分隔符。
@@ -134,14 +135,14 @@ def _normalize_value(v: Any) -> Any:
     return v
 
 
-def _body_for_normalize(body: Optional[Dict[str, Any]]) -> str:
+def _body_for_normalize(body: dict[str, Any] | None) -> str:
     """NORMALIZED 用的 body 字符串:键排序 + 键与字符串值都小写 + 嵌套递归"""
     if body is None:
         return ""
     try:
         # 键也标准化(小写 + 折叠空白),然后排序
-        normalized: Dict[str, Any] = {}
-        for raw_k in body.keys():
+        normalized: dict[str, Any] = {}
+        for raw_k in body:
             key = _normalize_text(str(raw_k)) if isinstance(raw_k, str) else raw_k
             normalized[key] = _normalize_value(body[raw_k])
         # 排序键后再序列化
@@ -157,7 +158,7 @@ def _body_for_normalize(body: Optional[Dict[str, Any]]) -> str:
 
 # ----- simhash 实现(简化版,内嵌避免依赖 fuzzy_dedup) -----
 
-def _tokenize_for_simhash(s: str) -> List[str]:
+def _tokenize_for_simhash(s: str) -> list[str]:
     if not s:
         return []
     try:
@@ -166,7 +167,7 @@ def _tokenize_for_simhash(s: str) -> List[str]:
         return []
 
 
-def _make_ngrams(tokens: List[str], n: int) -> List[str]:
+def _make_ngrams(tokens: list[str], n: int) -> list[str]:
     if n <= 1 or n > len(tokens):
         return list(tokens)
     return [" ".join(tokens[i:i + n]) for i in range(len(tokens) - n + 1)]
@@ -191,7 +192,7 @@ def _simhash64(s: str) -> int:
         # 长文本下采样
         if len(grams) > _SIMHASH_MAX_GRAMS:
             step = len(grams) / _SIMHASH_MAX_GRAMS
-            sampled: List[str] = []
+            sampled: list[str] = []
             i = 0.0
             while int(i) < len(grams) and len(sampled) < _SIMHASH_MAX_GRAMS:
                 sampled.append(grams[int(i)])
@@ -239,7 +240,7 @@ def _hamming(a: int, b: int) -> int:
 def hash_request(
     method: str,
     path: str,
-    body: Optional[Dict[str, Any]],
+    body: dict[str, Any] | None,
     strategy: DedupStrategy = DedupStrategy.NORMALIZED,
 ) -> str:
     """计算请求的 dedup 哈希
@@ -308,8 +309,8 @@ class DedupEntry:
     first_seen_ts: float
     count: int = 1
     last_seen_ts: float = 0.0
-    response: Optional[Dict[str, Any]] = None
-    sources: List[str] = field(default_factory=list)
+    response: dict[str, Any] | None = None
+    sources: list[str] = field(default_factory=list)
     strategy: DedupStrategy = DedupStrategy.NORMALIZED
 
     def __post_init__(self) -> None:
@@ -379,9 +380,9 @@ class RequestDedupIndex:
 
         self._lock = threading.RLock()
         # hash -> DedupEntry(OrderedDict 用于 LRU)
-        self._entries: "OrderedDict[str, DedupEntry]" = OrderedDict()
+        self._entries: OrderedDict[str, DedupEntry] = OrderedDict()
         # SEMANTIC 策略专用:hash -> simhash int(便于 hamming 比较,免去重新解析 hex)
-        self._simhashes: Dict[str, int] = {}
+        self._simhashes: dict[str, int] = {}
         # stats 累计(check 命中 / 总检查)
         self._total_checks = 0
         self._total_hits = 0
@@ -394,9 +395,9 @@ class RequestDedupIndex:
         self,
         method: str,
         path: str,
-        body: Optional[Dict[str, Any]],
+        body: dict[str, Any] | None,
         source: str = "default",
-    ) -> Optional[DedupEntry]:
+    ) -> DedupEntry | None:
         """检查请求是否已存在(命中即返回 entry,未命中返回 None)
 
         命中时:
@@ -426,19 +427,17 @@ class RequestDedupIndex:
 
             self._total_hits += 1
             entry.last_seen_ts = time.time()
-            try:
+            with contextlib.suppress(KeyError):
                 self._entries.move_to_end(entry.hash)
-            except KeyError:
-                pass
             return entry
 
     def record(
         self,
         method: str,
         path: str,
-        body: Optional[Dict[str, Any]],
+        body: dict[str, Any] | None,
         source: str,
-        response: Optional[Dict[str, Any]] = None,
+        response: dict[str, Any] | None = None,
     ) -> DedupEntry:
         """记录请求(新增或更新现有)
 
@@ -465,10 +464,8 @@ class RequestDedupIndex:
                         entry.sources.append(source)
                     if response is not None:
                         entry.response = response
-                    try:
+                    with contextlib.suppress(KeyError):
                         self._entries.move_to_end(entry.hash)
-                    except KeyError:
-                        pass
                     return entry
 
                 # 新建
@@ -484,10 +481,8 @@ class RequestDedupIndex:
                 )
                 self._entries[h] = entry
                 if self.strategy == DedupStrategy.SEMANTIC:
-                    try:
+                    with contextlib.suppress(ValueError):
                         self._simhashes[h] = int(h, 16)
-                    except ValueError:
-                        pass
                 self._enforce_max_size()
                 return entry
             except Exception as exc:  # noqa: BLE001
@@ -511,7 +506,7 @@ class RequestDedupIndex:
                 if self.ttl_seconds <= 0:
                     return 0
                 now = time.time()
-                expired: List[str] = []
+                expired: list[str] = []
                 for k, entry in self._entries.items():
                     if now - entry.last_seen_ts > self.ttl_seconds:
                         expired.append(k)
@@ -523,7 +518,7 @@ class RequestDedupIndex:
                 logger.error("cleanup failed: %s", exc)
                 return 0
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """返回统计信息
 
         Returns:
@@ -538,7 +533,7 @@ class RequestDedupIndex:
         """
         with self._lock:
             try:
-                by_strategy: Dict[str, int] = defaultdict(int)
+                by_strategy: dict[str, int] = defaultdict(int)
                 for entry in self._entries.values():
                     by_strategy[entry.strategy.value] += 1
                 if self._total_checks > 0:
@@ -587,8 +582,8 @@ class RequestDedupIndex:
         self,
         method: str,
         path: str,
-        body: Optional[Dict[str, Any]],
-    ) -> Optional[DedupEntry]:
+        body: dict[str, Any] | None,
+    ) -> DedupEntry | None:
         """根据 strategy 走不同查找路径,并懒清理过期 entry"""
         if self.strategy == DedupStrategy.SEMANTIC:
             return self._find_semantic(method, path, body)
@@ -608,8 +603,8 @@ class RequestDedupIndex:
         self,
         method: str,
         path: str,
-        body: Optional[Dict[str, Any]],
-    ) -> Optional[DedupEntry]:
+        body: dict[str, Any] | None,
+    ) -> DedupEntry | None:
         """SEMANTIC 策略下的查找:simhash 汉明距离 <= threshold 视为命中"""
         if not self._entries:
             return None
@@ -618,10 +613,10 @@ class RequestDedupIndex:
         if target_sh == 0 and not self._simhashes:
             # 全部为 0 哈希时无法区分,直接返回 None
             return None
-        best_key: Optional[str] = None
+        best_key: str | None = None
         best_dist = self.semantic_threshold + 1
         now = time.time()
-        expired: List[str] = []
+        expired: list[str] = []
         try:
             for k, sh in self._simhashes.items():
                 entry = self._entries.get(k)

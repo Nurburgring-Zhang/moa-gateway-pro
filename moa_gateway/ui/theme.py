@@ -3,8 +3,9 @@
 iOS 风格 · 玻璃拟态 · 圆角 · 弹性动画
 """
 from __future__ import annotations
+
 from dataclasses import dataclass
-from typing import Dict
+
 import flet as ft
 
 

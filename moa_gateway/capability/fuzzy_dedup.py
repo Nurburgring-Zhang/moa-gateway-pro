@@ -38,7 +38,6 @@ import string
 import threading
 import uuid
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +62,7 @@ _PUNCT_PATTERN = re.compile(
 )
 
 
-def tokenize(text: str) -> List[str]:
+def tokenize(text: str) -> list[str]:
     """小写化 + 分词 + 移除标点
 
     流程:
@@ -86,7 +85,7 @@ def tokenize(text: str) -> List[str]:
         separated = _PUNCT_PATTERN.sub(" ", lowered)
         # unicode \s 已包含 ascii whitespace + 全角空格
         raw_tokens = re.split(r"\s+", separated)
-        cleaned: List[str] = []
+        cleaned: list[str] = []
         for tok in raw_tokens:
             stripped = tok.strip()
             if stripped:
@@ -97,7 +96,7 @@ def tokenize(text: str) -> List[str]:
         return []
 
 
-def _token_ngrams(tokens: List[str], n: int) -> List[str]:
+def _token_ngrams(tokens: list[str], n: int) -> list[str]:
     """从 token 列表生成 n-gram token
 
     Args:
@@ -144,7 +143,7 @@ def simhash(text: str, n_grams: int = 3) -> int:
         # 避免 1MB 文本产生 ~50k grams 拖慢 simhash
         if len(grams) > _MAX_SIMHASH_GRAMS:
             step = len(grams) / _MAX_SIMHASH_GRAMS
-            sampled: List[str] = []
+            sampled: list[str] = []
             i = 0.0
             while int(i) < len(grams) and len(sampled) < _MAX_SIMHASH_GRAMS:
                 sampled.append(grams[int(i)])
@@ -225,7 +224,7 @@ class FuzzyDedupRecord:
     id: str
     text: str
     hash: int
-    metadata: Dict = field(default_factory=dict)
+    metadata: dict = field(default_factory=dict)
 
 
 class FuzzyDedupIndex:
@@ -245,10 +244,10 @@ class FuzzyDedupIndex:
             max_size: 最大记录数(软上限)
         """
         self._max_size = max_size
-        self._records: List[FuzzyDedupRecord] = []
+        self._records: list[FuzzyDedupRecord] = []
         self._lock = threading.RLock()
 
-    def add(self, text: str, metadata: Optional[Dict] = None) -> str:
+    def add(self, text: str, metadata: dict | None = None) -> str:
         """添加一条文本到索引
 
         Args:
@@ -278,7 +277,7 @@ class FuzzyDedupIndex:
 
     def find_duplicates(
         self, text: str, threshold: float = 0.85
-    ) -> List[Tuple[str, float, Dict]]:
+    ) -> list[tuple[str, float, dict]]:
         """查找与给定 text 相似的所有记录
 
         Args:
@@ -291,7 +290,7 @@ class FuzzyDedupIndex:
         with self._lock:
             try:
                 qhash = simhash(text)
-                results: List[Tuple[str, float, Dict]] = []
+                results: list[tuple[str, float, dict]] = []
                 for rec in self._records:
                     sim = similarity(qhash, rec.hash)
                     if sim >= threshold:

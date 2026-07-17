@@ -6,22 +6,21 @@
   4. 退出时清理全部子进程(跨平台)
 """
 from __future__ import annotations
+
+import atexit
+import contextlib
+import importlib
+import logging
 import os
-import sys
-import time
-import json
+import platform
 import signal
 import socket
-import atexit
-import shutil
 import subprocess
+import sys
 import threading
-import logging
-import platform
-import importlib
+import time
 import traceback
 from pathlib import Path
-from typing import List, Optional, Dict, Tuple, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +52,7 @@ PIP_MIRRORS = [
 ]
 
 # 检查状态(用于最终汇报)
-HEAL_REPORT: Dict[str, Dict] = {}
+HEAL_REPORT: dict[str, dict] = {}
 
 
 # ========== 0. 通用工具 ==========
@@ -67,7 +66,7 @@ def _log(msg: str, also_stdout: bool = True):
         print(line, flush=True)
 
 
-def _run(cmd: List[str], timeout: int = 600, **kw) -> Tuple[int, str, str]:
+def _run(cmd: list[str], timeout: int = 600, **kw) -> tuple[int, str, str]:
     """subprocess.run 包装,返回 (rc, stdout, stderr)"""
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, **kw)
@@ -89,7 +88,7 @@ def _in_venv() -> bool:
         or Path(sys.prefix).resolve() == VENV_DIR.resolve()
 
 
-def _pip() -> List[str]:
+def _pip() -> list[str]:
     """返回当前应该用的 pip 命令"""
     if _in_venv():
         return [sys.executable, "-m", "pip"]
@@ -99,7 +98,7 @@ def _pip() -> List[str]:
 
 
 # ========== 1. 体检:venv ==========
-def diagnose_venv() -> Tuple[str, str]:
+def diagnose_venv() -> tuple[str, str]:
     """检查 venv。返回 (状态, 详情)"""
     if _in_venv():
         return ("ok", f"已在 venv 里: {sys.executable}")
@@ -123,7 +122,7 @@ def repair_venv() -> bool:
 
 
 # ========== 2. 体检:关键包 ==========
-def diagnose_packages() -> Tuple[str, List[str]]:
+def diagnose_packages() -> tuple[str, list[str]]:
     """检查关键包能否 import。返回 (状态, 缺失列表)"""
     missing = []
     for mod in CRITICAL_PACKAGES:
@@ -136,7 +135,7 @@ def diagnose_packages() -> Tuple[str, List[str]]:
     return ("missing", missing)
 
 
-def _pip_install(specs: List[str], mirrors: List[Tuple[str, str]] = PIP_MIRRORS,
+def _pip_install(specs: list[str], mirrors: list[tuple[str, str]] = PIP_MIRRORS,
                  retries_per_mirror: int = 2) -> bool:
     """尝试用多个镜像源安装,每个源 2 次重试。specs 是 pip 接受的包列表。"""
     base = _pip() + ["install", "--disable-pip-version-check", "--no-input"]
@@ -177,7 +176,7 @@ def repair_packages() -> bool:
 
 
 # ========== 3. 体检:数据目录 / 关键文件 ==========
-def diagnose_data() -> Tuple[str, List[str]]:
+def diagnose_data() -> tuple[str, list[str]]:
     """检查 data 目录、关键文件、sqlite 写权限"""
     issues = []
     if not DATA_DIR.exists():
@@ -225,7 +224,7 @@ def repair_data() -> bool:
             return False
     # 3) 触发 config + storage 加载,确保 settings 和 admin 都到位
     try:
-        from .config import reload_settings, get_settings
+        from .config import reload_settings
         s = reload_settings()  # 重新读盘
         if not s.auth.jwt_secret:
             _log("[fail] reload 后 JWT secret 仍为空")
@@ -243,7 +242,7 @@ def repair_data() -> bool:
 
 
 # ========== 4. 体检:端口 ==========
-def diagnose_port(host: str, port: int) -> Tuple[str, str]:
+def diagnose_port(host: str, port: int) -> tuple[str, str]:
     """检查目标端口是否空闲"""
     if _port_listen(host, port):
         return ("occupied", f"{host}:{port} 已被占用")
@@ -259,7 +258,7 @@ def _port_listen(host: str, port: int) -> bool:
 
 
 # ========== 5. 体检:app 能实例化 ==========
-def diagnose_app() -> Tuple[str, str]:
+def diagnose_app() -> tuple[str, str]:
     """尝试 import app,确保 FastAPI 能构建"""
     try:
         from .server import app
@@ -284,9 +283,9 @@ def heal_environment(max_total_seconds: int = 600) -> bool:
     state, detail = diagnose_venv()
     HEAL_REPORT["venv"] = {"state": state, "detail": detail}
     if state == "missing":
-        _log(f"  → 缺失,创建中…")
+        _log("  → 缺失,创建中…")
         if not repair_venv():
-            _log(f"  ✗ venv 创建失败,请手动: python -m venv venv")
+            _log("  ✗ venv 创建失败,请手动: python -m venv venv")
             return False
         # 创建完需要切到 venv 重新跑
         vpy = str(_venv_python())
@@ -297,7 +296,7 @@ def heal_environment(max_total_seconds: int = 600) -> bool:
         vpy = str(_venv_python())
         _log(f"  → 切到 venv 重启: {vpy}")
         os.execv(vpy, [vpy] + sys.argv)
-    _log(f"  ✓ venv OK")
+    _log("  ✓ venv OK")
 
     # Step 2: 关键包
     _log("\n[2/5] 检查关键 Python 包…")
@@ -306,7 +305,7 @@ def heal_environment(max_total_seconds: int = 600) -> bool:
         miss_str = ", ".join(f"{m[0]}" for m in missing)
         _log(f"  → 缺失/损坏: {miss_str}")
         if not repair_packages():
-            _log(f"  ✗ 关键包修复失败,请手动: pip install -r requirements.txt")
+            _log("  ✗ 关键包修复失败,请手动: pip install -r requirements.txt")
             return False
         # 再确认
         state2, missing2 = diagnose_packages()
@@ -322,7 +321,7 @@ def heal_environment(max_total_seconds: int = 600) -> bool:
         _log(f"  → 异常: {issues},修复中…")
         if not repair_data():
             return False
-    _log(f"  ✓ data 目录与关键文件 OK")
+    _log("  ✓ data 目录与关键文件 OK")
 
     # Step 4: app 加载
     _log("\n[4/5] 检查 FastAPI app 能加载…")
@@ -345,7 +344,7 @@ def heal_environment(max_total_seconds: int = 600) -> bool:
     HEAL_REPORT["port"] = {"state": state, "detail": detail, "port": port}
     if state == "occupied":
         _log(f"  ✗ {detail}")
-        _log(f"  解决: 改 config.yaml 的 server.port,或杀掉占用进程")
+        _log("  解决: 改 config.yaml 的 server.port,或杀掉占用进程")
         return False
     _log(f"  ✓ {detail}")
 
@@ -367,21 +366,21 @@ def _set_pdeathsig_preexec() -> None:
             pass
 
 
-def spawn_child(cmd: List[str], log_file: Optional[Path] = None) -> subprocess.Popen:
+def spawn_child(cmd: list[str], log_file: Path | None = None) -> subprocess.Popen:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     log_path = log_file or (DATA_DIR / "child.log")
     # 修12: 用文件路径而非已打开的句柄,避免父进程持 fd 跨重启累积
     log_path.parent.mkdir(parents=True, exist_ok=True)
     if IS_WINDOWS:
-        kwargs = dict(stdin=subprocess.DEVNULL,
-                      stdout=open(log_path, "ab", buffering=0),
-                      stderr=subprocess.STDOUT,
-                      creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+        kwargs = {"stdin": subprocess.DEVNULL,
+                      "stdout": open(log_path, "ab", buffering=0),
+                      "stderr": subprocess.STDOUT,
+                      "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
     else:
-        kwargs = dict(stdin=subprocess.DEVNULL,
-                      stdout=open(log_path, "ab", buffering=0),
-                      stderr=subprocess.STDOUT,
-                      preexec_fn=os.setsid)
+        kwargs = {"stdin": subprocess.DEVNULL,
+                      "stdout": open(log_path, "ab", buffering=0),
+                      "stderr": subprocess.STDOUT,
+                      "preexec_fn": os.setsid}
     proc = subprocess.Popen(cmd, **kwargs)
     # 让子进程继承 fd 句柄,父进程不再保留引用 — OS 在子进程退出时自动关闭
     _log(f"[watchdog] 子进程已启动: pid={proc.pid} cmd={' '.join(cmd[:3])}…")
@@ -410,7 +409,7 @@ def check_existing_instance() -> bool:
         return False
 
 
-def kill_proc_tree(proc: Optional[subprocess.Popen], grace_seconds: float = 5.0) -> None:
+def kill_proc_tree(proc: subprocess.Popen | None, grace_seconds: float = 5.0) -> None:
     if proc is None or proc.poll() is not None:
         return
     pid = proc.pid
@@ -430,10 +429,8 @@ def kill_proc_tree(proc: Optional[subprocess.Popen], grace_seconds: float = 5.0)
                 if proc.poll() is not None:
                     return
                 time.sleep(0.2)
-            try:
+            with contextlib.suppress(ProcessLookupError):
                 os.killpg(os.getpgid(pid), _sig.SIGKILL)
-            except ProcessLookupError:
-                pass
     except Exception as e:
         _log(f"[watchdog] kill 出错: {e}")
 
@@ -464,11 +461,11 @@ def port_dead(host: str, port: int, timeout: float = 10.0) -> bool:
 
 
 # ========== 8. Watchdog ==========
-def run_watchdog(child_cmd: List[str], host: str = "127.0.0.1",
+def run_watchdog(child_cmd: list[str], host: str = "127.0.0.1",
                  port: int = 8910,
                  max_restarts: int = 0,
                  restart_cooldown: float = 3.0,
-                 stop_event: Optional[threading.Event] = None) -> int:
+                 stop_event: threading.Event | None = None) -> int:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     PID_FILE.write_text(str(os.getpid()), encoding="utf-8")
     _log("=" * 60)
@@ -477,7 +474,7 @@ def run_watchdog(child_cmd: List[str], host: str = "127.0.0.1",
     _log(f"子进程命令: {' '.join(child_cmd)}")
     _log("=" * 60)
 
-    child_ref: List[Optional[subprocess.Popen]] = [None]
+    child_ref: list[subprocess.Popen | None] = [None]
 
     def _cleanup_all():
         if child_ref[0] is not None:
@@ -540,7 +537,7 @@ def bootstrap_and_serve(args) -> int:
     # heal.log 初始化
     HEAL_LOG.write_text("", encoding="utf-8") if HEAL_LOG.exists() else HEAL_LOG.touch()
     _log("=" * 60)
-    _log(f"MoA Gateway Pro 启动自愈流程")
+    _log("MoA Gateway Pro 启动自愈流程")
     _log("=" * 60)
 
     # 自愈环境
@@ -573,7 +570,7 @@ def bootstrap_and_serve(args) -> int:
         "--port", str(port),
         "--log-level", log_level,
     ]
-    _log(f"\n启动 watchdog + uvicorn…")
+    _log("\n启动 watchdog + uvicorn…")
     _log(f"  WebUI:  http://127.0.0.1:{port}/")
     _log(f"  API:    http://127.0.0.1:{port}/v1/")
     return run_watchdog(child_cmd, host="127.0.0.1", port=port)

@@ -3,9 +3,9 @@ Source: 06 moai-adk-multiagent
 Real implementation: 6 MX tags + multi-language parsing + reference counting + CLI
 """
 from __future__ import annotations
+
 import re
 from dataclasses import dataclass
-from typing import List, Dict
 from enum import Enum
 
 
@@ -28,7 +28,7 @@ class MXAnnotation:
     line_number: int
     language: str = "python"
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "tag": self.tag.value,
             "content": self.content,
@@ -114,7 +114,7 @@ def mx_cli(annotations, command):
         keyword = " ".join(parts[1:]).lower()
         matches = [a for a in annotations if keyword in a.content.lower()]
         if not matches:
-            return f"0 matches"
+            return "0 matches"
         return "\n".join(
             f"{a.file_path}:{a.line_number} [{a.tag.value}] {a.content[:50]}"
             for a in matches

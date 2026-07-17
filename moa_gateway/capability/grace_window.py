@@ -14,13 +14,12 @@
 - 真实时间逻辑,非 mock;JSON 序列化原生支持
 """
 from __future__ import annotations
+
 import json
+import threading
 import time
 import uuid
-import threading
-from typing import List, Optional, Dict
-from dataclasses import dataclass, field, asdict
-
+from dataclasses import asdict, dataclass
 
 # ============ Dataclasses ============
 
@@ -30,10 +29,10 @@ class CheckResult:
     check_id: str
     name: str
     passed: bool
-    failed_at: Optional[float] = None
-    grace_until: Optional[float] = None
+    failed_at: float | None = None
+    grace_until: float | None = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
     def to_json(self) -> str:
@@ -56,9 +55,9 @@ class GraceConfig:
 class CheckRegistry:
     """检查注册表 + grace window 状态机"""
 
-    def __init__(self, config: Optional[GraceConfig] = None) -> None:
+    def __init__(self, config: GraceConfig | None = None) -> None:
         self._config: GraceConfig = config or GraceConfig()
-        self._checks: Dict[str, CheckResult] = {}
+        self._checks: dict[str, CheckResult] = {}
         self._lock = threading.Lock()
 
     # ---------- 注册 / 记录 ----------
@@ -86,7 +85,7 @@ class CheckRegistry:
             cr.failed_at = None
             cr.grace_until = None
 
-    def record_fail(self, check_id: str, at: Optional[float] = None) -> None:
+    def record_fail(self, check_id: str, at: float | None = None) -> None:
         """记录一次失败:设 failed_at + grace_until = failed_at + grace_seconds。"""
         ts = at if at is not None else time.time()
         with self._lock:
@@ -99,7 +98,7 @@ class CheckRegistry:
 
     # ---------- 状态查询 ----------
 
-    def should_block(self, check_id: str, at: Optional[float] = None) -> bool:
+    def should_block(self, check_id: str, at: float | None = None) -> bool:
         """判断给定 check_id 当前(at 时刻)是否应当阻塞。
 
         规则:
@@ -121,10 +120,10 @@ class CheckRegistry:
         ts = at if at is not None else time.time()
         return ts >= cr.grace_until
 
-    def get_warnings(self, at: Optional[float] = None) -> List[CheckResult]:
+    def get_warnings(self, at: float | None = None) -> list[CheckResult]:
         """列出所有 failed 但仍在 grace 期内的 check (即应警告、不阻塞)。"""
         ts = at if at is not None else time.time()
-        out: List[CheckResult] = []
+        out: list[CheckResult] = []
         with self._lock:
             for cr in self._checks.values():
                 if cr.passed:
@@ -141,7 +140,7 @@ class CheckRegistry:
                     ))
         return out
 
-    def get_all(self) -> List[CheckResult]:
+    def get_all(self) -> list[CheckResult]:
         """返回所有 check 的浅拷贝列表。"""
         with self._lock:
             return [
@@ -155,7 +154,7 @@ class CheckRegistry:
                 for cr in self._checks.values()
             ]
 
-    def get(self, check_id: str) -> Optional[CheckResult]:
+    def get(self, check_id: str) -> CheckResult | None:
         """返回单个 check 的浅拷贝;不存在则 None。"""
         with self._lock:
             cr = self._checks.get(check_id)
@@ -208,7 +207,7 @@ class CheckRegistry:
 
 # ============ Module-level helpers ============
 
-def grace_status(check_id: str, registry: CheckRegistry, at: Optional[float] = None) -> str:
+def grace_status(check_id: str, registry: CheckRegistry, at: float | None = None) -> str:
     """返回 check_id 当前 grace 状态字符串。
 
     Returns:

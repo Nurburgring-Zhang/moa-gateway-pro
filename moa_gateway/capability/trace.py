@@ -24,13 +24,14 @@ W3C Trace Context 格式 (RFC):
 非 mock。所有时间戳基于 time.time(),UUID 基于 uuid.uuid4().hex。
 """
 from __future__ import annotations
-import time
-import uuid
+
+import contextlib
 import re
 import threading
-from typing import List, Optional, Dict, Any
-from dataclasses import dataclass, field, asdict
-
+import time
+import uuid
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 # ============ Constants ============
 
@@ -55,13 +56,13 @@ _VERSION_DEFAULT = "00"
 class TraceContext:
     """单次 span 上下文 (同时代表 trace 根,parent_span_id 为 None)"""
     trace_id: str           # 32 hex chars
-    parent_span_id: Optional[str]  # 父 span_id;None 表示 root
+    parent_span_id: str | None  # 父 span_id;None 表示 root
     span_id: str            # 16 hex chars
     start_ts: float         # time.time()
-    tags: Dict[str, Any] = field(default_factory=dict)
-    baggage: Dict[str, Any] = field(default_factory=dict)
+    tags: dict[str, Any] = field(default_factory=dict)
+    baggage: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
@@ -77,8 +78,8 @@ def _new_span_id() -> str:
     return uuid.uuid4().hex[:16]
 
 
-def new_trace(tags: Optional[Dict[str, Any]] = None,
-              baggage: Optional[Dict[str, Any]] = None) -> TraceContext:
+def new_trace(tags: dict[str, Any] | None = None,
+              baggage: dict[str, Any] | None = None) -> TraceContext:
     """创建一个新的 root trace (parent_span_id = None)
 
     Args:
@@ -99,7 +100,7 @@ def new_trace(tags: Optional[Dict[str, Any]] = None,
 
 
 def new_span(parent: TraceContext, name: str,
-             tags: Optional[Dict[str, Any]] = None) -> TraceContext:
+             tags: dict[str, Any] | None = None) -> TraceContext:
     """基于 parent 创建一个 child span
 
     Args:
@@ -110,7 +111,7 @@ def new_span(parent: TraceContext, name: str,
     Returns:
         新的 TraceContext (trace_id 继承,parent_span_id = parent.span_id)
     """
-    merged_tags: Dict[str, Any] = dict(parent.tags)
+    merged_tags: dict[str, Any] = dict(parent.tags)
     if tags:
         merged_tags.update(tags)
     merged_tags["span.name"] = name
@@ -141,7 +142,7 @@ def format_traceparent(ctx: TraceContext, flags: str = _FLAGS_DEFAULT) -> str:
     return f"{_VERSION_DEFAULT}-{ctx.trace_id}-{ctx.span_id}-{flags}"
 
 
-def parse_traceparent(header: str) -> Optional[TraceContext]:
+def parse_traceparent(header: str) -> TraceContext | None:
     """从 W3C traceparent header 解析出 TraceContext
 
     任何格式错误 (长度 / 非 hex / 全零) 均返回 None。
@@ -191,13 +192,13 @@ class TraceCollector:
         if max_traces <= 0:
             max_traces = 1
         self._max_traces = max_traces
-        self._traces: Dict[str, Dict[str, Any]] = {}
-        self._order: List[str] = []  # 插入顺序,便于 LRU 淘汰
+        self._traces: dict[str, dict[str, Any]] = {}
+        self._order: list[str] = []  # 插入顺序,便于 LRU 淘汰
         self._lock = threading.RLock()
 
     # ----- start / end -----
 
-    def start_trace(self, traceparent_header: Optional[str] = None) -> TraceContext:
+    def start_trace(self, traceparent_header: str | None = None) -> TraceContext:
         """开始一个 trace
 
         如果 traceparent_header 存在且能解析,继承其 trace_id (生成新 span_id);
@@ -232,15 +233,12 @@ class TraceCollector:
         """内部: 把新 trace 注册到 _traces,满了就 LRU 淘汰"""
         if ctx.trace_id in self._traces:
             # 已存在: 移除旧位置以便插到末尾
-            try:
+            with contextlib.suppress(ValueError):
                 self._order.remove(ctx.trace_id)
-            except ValueError:
-                pass
-        else:
-            # 容量检查
-            if len(self._traces) >= self._max_traces and self._order:
-                evict_id = self._order.pop(0)
-                self._traces.pop(evict_id, None)
+        # 容量检查
+        elif len(self._traces) >= self._max_traces and self._order:
+            evict_id = self._order.pop(0)
+            self._traces.pop(evict_id, None)
         self._traces[ctx.trace_id] = {
             "ctx": ctx,
             "spans": [],
@@ -251,7 +249,7 @@ class TraceCollector:
         self._order.append(ctx.trace_id)
 
     def end_trace(self, ctx: TraceContext, status: str = "ok",
-                  error: Optional[str] = None) -> None:
+                  error: str | None = None) -> None:
         """结束一个 trace
 
         Args:
@@ -272,9 +270,9 @@ class TraceCollector:
     # ----- spans -----
 
     def record_span(self, ctx: TraceContext, name: str, duration_ms: float,
-                    attrs: Optional[Dict[str, Any]] = None,
+                    attrs: dict[str, Any] | None = None,
                     status: str = _STATUS_OK,
-                    error: Optional[str] = None) -> None:
+                    error: str | None = None) -> None:
         """记录一个 span 节点
 
         Args:
@@ -313,7 +311,7 @@ class TraceCollector:
 
     # ----- read -----
 
-    def get_trace(self, trace_id: str) -> Optional[Dict[str, Any]]:
+    def get_trace(self, trace_id: str) -> dict[str, Any] | None:
         """获取完整 trace tree
 
         返回 dict:
@@ -334,18 +332,18 @@ class TraceCollector:
             if entry is None:
                 return None
             ctx: TraceContext = entry["ctx"]
-            spans: List[Dict[str, Any]] = list(entry["spans"])
+            spans: list[dict[str, Any]] = list(entry["spans"])
             status = entry["status"]
             error = entry["error"]
             end_ts = entry["end_ts"]
 
         # 构建 span 树 (基于 span_id 索引)
-        by_id: Dict[str, Dict[str, Any]] = {}
+        by_id: dict[str, dict[str, Any]] = {}
         for sp in spans:
             child = dict(sp)
             child["children"] = []
             by_id[sp["span_id"]] = child
-        roots: List[Dict[str, Any]] = []
+        roots: list[dict[str, Any]] = []
         for sp in by_id.values():
             parent_id = sp.get("parent_span_id")
             if parent_id and parent_id in by_id:
@@ -376,10 +374,10 @@ class TraceCollector:
             "total_duration_ms": total_ms,
         }
 
-    def query(self, since_ts: Optional[float] = None,
-              min_duration_ms: Optional[float] = None,
-              status: Optional[str] = None,
-              limit: int = 100) -> List[Dict[str, Any]]:
+    def query(self, since_ts: float | None = None,
+              min_duration_ms: float | None = None,
+              status: str | None = None,
+              limit: int = 100) -> list[dict[str, Any]]:
         """查询 trace 列表 (按 start_ts 倒序)
 
         Args:
@@ -401,7 +399,7 @@ class TraceCollector:
         # 按 start_ts 倒序
         items.sort(key=lambda kv: kv[1]["ctx"].start_ts, reverse=True)
 
-        results: List[Dict[str, Any]] = []
+        results: list[dict[str, Any]] = []
         for trace_id, entry in items:
             ctx: TraceContext = entry["ctx"]
             start_ts = ctx.start_ts
@@ -436,7 +434,7 @@ class TraceCollector:
                 break
         return results
 
-    def stats(self) -> Dict[str, int]:
+    def stats(self) -> dict[str, int]:
         """全局统计
 
         Returns:
@@ -489,10 +487,8 @@ class TraceCollector:
                     continue  # in_flight
                 if end_ts < threshold:
                     self._traces.pop(trace_id, None)
-                    try:
+                    with contextlib.suppress(ValueError):
                         self._order.remove(trace_id)
-                    except ValueError:
-                        pass
                     removed += 1
         return removed
 

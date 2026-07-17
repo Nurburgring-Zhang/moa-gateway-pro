@@ -8,7 +8,6 @@
 """
 from __future__ import annotations
 
-import json
 import os
 import sys
 import threading
@@ -22,7 +21,7 @@ _PKG_PARENT = os.path.dirname(os.path.dirname(os.path.abspath(_HERE)))
 if _PKG_PARENT not in sys.path:
     sys.path.insert(0, _PKG_PARENT)
 
-from moa_gateway.capability.checkpoint import atomic_write, CheckpointStore  # noqa: E402
+from moa_gateway.capability.checkpoint import CheckpointStore, atomic_write  # noqa: E402
 
 
 def _tmp_dir(prefix: str = "ckpt_test_") -> str:
@@ -49,14 +48,14 @@ class TestAtomicWriteBasic(unittest.TestCase):
         p = os.path.join(self.td, "a.txt")
         atomic_write(p, "hello world")
         self.assertTrue(os.path.isfile(p))
-        with open(p, "r", encoding="utf-8") as f:
+        with open(p, encoding="utf-8") as f:
             self.assertEqual(f.read(), "hello world")
 
     def test_02_overwrite_existing(self) -> None:
         p = os.path.join(self.td, "a.txt")
         atomic_write(p, "first")
         atomic_write(p, "second")
-        with open(p, "r", encoding="utf-8") as f:
+        with open(p, encoding="utf-8") as f:
             self.assertEqual(f.read(), "second")
 
     def test_03_bytes_payload(self) -> None:
@@ -69,7 +68,7 @@ class TestAtomicWriteBasic(unittest.TestCase):
     def test_04_unicode_text(self) -> None:
         p = os.path.join(self.td, "u.txt")
         atomic_write(p, "你好世界 🌍 — checkpoint")
-        with open(p, "r", encoding="utf-8") as f:
+        with open(p, encoding="utf-8") as f:
             self.assertEqual(f.read(), "你好世界 🌍 — checkpoint")
 
     def test_05_creates_parent_dir(self) -> None:

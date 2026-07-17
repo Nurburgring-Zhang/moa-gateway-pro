@@ -5,12 +5,11 @@
 等真实信号,输出可下发的 HarnessConfig。
 """
 from __future__ import annotations
-import re
-import json
-from enum import Enum
-from typing import List, Optional, Dict
-from dataclasses import dataclass, field, asdict
 
+import json
+import re
+from dataclasses import asdict, dataclass
+from enum import Enum
 
 # ============ 枚举: 3 档 + 5 优先级 ============
 
@@ -38,10 +37,10 @@ class RoutingDecision:
     tier: HarnessTier
     priority: Priority
     agent_count: int
-    tools_enabled: List[str]
+    tools_enabled: list[str]
     reason: str
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         d = asdict(self)
         d["tier"] = self.tier.value
         d["priority"] = self.priority.value
@@ -53,11 +52,11 @@ class HarnessConfig:
     """最终下发的 harness 配置 (公开 API)"""
     tier: HarnessTier
     priority: Priority
-    tools: List[str]
+    tools: list[str]
     max_iterations: int
-    decision: Optional[RoutingDecision] = None  # 调试/可观测
+    decision: RoutingDecision | None = None  # 调试/可观测
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         d = asdict(self)
         d["tier"] = self.tier.value
         d["priority"] = self.priority.value
@@ -84,7 +83,7 @@ _THOROUGH_KEYWORDS = frozenset({
 })
 
 # 优先级/严重度映射 (priority_from_severity)
-_SEVERITY_TO_PRIORITY: Dict[str, Priority] = {
+_SEVERITY_TO_PRIORITY: dict[str, Priority] = {
     "critical": Priority.P0,
     "urgent": Priority.P0,
     "blocker": Priority.P0,
@@ -101,7 +100,7 @@ _SEVERITY_TO_PRIORITY: Dict[str, Priority] = {
 }
 
 # 任务文本 → 优先级的隐式信号
-_IMPLICIT_PRIORITY_KEYWORDS: Dict[str, Priority] = {
+_IMPLICIT_PRIORITY_KEYWORDS: dict[str, Priority] = {
     "urgent": Priority.P0,
     "asap": Priority.P0,
     "critical": Priority.P0,
@@ -114,14 +113,14 @@ _IMPLICIT_PRIORITY_KEYWORDS: Dict[str, Priority] = {
 }
 
 # 不同 tier 对应的迭代上限
-_MAX_ITERATIONS: Dict[HarnessTier, int] = {
+_MAX_ITERATIONS: dict[HarnessTier, int] = {
     HarnessTier.MINIMAL: 3,
     HarnessTier.STANDARD: 8,
     HarnessTier.THOROUGH: 20,
 }
 
 # 不同 tier 对应 agent 数
-_AGENT_COUNT: Dict[HarnessTier, int] = {
+_AGENT_COUNT: dict[HarnessTier, int] = {
     HarnessTier.MINIMAL: 1,
     HarnessTier.STANDARD: 3,
     HarnessTier.THOROUGH: 6,
@@ -203,11 +202,11 @@ def route_request(
 _WORD_RE = re.compile(r"[a-zA-Z][a-zA-Z\-]+")
 
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     return [w.lower() for w in _WORD_RE.findall(text or "")]
 
 
-def auto_detect_tier(task: str, files: Optional[List[str]] = None) -> HarnessTier:
+def auto_detect_tier(task: str, files: list[str] | None = None) -> HarnessTier:
     """根据 task 关键词 + 文件数自动判断 harness 档位。
 
     关键词权重:
@@ -249,7 +248,7 @@ _TOOLS_STANDARD = _TOOLS_MINIMAL + ["write_file", "edit", "bash"]
 _TOOLS_THOROUGH = _TOOLS_STANDARD + ["run_tests", "web_search", "subagent"]
 
 
-def tools_for_tier(tier: HarnessTier) -> List[str]:
+def tools_for_tier(tier: HarnessTier) -> list[str]:
     """返回该档位默认可用的工具列表 (深拷贝,避免外部修改)。"""
     if tier == HarnessTier.MINIMAL:
         return list(_TOOLS_MINIMAL)

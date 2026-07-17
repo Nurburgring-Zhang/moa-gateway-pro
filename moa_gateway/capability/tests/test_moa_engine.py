@@ -1,27 +1,27 @@
 """moa_engine tests — M-01 基础引擎 + M-05 3 proposer + 1 aggregator 协同"""
-import sys
 import asyncio
+import sys
 import time
 from pathlib import Path
+
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from moa_gateway.capability.moa_engine import (
-    Proposer,
     Aggregator,
-    ProposerResult,
-    MoAResult,
     MoAEngineError,
+    MoAResult,
+    Proposer,
     ProposerCallError,
-    call_proposer,
+    ProposerResult,
     call_aggregator,
+    call_proposer,
+    default_aggregator,
+    default_three_proposers,
     run_moa,
     validate_moa,
-    default_three_proposers,
-    default_aggregator,
 )
-
 
 # ============ 测试夹具 / 工具 ============
 

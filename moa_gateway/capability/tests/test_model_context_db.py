@@ -6,15 +6,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.model_context_db import (
-    ModelSpec,
     MODEL_DATABASE,
-    get_model_spec,
-    list_models,
     calculate_max_tokens,
     estimate_cost,
     find_cheapest_for_context,
+    get_model_spec,
+    list_models,
 )
-
 
 # =============================================================================
 # 查询
@@ -63,7 +61,7 @@ def test_get_model_spec_unknown():
     """查 unknown → None"""
     spec = get_model_spec("nonexistent-model-xyz-9999")
     assert spec is None
-    print(f"  ✓ test_get_model_spec_unknown (returned None)")
+    print("  ✓ test_get_model_spec_unknown (returned None)")
     return True
 
 

@@ -1,25 +1,23 @@
 ﻿"""consumption_intel real tests (non-mock)"""
-import sys
 import json
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.consumption_intel import (
-    RequestContext,
     EndpointSpec,
+    RequestContext,
     SelectionDecision,
-    select_endpoint,
+    decision_from_json,
+    decision_to_json,
+    endpoint_from_json,
+    endpoint_to_json,
     select_batch,
+    select_endpoint,
     self_heal_rebalance,
     self_heal_rebalance_inplace,
-    decision_to_json,
-    decision_from_json,
-    endpoint_to_json,
-    endpoint_from_json,
-    FAILURE_SKIP_THRESHOLD,
 )
-
 
 # ============ test fixtures ============
 
@@ -324,7 +322,7 @@ def test_json_serialization_roundtrip():
     assert d2.vision_degraded_to == d.vision_degraded_to
     assert d2.reason == d.reason
     assert abs(d2.estimated_cost_usd - d.estimated_cost_usd) < 1e-9
-    print(f"  OK test_json_serialization_roundtrip: roundtrip OK")
+    print("  OK test_json_serialization_roundtrip: roundtrip OK")
 
 
 def test_endpoint_json_serialization():
@@ -338,7 +336,7 @@ def test_endpoint_json_serialization():
     assert ep2.avg_latency_ms == ep.avg_latency_ms
     assert ep2.capabilities == ep.capabilities
     assert ep2.consecutive_failures == ep.consecutive_failures
-    print(f"  OK test_endpoint_json_serialization: roundtrip OK")
+    print("  OK test_endpoint_json_serialization: roundtrip OK")
 
 
 def test_boundary_capabilities_mismatch():

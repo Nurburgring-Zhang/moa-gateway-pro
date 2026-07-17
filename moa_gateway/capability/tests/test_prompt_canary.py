@@ -10,22 +10,21 @@
 - INVISIBLE canary 视觉不可见
 - 边界场景: 短/长 response, Unicode, case-insensitive
 """
-import sys
 import re
 import string
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.prompt_canary import (
-    CanaryStrategy,
-    CanaryDetector,
-    generate_canary,
+    CANARY_PREFIX,
     INJECTION_PATTERNS,
     INVISIBLE_CHARS,
-    CANARY_PREFIX,
+    CanaryDetector,
+    CanaryStrategy,
+    generate_canary,
 )
-
 
 # ============ Canary 生成测试 ============
 
@@ -580,7 +579,6 @@ def test_invisible_canary_injection_in_response_detected():
 
 
 if __name__ == "__main__":
-    import inspect
 
     # 动态收集所有 test_ 开头的函数并运行
     test_funcs = [

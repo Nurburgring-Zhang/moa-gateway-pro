@@ -3,9 +3,11 @@
 真实 assert, 严禁 mock。
 """
 from __future__ import annotations
-import pytest
+
 import sys
 from pathlib import Path
+
+import pytest
 
 # 允许直接 import
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -13,16 +15,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from moa_gateway.capability.score_panel import (
     DimensionScore,
     PanelScore,
-    score_panel,
-    score_technical_quality,
-    score_completeness,
-    score_applicability,
-    score_specificity,
-    score_insight,
     multi_eval_average,
-    DEFAULT_WEIGHTS,
+    score_applicability,
+    score_completeness,
+    score_insight,
+    score_panel,
+    score_specificity,
+    score_technical_quality,
 )
-
 
 # ============ TQ 测试 ============
 

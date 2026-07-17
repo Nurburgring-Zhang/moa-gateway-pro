@@ -15,8 +15,7 @@ from __future__ import annotations
 
 import logging
 import warnings
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional
+from dataclasses import asdict, dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +53,7 @@ class ModelSpec:
     supports_streaming: bool = True
     notes: str = ""
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
     def effective_max_tokens(self, input_tokens: int, safety_margin: float = 0.1) -> int:
@@ -79,7 +78,7 @@ class ModelSpec:
 # 注:成本单位 USD/1k tokens,价格可能随厂商调整而变化
 # =============================================================================
 
-MODEL_DATABASE: Dict[str, ModelSpec] = {
+MODEL_DATABASE: dict[str, ModelSpec] = {
 
     # ===================== 国产模型 =====================
     "deepseek-v3": ModelSpec(
@@ -596,7 +595,7 @@ MODEL_DATABASE: Dict[str, ModelSpec] = {
 # =============================================================================
 
 
-def get_model_spec(model_id: str) -> Optional[ModelSpec]:
+def get_model_spec(model_id: str) -> ModelSpec | None:
     """查 model 规格(精确匹配)
 
     Args:
@@ -609,12 +608,12 @@ def get_model_spec(model_id: str) -> Optional[ModelSpec]:
 
 
 def list_models(
-    provider: Optional[str] = None,
-    supports_tools: Optional[bool] = None,
-    supports_vision: Optional[bool] = None,
+    provider: str | None = None,
+    supports_tools: bool | None = None,
+    supports_vision: bool | None = None,
     min_context: int = 0,
-    max_cost: Optional[float] = None,
-) -> List[ModelSpec]:
+    max_cost: float | None = None,
+) -> list[ModelSpec]:
     """列模型,按过滤条件
 
     Args:
@@ -627,7 +626,7 @@ def list_models(
     Returns:
         过滤后的 ModelSpec 列表(按 context_window 降序)
     """
-    result: List[ModelSpec] = []
+    result: list[ModelSpec] = []
     for spec in MODEL_DATABASE.values():
         if provider is not None and spec.provider != provider:
             continue
@@ -716,7 +715,7 @@ def estimate_cost(
     model_id: str,
     input_tokens: int,
     output_tokens: int,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """估算成本
 
     Args:
@@ -753,8 +752,8 @@ def estimate_cost(
 
 def find_cheapest_for_context(
     required_context: int,
-    max_cost_per_1k: Optional[float] = None,
-) -> List[ModelSpec]:
+    max_cost_per_1k: float | None = None,
+) -> list[ModelSpec]:
     """找能在给定 context 下工作的最便宜模型(按 input cost 升序)
 
     Args:
@@ -765,7 +764,7 @@ def find_cheapest_for_context(
         按 input_cost_per_1k 升序排列的 ModelSpec 列表
         如果 required_context > 所有模型 max context,返回空列表
     """
-    candidates: List[ModelSpec] = []
+    candidates: list[ModelSpec] = []
     for spec in MODEL_DATABASE.values():
         if spec.context_window < required_context:
             continue

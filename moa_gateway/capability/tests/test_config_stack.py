@@ -1,14 +1,20 @@
 """config_stack 真实测试(非 mock)"""
-import sys
 import json
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.config_stack import (
-    ConfigLayer, ConfigEntry, ConfigStack,
-    PermissionMode, PermissionRule, PermissionRegistry,
-    merge_layers, stack_to_dict, stack_from_dict,
+    ConfigEntry,
+    ConfigLayer,
+    ConfigStack,
+    PermissionMode,
+    PermissionRegistry,
+    PermissionRule,
+    merge_layers,
+    stack_from_dict,
+    stack_to_dict,
 )
 
 
@@ -172,7 +178,7 @@ def test_merge_layers_8_layers():
     assert merged["k7"] == "SK"  # SKILL 覆盖 SESSION
     assert merged["k8"] == "SE"  # SESSION 覆盖 BUILTIN
     assert len(merged) == 8
-    print(f"  ✓ test_merge_layers_8_layers: 8 key 全到位,高优先级胜")
+    print("  ✓ test_merge_layers_8_layers: 8 key 全到位,高优先级胜")
 
 
 def test_merge_layers_priority_correct():

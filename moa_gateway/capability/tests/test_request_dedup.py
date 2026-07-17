@@ -29,7 +29,6 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import List, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -39,7 +38,6 @@ from moa_gateway.capability.request_dedup import (
     RequestDedupIndex,
     hash_request,
 )
-
 
 # =============================================================================
 # 公共常量
@@ -149,7 +147,7 @@ def test_hash_request_empty_body():
     """空 body 也能算 hash"""
     h1 = hash_request("GET", "/a", None, DedupStrategy.NORMALIZED)
     h2 = hash_request("GET", "/a", None, DedupStrategy.NORMALIZED)
-    h3 = hash_request("GET", "/a", {}, DedupStrategy.NORMALIZED)
+    hash_request("GET", "/a", {}, DedupStrategy.NORMALIZED)
     assert h1 == h2
     # None 和 {} 在 NORMALIZED 下都被序列化为 "{}"(因 _body_for_normalize 把 None 视为 "")
     # 实际上 None → "" 序列化 → "",而 {} → "{}" → 不同
@@ -553,21 +551,21 @@ def test_invalid_args_raise_value_error():
     except ValueError:
         pass
     else:
-        assert False, "ttl_seconds=-1 should raise"
+        raise AssertionError("ttl_seconds=-1 should raise")
 
     try:
         RequestDedupIndex(max_size=0)
     except ValueError:
         pass
     else:
-        assert False, "max_size=0 should raise"
+        raise AssertionError("max_size=0 should raise")
 
     try:
         RequestDedupIndex(semantic_threshold=100)
     except ValueError:
         pass
     else:
-        assert False, "semantic_threshold=100 should raise"
+        raise AssertionError("semantic_threshold=100 should raise")
     print("  ✓ test_invalid_args_raise_value_error")
     return True
 
@@ -594,7 +592,7 @@ def test_check_does_not_increment_count():
 def test_concurrent_10_threads_100_requests():
     """10 线程 × 100 请求 不崩不漏"""
     idx = RequestDedupIndex(strategy=DedupStrategy.NORMALIZED, ttl_seconds=60, max_size=20000)
-    errors: List[Exception] = []
+    errors: list[Exception] = []
 
     def worker(tid: int) -> None:
         try:
@@ -624,7 +622,7 @@ def test_concurrent_10_threads_100_requests():
 def test_concurrent_mixed_check_and_record():
     """并发 check + record 不崩"""
     idx = RequestDedupIndex(strategy=DedupStrategy.NORMALIZED, ttl_seconds=60, max_size=20000)
-    errors: List[Exception] = []
+    errors: list[Exception] = []
 
     def worker(tid: int) -> None:
         try:
@@ -665,8 +663,7 @@ def test_performance_10k_normalized_under_100ms():
         for i in range(10000):
             idx.check("POST", "/v1/test", {"i": i % 1000}, source="perf")
         elapsed = time.perf_counter() - start
-        if elapsed < best:
-            best = elapsed
+        best = min(best, elapsed)
     # 设计目标 100ms;测试阈值 250ms 留余量(开发机 / 共享 CI 抖动)
     assert best < 0.25, f"10000 NORMALIZED checks (best of 7) took {best*1000:.1f}ms (target: <100ms)"
     print(f"  [OK] test_performance_10k_normalized_under_100ms (best {best*1000:.1f}ms, design target <100ms)")
@@ -678,7 +675,7 @@ def test_performance_10k_normalized_under_100ms():
 # =============================================================================
 
 
-def run_all() -> Tuple[int, int]:
+def run_all() -> tuple[int, int]:
     tests = [
         # 枚举
         test_dedup_strategy_values,
@@ -734,7 +731,7 @@ def run_all() -> Tuple[int, int]:
         test_performance_10k_normalized_under_100ms,
     ]
     passed = 0
-    failed: List[str] = []
+    failed: list[str] = []
     for t in tests:
         try:
             t()

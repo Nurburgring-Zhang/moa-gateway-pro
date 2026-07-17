@@ -1,24 +1,18 @@
 """cost_estimator 真实测试(非 mock,全部 assert)"""
 import sys
-import math
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.cost_estimator import (
-    Channel,
-    CostEstimate,
     DEEPSEEK,
     GLM,
-    MOONSHOT,
-    QWEN,
-    GPT_MINI,
-    CLAUDE_HAIKU,
-    CHANNEL_REGISTRY,
     PRESETS,
-    estimate_moa_cost,
-    dry_run_preset,
+    QWEN,
+    Channel,
     compare_presets,
+    dry_run_preset,
+    estimate_moa_cost,
     format_report,
 )
 
@@ -115,7 +109,7 @@ def test_estimate_with_retry():
     assert est_retry.multiplier == 3.0
     # total ratio = 2.0
     assert abs(est_retry.total_cost_usd / est_base.total_cost_usd - 2.0) < 1e-9
-    print(f"  ✓ test_estimate_with_retry (multiplier 1.5 → 3.0)")
+    print("  ✓ test_estimate_with_retry (multiplier 1.5 → 3.0)")
 
 def test_dry_run_preset_balanced():
     """用标准 balanced preset 估算"""
@@ -180,7 +174,7 @@ def test_format_report_contains_breakdown():
     est = dry_run_preset(PRESETS["premium"])
     report = format_report(est)
     # 应含所有 breakdown key
-    for k in est.breakdown.keys():
+    for k in est.breakdown:
         assert k in report, f"breakdown key '{k}' missing in report"
     # 应含 preset 描述
     assert "premium" in est.notes[0] or "premium" in str(est.breakdown)
@@ -244,12 +238,12 @@ def test_channel_validation():
     """Channel 验证 reliability/cost 范围"""
     try:
         Channel("bad", 0.001, 0.002, 500, 1.5)
-        assert False, "should have raised"
+        raise AssertionError("should have raised")
     except ValueError:
         pass
     try:
         Channel("bad2", -0.001, 0.002, 500, 0.9)
-        assert False, "should have raised"
+        raise AssertionError("should have raised")
     except ValueError:
         pass
     print("  ✓ test_channel_validation")

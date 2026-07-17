@@ -8,21 +8,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import pytest
 
 from moa_gateway.capability.model_entry import (
+    CapabilityCheck,
     Modality,
     ModelEntry,
-    CapabilityCheck,
-    get_capability,
     filter_by_capability,
-    filter_by_modality,
     filter_by_min_context,
-    sort_by_cost,
-    sort_by_context,
+    filter_by_modality,
     find_within_budget,
-    multimodal_score,
-    to_json,
     from_json,
+    get_capability,
+    multimodal_score,
+    sort_by_context,
+    sort_by_cost,
+    to_json,
 )
-
 
 # =============================================================================
 # 工具 fixture

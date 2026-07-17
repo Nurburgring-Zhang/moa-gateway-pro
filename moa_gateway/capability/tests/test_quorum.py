@@ -1,14 +1,20 @@
 """quorum 真实测试 (非 mock)"""
-import sys
 import json
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.quorum import (
-    QuorumConfig, Participant, QuorumStatus,
-    check_quorum, should_wait, force_close,
-    parse_rating, parse_battle, swap_positions_battle, to_json,
+    Participant,
+    QuorumConfig,
+    check_quorum,
+    force_close,
+    parse_battle,
+    parse_rating,
+    should_wait,
+    swap_positions_battle,
+    to_json,
 )
 
 
@@ -95,7 +101,7 @@ def test_within_grace_true():
     cfg = QuorumConfig(required=3, grace_seconds=30.0)
     s = check_quorum(ps, cfg, at=110.0)  # first_response=100.0, at=110.0 → 10s < 30s
     assert s.within_grace is True, f"got {s.within_grace}"
-    print(f"  ✓ test_within_grace_true: 10s < 30s grace")
+    print("  ✓ test_within_grace_true: 10s < 30s grace")
     return True
 
 
@@ -109,7 +115,7 @@ def test_within_grace_false_timeout():
     cfg = QuorumConfig(required=3, grace_seconds=5.0)
     s = check_quorum(ps, cfg, at=200.0)  # 100s 远超 5s
     assert s.within_grace is False, f"got {s.within_grace}"
-    print(f"  ✓ test_within_grace_false_timeout: 100s > 5s grace")
+    print("  ✓ test_within_grace_false_timeout: 100s > 5s grace")
     return True
 
 
@@ -124,7 +130,7 @@ def test_should_wait_true():
     cfg = QuorumConfig(required=3, grace_seconds=30.0, wait_for_laggards=True)
     s = check_quorum(ps, cfg, at=110.0)
     assert should_wait(s, cfg, at=110.0) is True
-    print(f"  ✓ test_should_wait_true: True")
+    print("  ✓ test_should_wait_true: True")
     return True
 
 
@@ -140,7 +146,7 @@ def test_should_wait_false():
     s = check_quorum(ps, cfg, at=200.0)
     assert s.within_grace is False
     assert should_wait(s, cfg, at=200.0) is False
-    print(f"  ✓ test_should_wait_false: False (timeout)")
+    print("  ✓ test_should_wait_false: False (timeout)")
     return True
 
 
@@ -154,7 +160,7 @@ def test_should_wait_disabled_by_config():
     cfg = QuorumConfig(required=3, grace_seconds=30.0, wait_for_laggards=False)
     s = check_quorum(ps, cfg, at=110.0)
     assert should_wait(s, cfg, at=110.0) is False
-    print(f"  ✓ test_should_wait_disabled_by_config: False (config disabled)")
+    print("  ✓ test_should_wait_disabled_by_config: False (config disabled)")
     return True
 
 
@@ -186,7 +192,7 @@ def test_parse_rating_double_bracket_a():
     """parse_rating '[[rating_a]] 8' → 8"""
     assert parse_rating("[[rating_a]] 8") == 8
     assert parse_rating("After review, [[rating_a]] 7 overall") == 7
-    print(f"  ✓ test_parse_rating_double_bracket_a: 8")
+    print("  ✓ test_parse_rating_double_bracket_a: 8")
     return True
 
 
@@ -194,7 +200,7 @@ def test_parse_rating_colon_format():
     """parse_rating 'Rating: 9' → 9"""
     assert parse_rating("Rating: 9") == 9
     assert parse_rating("rating = 6") == 6
-    print(f"  ✓ test_parse_rating_colon_format: 9")
+    print("  ✓ test_parse_rating_colon_format: 9")
     return True
 
 
@@ -202,7 +208,7 @@ def test_parse_rating_double_bracket_colon():
     """parse_rating '[[rating:7]]' → 7"""
     assert parse_rating("[[rating:7]]") == 7
     assert parse_rating("My judgment: [[rating: 4 ]]") == 4
-    print(f"  ✓ test_parse_rating_double_bracket_colon: 7")
+    print("  ✓ test_parse_rating_double_bracket_colon: 7")
     return True
 
 
@@ -211,7 +217,7 @@ def test_parse_rating_fallback_to_5():
     assert parse_rating("no rating here, just text") == 5
     assert parse_rating("") == 5
     assert parse_rating("this is garbage") == 5
-    print(f"  ✓ test_parse_rating_fallback_to_5: 5")
+    print("  ✓ test_parse_rating_fallback_to_5: 5")
     return True
 
 
@@ -226,7 +232,7 @@ def test_parse_rating_range_1_to_10():
     # 分数格式
     assert parse_rating("I rate this 8/10") == 8
     assert parse_rating("[7/10]") == 7
-    print(f"  ✓ test_parse_rating_range_1_to_10: clamp works")
+    print("  ✓ test_parse_rating_range_1_to_10: clamp works")
     return True
 
 
@@ -240,7 +246,7 @@ def test_parse_battle_a_wins():
     w2, c2 = parse_battle("[[winner]] A")
     assert w2 == "A"
     assert c2 == 1
-    print(f"  ✓ test_parse_battle_a_wins: A")
+    print("  ✓ test_parse_battle_a_wins: A")
     return True
 
 
@@ -252,7 +258,7 @@ def test_parse_battle_b_wins():
     assert w2 == "B"
     w3, _ = parse_battle("[[winner]] B")
     assert w3 == "B"
-    print(f"  ✓ test_parse_battle_b_wins: B")
+    print("  ✓ test_parse_battle_b_wins: B")
     return True
 
 
@@ -267,7 +273,7 @@ def test_parse_battle_tie():
     w3, c3 = parse_battle("no clear winner here")
     assert w3 == "tie"
     assert c3 == 0
-    print(f"  ✓ test_parse_battle_tie: tie")
+    print("  ✓ test_parse_battle_tie: tie")
     return True
 
 
@@ -288,7 +294,7 @@ def test_swap_positions_consistent():
 
     result = swap_positions_battle("good", "bad", judge)
     assert result == "good", f"got {result}"
-    print(f"  ✓ test_swap_positions_consistent: 'good' (consistent across positions)")
+    print("  ✓ test_swap_positions_consistent: 'good' (consistent across positions)")
     return True
 
 
@@ -304,7 +310,7 @@ def test_swap_positions_inconsistent():
     # 不一致 → tie
     result = swap_positions_battle("good", "bad", judge)
     assert result == "tie", f"expected tie, got {result}"
-    print(f"  ✓ test_swap_positions_inconsistent: tie (position bias detected)")
+    print("  ✓ test_swap_positions_inconsistent: tie (position bias detected)")
     return True
 
 
@@ -335,7 +341,7 @@ def test_json_serialization():
     j2 = to_json(s)
     obj2 = json.loads(j2)
     assert obj2["responded_count"] == 1
-    print(f"  ✓ test_json_serialization: all dataclasses serializable")
+    print("  ✓ test_json_serialization: all dataclasses serializable")
     return True
 
 

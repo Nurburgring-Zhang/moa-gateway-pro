@@ -35,8 +35,7 @@ import threading
 import time
 import warnings
 from collections import OrderedDict
-from typing import Any, Dict, Optional
-
+from typing import Any
 
 # ============ Constants ============
 
@@ -119,7 +118,7 @@ class TokenBucket:
 
     # -------- 内部辅助 --------
 
-    def _refill_locked(self, now: Optional[float] = None) -> None:
+    def _refill_locked(self, now: float | None = None) -> None:
         """在已加锁的前提下,按 elapsed * rate 补 token 到 capacity 上限
 
         调用方必须持有 self._lock。
@@ -213,7 +212,7 @@ class TokenBucket:
             self._total_consumed = 0
             self._total_denied = 0
 
-    def state(self) -> Dict[str, Any]:
+    def state(self) -> dict[str, Any]:
         """返回 bucket 当前快照 (用于监控 / 调试 / 导出 metrics)
 
         Returns:
@@ -309,7 +308,7 @@ class MultiKeyTokenBucket:
         self.default_capacity: float = float(default_capacity)
         self.default_refill_rate: float = float(default_refill_rate)
         self._max_keys: int = int(max_keys)
-        self._buckets: "OrderedDict[str, TokenBucket]" = OrderedDict()
+        self._buckets: OrderedDict[str, TokenBucket] = OrderedDict()
         self._lock: threading.RLock = threading.RLock()
 
     # -------- 内部辅助 --------
@@ -413,14 +412,14 @@ class MultiKeyTokenBucket:
         except Exception:
             return 0
 
-    def all_states(self) -> Dict[str, Dict[str, Any]]:
+    def all_states(self) -> dict[str, dict[str, Any]]:
         """导出所有 bucket 的 state 快照 (用于监控导出)
 
         Returns:
             { key -> state_dict } 形式,顺序按 LRU (最近访问的在最后)
         """
         try:
-            result: Dict[str, Dict[str, Any]] = {}
+            result: dict[str, dict[str, Any]] = {}
             with self._lock:
                 keys = list(self._buckets.keys())
                 for k in keys:

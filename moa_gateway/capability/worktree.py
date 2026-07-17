@@ -17,12 +17,13 @@
   - WorktreeManager 默认 cwd 是 repo 根, 所有子命令显式 cwd 避免污染
 """
 from __future__ import annotations
+
 import json
 import os
 import subprocess
 import time
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Optional, Any, Set, Tuple
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 
 # ============ 异常 ============
@@ -31,7 +32,7 @@ class GitCommandError(RuntimeError):
 
 
 # ============ 工具函数 ============
-def _run_git(repo_path: str, args: List[str], check: bool = True, timeout: float = 10.0) -> str:
+def _run_git(repo_path: str, args: list[str], check: bool = True, timeout: float = 10.0) -> str:
     """统一封装 git 命令。
 
     - repo_path 必须存在(由调用方保证,这里不校验)
@@ -42,7 +43,7 @@ def _run_git(repo_path: str, args: List[str], check: bool = True, timeout: float
     cmd = ["git"] + args
     # 修 P0-8: 关 terminal prompt + 关 optional lock,防 hang
     env = {
-        **__import__("os").environ,
+        **os.environ,
         "GIT_TERMINAL_PROMPT": "0",
         "GIT_OPTIONAL_LOCKS": "0",
     }
@@ -83,11 +84,11 @@ class WorktreeInfo:
     is_main: bool
     created_at: float
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "WorktreeInfo":
+    def from_dict(cls, d: dict[str, Any]) -> WorktreeInfo:
         return cls(**d)
 
 
@@ -96,15 +97,15 @@ class WorktreeSnapshot:
     """一个 worktree 在某个时刻的完整状态快照。"""
     commit_sha: str
     branch: str
-    tracked_files: List[str] = field(default_factory=list)
-    porcelain_status: List[Dict[str, str]] = field(default_factory=list)
+    tracked_files: list[str] = field(default_factory=list)
+    porcelain_status: list[dict[str, str]] = field(default_factory=list)
     timestamp: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "WorktreeSnapshot":
+    def from_dict(cls, d: dict[str, Any]) -> WorktreeSnapshot:
         return cls(**d)
 
 
@@ -146,7 +147,7 @@ class WorktreeManager:
         self,
         branch: str,
         base: str = "main",
-        path: Optional[str] = None,
+        path: str | None = None,
     ) -> WorktreeInfo:
         """基于 base 创建一个新 branch + worktree。
 
@@ -182,7 +183,7 @@ class WorktreeManager:
             created_at=time.time(),
         )
 
-    def list_worktrees(self) -> List[WorktreeInfo]:
+    def list_worktrees(self) -> list[WorktreeInfo]:
         """git worktree list --porcelain 解析。"""
         out = _run_git(self.repo_path, ["worktree", "list", "--porcelain"])
         return _parse_worktree_list(out, main_root=self._worktree_root())
@@ -203,7 +204,7 @@ class WorktreeManager:
             return False
 
 
-def _parse_worktree_list(porcelain: str, main_root: str) -> List[WorktreeInfo]:
+def _parse_worktree_list(porcelain: str, main_root: str) -> list[WorktreeInfo]:
     """git worktree list --porcelain 输出解析。
 
     格式: 多段 record,以空行分隔,每段:
@@ -211,8 +212,8 @@ def _parse_worktree_list(porcelain: str, main_root: str) -> List[WorktreeInfo]:
       HEAD <sha>
       branch <refs/heads/xxx>    (detached 时为 detached)
     """
-    worktrees: List[WorktreeInfo] = []
-    cur: Dict[str, str] = {}
+    worktrees: list[WorktreeInfo] = []
+    cur: dict[str, str] = {}
     for raw_line in porcelain.splitlines():
         line = raw_line.rstrip("\r")
         if not line:
@@ -235,7 +236,7 @@ def _parse_worktree_list(porcelain: str, main_root: str) -> List[WorktreeInfo]:
     return worktrees
 
 
-def _worktree_from_record(rec: Dict[str, str], main_root: str) -> WorktreeInfo:
+def _worktree_from_record(rec: dict[str, str], main_root: str) -> WorktreeInfo:
     path = rec.get("path", "")
     return WorktreeInfo(
         path=os.path.abspath(path),
@@ -247,7 +248,7 @@ def _worktree_from_record(rec: Dict[str, str], main_root: str) -> WorktreeInfo:
 
 
 # ============ Snapshot / Diff 纯函数 ============
-def _parse_porcelain(text: str) -> List[Dict[str, str]]:
+def _parse_porcelain(text: str) -> list[dict[str, str]]:
     """git status --porcelain 单行解析为 dict 列表。
 
     官方格式: XY<space>path  (重命名时 XY<space>old -> new)
@@ -257,7 +258,7 @@ def _parse_porcelain(text: str) -> List[Dict[str, str]]:
       "A " = added
       "??" = untracked
     """
-    result: List[Dict[str, str]] = []
+    result: list[dict[str, str]] = []
     for raw in text.splitlines():
         line = raw.rstrip("\r")
         if len(line) < 3:
@@ -313,7 +314,7 @@ def snapshot(repo_path: str) -> WorktreeSnapshot:
     )
 
 
-def diff_snapshots(s1: WorktreeSnapshot, s2: WorktreeSnapshot) -> Dict[str, Any]:
+def diff_snapshots(s1: WorktreeSnapshot, s2: WorktreeSnapshot) -> dict[str, Any]:
     """对比两份 snapshot 的 tracked_files 集合。
 
     返回:
@@ -326,8 +327,8 @@ def diff_snapshots(s1: WorktreeSnapshot, s2: WorktreeSnapshot) -> Dict[str, Any]
         "s2_sha": s2.commit_sha,
       }
     """
-    set1: Set[str] = set(s1.tracked_files)
-    set2: Set[str] = set(s2.tracked_files)
+    set1: set[str] = set(s1.tracked_files)
+    set2: set[str] = set(s2.tracked_files)
     added = sorted(set2 - set1)
     removed = sorted(set1 - set2)
     # 共同文件: 单纯 set diff 体现不出 modified 语义, 这里把 commit 不同也视为 modified

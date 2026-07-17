@@ -9,13 +9,14 @@
 - 失败 review → 自动回到 analyze(最多 max_iter 防死循环)
 """
 from __future__ import annotations
+
 import json
 import time
 import uuid
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Dict, Any, Optional, Callable
-from dataclasses import dataclass, field, asdict
-
+from typing import Any
 
 # ============ 27 HookEvent (Claude Code spec) ============
 
@@ -89,12 +90,12 @@ assert len(HookEvent) == 27, f"HookEvent must have 27 members, got {len(HookEven
 class HookHandler:
     """一个 hook 处理器"""
     event: HookEvent
-    callback: Optional[Callable] = None
+    callback: Callable | None = None
     priority: int = 0
     enabled: bool = True
     handler_id: str = field(default_factory=lambda: f"h_{uuid.uuid4().hex[:8]}")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "event": self.event.value,
             "priority": self.priority,
@@ -110,10 +111,10 @@ class HookContext:
     event: HookEvent
     session_id: str
     timestamp: float = field(default_factory=time.time)
-    data: Dict[str, Any] = field(default_factory=dict)
+    data: dict[str, Any] = field(default_factory=dict)
     context_id: str = field(default_factory=lambda: f"c_{uuid.uuid4().hex[:8]}")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "context_id": self.context_id,
             "event": self.event.value,
@@ -138,14 +139,14 @@ class HookRegistry:
     """
 
     def __init__(self) -> None:
-        self._handlers: Dict[str, HookHandler] = {}
-        self._order: List[str] = []  # 注册顺序
+        self._handlers: dict[str, HookHandler] = {}
+        self._order: list[str] = []  # 注册顺序
         self._trigger_count: int = 0  # 总触发次数(用于统计/测试)
 
     def register(
         self,
         event: HookEvent,
-        callback: Optional[Callable] = None,
+        callback: Callable | None = None,
         priority: int = 0,
     ) -> str:
         """注册一个 handler,返回 handler_id"""
@@ -163,7 +164,7 @@ class HookRegistry:
             self._order.remove(handler_id)
         return True
 
-    def trigger(self, event: HookEvent, data: Optional[Dict[str, Any]] = None) -> List[Any]:
+    def trigger(self, event: HookEvent, data: dict[str, Any] | None = None) -> list[Any]:
         """同步调用所有 enabled handler,返回结果列表
 
         排序:priority 降序(数值大的先),同 priority 按注册顺序
@@ -176,7 +177,7 @@ class HookRegistry:
         # 排序:priority 降序,同 priority 按注册顺序
         order_index = {hid: i for i, hid in enumerate(self._order)}
         targets.sort(key=lambda h: (-h.priority, order_index.get(h.handler_id, 0)))
-        results: List[Any] = []
+        results: list[Any] = []
         for h in targets:
             if h.callback is None:
                 results.append(None)
@@ -193,7 +194,7 @@ class HookRegistry:
                 results.append({"error": type(e).__name__, "message": str(e)})
         return results
 
-    def list_handlers(self, event: Optional[HookEvent] = None) -> List[HookHandler]:
+    def list_handlers(self, event: HookEvent | None = None) -> list[HookHandler]:
         """列出 handler;event 不为空时按 event 过滤"""
         if event is None:
             return [self._handlers[hid] for hid in self._order if hid in self._handlers]
@@ -221,7 +222,7 @@ class HookRegistry:
     def trigger_count(self) -> int:
         return self._trigger_count
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "handler_count": len(self._handlers),
             "trigger_count": self._trigger_count,
@@ -238,7 +239,7 @@ RALPH_STAGE_TEST = "test"
 RALPH_STAGE_REVIEW = "review"
 
 # 阶段顺序(循环)
-RALPH_STAGES: List[str] = [
+RALPH_STAGES: list[str] = [
     RALPH_STAGE_ANALYZE,
     RALPH_STAGE_IMPLEMENT,
     RALPH_STAGE_TEST,
@@ -246,7 +247,7 @@ RALPH_STAGES: List[str] = [
 ]
 
 # 阶段描述(便于 UI / 日志)
-RALPH_STAGE_DESCRIPTIONS: Dict[str, str] = {
+RALPH_STAGE_DESCRIPTIONS: dict[str, str] = {
     RALPH_STAGE_ANALYZE: "Analyze requirements and plan the change",
     RALPH_STAGE_IMPLEMENT: "Implement the code change",
     RALPH_STAGE_TEST: "Run tests and capture results",
@@ -254,7 +255,7 @@ RALPH_STAGE_DESCRIPTIONS: Dict[str, str] = {
 }
 
 
-def ralph_loop(stage: str, data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def ralph_loop(stage: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
     """无状态 4 阶段 Ralph 反馈循环
 
     返回一个 dict 描述该阶段的状态:
@@ -321,12 +322,12 @@ class RALPH_CYCLE:
         self.max_iter = max(1, max_iter)
         self.current_stage: str = RALPH_STAGE_ANALYZE
         self.iteration: int = 0  # 完成的 review 次数
-        self.history: List[Dict[str, Any]] = []
+        self.history: list[dict[str, Any]] = []
         self.session_id: str = session_id or f"ralph_{uuid.uuid4().hex[:8]}"
         self._terminated: bool = False
-        self._terminate_reason: Optional[str] = None
+        self._terminate_reason: str | None = None
 
-    def advance(self, stage_data: Optional[Dict[str, Any]] = None) -> str:
+    def advance(self, stage_data: dict[str, Any] | None = None) -> str:
         """推进到下一阶段,返回新的当前阶段名
 
         - 正常情况:analyze → implement → test → review → analyze ...
@@ -378,10 +379,10 @@ class RALPH_CYCLE:
         return self._terminated
 
     @property
-    def terminate_reason(self) -> Optional[str]:
+    def terminate_reason(self) -> str | None:
         return self._terminate_reason
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "session_id": self.session_id,
             "current_stage": self.current_stage,

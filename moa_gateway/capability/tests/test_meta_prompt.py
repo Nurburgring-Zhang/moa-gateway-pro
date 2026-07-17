@@ -1,19 +1,24 @@
 """meta_prompt 真实测试(非 mock)"""
-import sys
 import json
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.meta_prompt import (
-    MetaStage, MetaPrompt, MetaResult,
-    get_stage_prompts, run_meta_protocol,
-    cognitively_clash, three_jumps, fuse_decision,
-    meta_result_to_json, meta_prompt_to_json, merge_meta_results,
-    STAGE1_TEMPLATES, STAGE2_SYSTEM, STAGE3_SYSTEM,
-    DEFAULT_STAGE1_ROLES, JUMP_LABELS, CLASH_ROLE_PAIRS,
+    CLASH_ROLE_PAIRS,
+    MetaPrompt,
+    MetaResult,
+    MetaStage,
+    cognitively_clash,
+    fuse_decision,
+    get_stage_prompts,
+    merge_meta_results,
+    meta_prompt_to_json,
+    meta_result_to_json,
+    run_meta_protocol,
+    three_jumps,
 )
-
 
 # ============ 枚举测试 ============
 
@@ -38,7 +43,7 @@ def test_meta_stage_distinct():
     """3 个 stage 互不相同"""
     stages = [MetaStage.ROLE_DIFFERENTIATION, MetaStage.STRUCTURED_DEBATE, MetaStage.LOGICAL_FUSION]
     assert len(set(stages)) == 3
-    print(f"  ✓ test_meta_stage_distinct: all unique")
+    print("  ✓ test_meta_stage_distinct: all unique")
     return True
 
 
@@ -101,7 +106,7 @@ def test_run_meta_protocol_three_stages():
     assert stages[1] == MetaStage.STRUCTURED_DEBATE
     assert stages[2] == MetaStage.LOGICAL_FUSION
     # 每个结果都有 output (非空,因为 MockProvider 兜底)
-    for i, r in enumerate(results):
+    for _i, r in enumerate(results):
         assert isinstance(r.output, str)
     print(f"  ✓ test_run_meta_protocol_three_stages: 3 stages, "
           f"output lengths={[len(r.output) for r in results]}")
@@ -180,7 +185,7 @@ def test_cognitively_clash_custom_roles():
     assert "visionary" in pa.lower()
     assert "skeptic" in pb.lower()
     assert "AI" in pa and "AI" in pb
-    print(f"  ✓ test_cognitively_clash_custom_roles")
+    print("  ✓ test_cognitively_clash_custom_roles")
     return True
 
 
@@ -192,13 +197,13 @@ def test_three_jumps_returns_three():
     assert isinstance(out, list)
     assert len(out) == 3
     # 3 步都包含 jump 标签
-    for i, step in enumerate(out):
+    for _i, step in enumerate(out):
         assert "JUMP" in step
     # 顺序应该是 1, 2, 3
     assert "JUMP 1" in out[0]
     assert "JUMP 2" in out[1]
     assert "JUMP 3" in out[2]
-    print(f"  ✓ test_three_jumps_returns_three: 3 steps generated")
+    print("  ✓ test_three_jumps_returns_three: 3 steps generated")
     return True
 
 
@@ -251,7 +256,7 @@ def test_fuse_decision_same_length_more_keywords():
     winner = fuse_decision(options, context="")
     # 含 "must required critical essential" 的应胜出
     assert "must" in winner.lower(), f"expected keyword-rich, got: {winner}"
-    print(f"  ✓ test_fuse_decision_same_length_more_keywords")
+    print("  ✓ test_fuse_decision_same_length_more_keywords")
     return True
 
 
@@ -260,14 +265,14 @@ def test_fuse_decision_empty():
     assert fuse_decision([], "") == ""
     assert fuse_decision(["", "  ", ""], "") == ""
     assert fuse_decision(None, "") == ""  # type: ignore
-    print(f"  ✓ test_fuse_decision_empty: handles empty/None")
+    print("  ✓ test_fuse_decision_empty: handles empty/None")
     return True
 
 
 def test_fuse_decision_single():
     """边界:单选项 → 直接返回"""
     assert fuse_decision(["only one option"], "") == "only one option"
-    print(f"  ✓ test_fuse_decision_single")
+    print("  ✓ test_fuse_decision_single")
     return True
 
 
@@ -298,7 +303,7 @@ def test_json_serialization():
     pd = meta_prompt_to_json(p)
     ps = json.dumps(pd, ensure_ascii=False)
     assert "structured_debate" in ps
-    print(f"  ✓ test_json_serialization: round-trip ok")
+    print("  ✓ test_json_serialization: round-trip ok")
     return True
 
 
@@ -346,7 +351,7 @@ def test_merge_meta_results():
     assert "role_differentiation" in merged
     assert "logical_fusion" in merged
     assert merge_meta_results([]) == ""
-    print(f"  ✓ test_merge_meta_results: 3 stages merged")
+    print("  ✓ test_merge_meta_results: 3 stages merged")
     return True
 
 

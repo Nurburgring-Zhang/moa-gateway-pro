@@ -1,15 +1,21 @@
 """hook_events 真实测试 — 端到端验证(非 mock)"""
-import sys
 import json
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.hook_events import (
-    HookEvent, HookHandler, HookContext, HookRegistry,
-    ralph_loop, RALPH_CYCLE,
-    RALPH_STAGE_ANALYZE, RALPH_STAGE_IMPLEMENT, RALPH_STAGE_TEST, RALPH_STAGE_REVIEW,
+    RALPH_CYCLE,
+    RALPH_STAGE_ANALYZE,
+    RALPH_STAGE_REVIEW,
+    RALPH_STAGE_TEST,
     RALPH_STAGES,
+    HookContext,
+    HookEvent,
+    HookHandler,
+    HookRegistry,
+    ralph_loop,
 )
 
 
@@ -77,7 +83,7 @@ def test_hook_registry_disabled_skipped():
     """enabled=False 的 handler 不被调用"""
     called = []
     reg = HookRegistry()
-    h1 = reg.register(HookEvent.Stop, lambda ctx: called.append("a"))
+    reg.register(HookEvent.Stop, lambda ctx: called.append("a"))
     h2 = reg.register(HookEvent.Stop, lambda ctx: called.append("b"))
     reg.disable(h2)
     reg.trigger(HookEvent.Stop, {})

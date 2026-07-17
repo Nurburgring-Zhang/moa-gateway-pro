@@ -3,14 +3,11 @@
 每个 build_* 返回 flet Control 作为页面内容
 """
 from __future__ import annotations
-import asyncio
-import json
+
+import contextlib
 import logging
-from datetime import datetime
-from typing import Optional, Dict, Any, List
-import math
+
 import flet as ft
-from .theme import DARK, LIGHT, get_palette, THEMES
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +27,7 @@ def page_header(palette, title: str, sub: str = "") -> ft.Container:
 
 
 def card(palette, title: str = "", sub: str = "",
-         content: Optional[ft.Control] = None) -> ft.Container:
+         content: ft.Control | None = None) -> ft.Container:
     title_row = ft.Row(
         controls=[
             ft.Column(
@@ -109,7 +106,7 @@ def badge(palette, text: str, kind: str = "info") -> ft.Container:
 
 
 # ========== HTTP 异步 helper ==========
-async def http_get(url: str, timeout: float = 10, token: str = None) -> Dict:
+async def http_get(url: str, timeout: float = 10, token: str = None) -> dict:
     import httpx
     headers = {}
     if token:
@@ -119,7 +116,7 @@ async def http_get(url: str, timeout: float = 10, token: str = None) -> Dict:
         return r.json() if r.status_code == 200 else {"error": r.text}
 
 
-async def http_post(url: str, payload: Dict, timeout: float = 60, token: str = None) -> Dict:
+async def http_post(url: str, payload: dict, timeout: float = 60, token: str = None) -> dict:
     import httpx
     headers = {"Content-Type": "application/json"}
     if token:
@@ -130,7 +127,7 @@ async def http_post(url: str, payload: Dict, timeout: float = 60, token: str = N
 
 
 # ========== 1. 仪表盘 ==========
-def build_dashboard(state: Dict, sr) -> ft.Control:
+def build_dashboard(state: dict, sr) -> ft.Control:
     palette = state["palette"]
     base = f"http://127.0.0.1:{sr.port or 8765}"
 
@@ -213,10 +210,8 @@ def build_dashboard(state: Dict, sr) -> ft.Control:
         import time
         while True:
             time.sleep(10)
-            try:
+            with contextlib.suppress(Exception):
                 refresh()
-            except Exception:
-                pass
     import threading
     threading.Thread(target=periodic, daemon=True).start()
 
@@ -318,7 +313,7 @@ def stat_card_with_value(palette, label: str, value_ctrl: ft.Text) -> ft.Contain
 
 
 # ========== 2. 模型端点 ==========
-def build_endpoints(state: Dict, sr) -> ft.Control:
+def build_endpoints(state: dict, sr) -> ft.Control:
     palette = state["palette"]
     base = f"http://127.0.0.1:{sr.port or 8765}"
 
@@ -386,7 +381,7 @@ def build_endpoints(state: Dict, sr) -> ft.Control:
         table.update()
         summary.update()
 
-    def open_edit(idx: Optional[int]):
+    def open_edit(idx: int | None):
         ep = endpoints_data[idx] if idx is not None else None
         is_new = ep is None
         title = "新增端点" if is_new else f"编辑: {ep.get('id', '')}"
@@ -470,7 +465,6 @@ def build_endpoints(state: Dict, sr) -> ft.Control:
         )
         page = ft.app_ref.page if hasattr(ft, "app_ref") else None
         # 通过 outer page 弹出
-        import flet as ft_mod
         # 用 page.open 是 flet 0.27 后的 API
         if page:
             page.open(dlg)
@@ -518,7 +512,7 @@ def build_endpoints(state: Dict, sr) -> ft.Control:
 
 
 # ========== 3. MoA 编排(试玩台) ==========
-def build_playground(state: Dict, sr) -> ft.Control:
+def build_playground(state: dict, sr) -> ft.Control:
     palette = state["palette"]
     base = f"http://127.0.0.1:{sr.port or 8765}"
 
@@ -588,10 +582,8 @@ def build_playground(state: Dict, sr) -> ft.Control:
         spin_crit.value = str(p.get("critic_rounds", 1))
         spin_layer.value = str(p.get("layer_count", 3))
         for w in (strategy_desc, spin_n, spin_tref, spin_tagg, spin_crit, spin_layer):
-            try:
+            with contextlib.suppress(Exception):
                 w.update()
-            except Exception:
-                pass
     preset_dd.on_change = on_preset_change
 
     def on_run(e):

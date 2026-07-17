@@ -1,20 +1,21 @@
 """llm_merge tests — L-32 LLM 响应合并 (multi-source) + L-33 LLM 降级 chain"""
-import sys
 import json
-import pytest
+import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 from moa_gateway.capability.llm_merge import (
-    MergeStrategy,
-    LLMResponse,
-    MergedResult,
     AllProvidersFailedError,
     FallbackChain,
+    LLMResponse,
+    MergedResult,
+    MergeStrategy,
     merge_responses,
-    result_to_json,
     response_to_json,
+    result_to_json,
 )
 
 
@@ -106,7 +107,7 @@ class TestDedup:
             LLMResponse("c", "world", 20, 200.0, 0.002, 0.7),
         ]
         result = merge_responses(responses, MergeStrategy.DEDUP)
-        assert "hello---world" == result.text
+        assert result.text == "hello---world"
         assert result.sources == ["a", "c"]
 
     def test_normalizes_whitespace(self):

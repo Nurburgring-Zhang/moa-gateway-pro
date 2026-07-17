@@ -1,15 +1,20 @@
 """provider_health 真实测试(非 mock)"""
-import sys
 import json
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.provider_health import (
-    HealthMetrics, HealthScore,
-    compute_score, aggregate_scores, rank_providers,
-    should_circuit_break, recommend,
-    score_to_dict, metrics_to_dict,
+    HealthMetrics,
+    HealthScore,
+    aggregate_scores,
+    compute_score,
+    metrics_to_dict,
+    rank_providers,
+    recommend,
+    score_to_dict,
+    should_circuit_break,
 )
 
 
@@ -204,7 +209,7 @@ def test_tier_boundaries():
         avg_latency_ms=2000.0, p95_latency_ms=2100.0,
     )
     assert compute_score(m_dead).tier == "dead", f"0 should be dead, got {compute_score(m_dead).tier}"
-    print(f"  ✓ test_tier_boundaries: all 5 tiers verified")
+    print("  ✓ test_tier_boundaries: all 5 tiers verified")
     assert True
 
 
@@ -252,7 +257,7 @@ def test_should_circuit_break_threshold():
     # 自定义阈值
     m4 = HealthMetrics("p", consecutive_failures=5)
     assert should_circuit_break(m4, threshold=10) is False
-    print(f"  ✓ test_should_circuit_break: threshold logic ok")
+    print("  ✓ test_should_circuit_break: threshold logic ok")
     assert True
 
 
@@ -296,7 +301,7 @@ def test_recommend_prefer_tier_filter():
     assert recommend(scores, prefer_tier="excellent") == "a"
     # 过滤 fair → 没有匹配 → None
     assert recommend(scores, prefer_tier="fair") is None
-    print(f"  ✓ test_recommend_prefer_tier: filtering works")
+    print("  ✓ test_recommend_prefer_tier: filtering works")
     assert True
 
 

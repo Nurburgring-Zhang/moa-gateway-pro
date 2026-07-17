@@ -14,10 +14,11 @@
 """
 from __future__ import annotations
 
-import re
 import json
-from dataclasses import dataclass, field, asdict
-from typing import List, Optional, Tuple, Callable, Dict, Any
+import re
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
+from typing import Any
 
 
 # ============ Quorum 数据模型 ============
@@ -28,7 +29,7 @@ class QuorumConfig:
     grace_seconds: float = 30.0
     wait_for_laggards: bool = True
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -37,10 +38,10 @@ class Participant:
     """单个参与者"""
     participant_id: str
     responded: bool = False
-    response: Optional[str] = None
-    responded_at: Optional[float] = None
+    response: str | None = None
+    responded_at: float | None = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -48,20 +49,20 @@ class Participant:
 class QuorumStatus:
     """Quorum 检查结果"""
     reached: bool
-    reached_at: Optional[float]
+    reached_at: float | None
     responded_count: int
-    missing: List[str]
+    missing: list[str]
     within_grace: bool
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
 # ============ Quorum 检查 ============
 def check_quorum(
-    participants: List[Participant],
+    participants: list[Participant],
     config: QuorumConfig,
-    at: Optional[float] = None,
+    at: float | None = None,
 ) -> QuorumStatus:
     """检查 Quorum 状态
 
@@ -83,25 +84,22 @@ def check_quorum(
 
     reached = responded_count >= config.required
 
-    reached_at: Optional[float] = None
+    reached_at: float | None = None
     if reached and responded_list:
         # 按 responded_at 升序排序, 取第 required 个的时间戳 (1-indexed → required-1)
         sorted_by_time = sorted(responded_list, key=lambda p: p.responded_at)
         idx = max(0, min(config.required - 1, len(sorted_by_time) - 1))
         reached_at = sorted_by_time[idx].responded_at
 
-    first_response: Optional[float] = None
+    first_response: float | None = None
     if responded_list:
         first_response = min(p.responded_at for p in responded_list)
 
     # within_grace 计算
-    if not reached:
+    if not reached or at is None or first_response is None:
         within_grace = True
     else:
-        if at is None or first_response is None:
-            within_grace = True
-        else:
-            within_grace = (at - first_response) <= config.grace_seconds
+        within_grace = (at - first_response) <= config.grace_seconds
 
     return QuorumStatus(
         reached=reached,
@@ -115,7 +113,7 @@ def check_quorum(
 def should_wait(
     status: QuorumStatus,
     config: QuorumConfig,
-    at: Optional[float] = None,
+    at: float | None = None,
 ) -> bool:
     """是否应继续等待落伍者
 
@@ -132,10 +130,10 @@ def should_wait(
 
 
 def force_close(
-    participants: List[Participant],
+    participants: list[Participant],
     config: QuorumConfig,
-    at: Optional[float] = None,
-) -> Tuple[List[Participant], List[str]]:
+    at: float | None = None,
+) -> tuple[list[Participant], list[str]]:
     """强制关闭未响应者
 
     真实逻辑:
@@ -147,8 +145,8 @@ def force_close(
         import time
         at = time.time()
 
-    closed: List[str] = []
-    new_list: List[Participant] = []
+    closed: list[str] = []
+    new_list: list[Participant] = []
     for p in participants:
         if not p.responded:
             closed.append(p.participant_id)
@@ -244,7 +242,7 @@ _BATTLE_PATTERNS = [
 ]
 
 
-def parse_battle(judge_response: str) -> Tuple[str, int]:
+def parse_battle(judge_response: str) -> tuple[str, int]:
     """解析 judge 对战响应, 返回 (winner, confidence 0-1)
 
     winner ∈ {"A", "B", "tie"}
@@ -261,7 +259,6 @@ def parse_battle(judge_response: str) -> Tuple[str, int]:
     # 先检测 tie (优先级高, 因为 tie 措辞可能是兜底结论)
     tie_m = re.search(r"\b(tie|equal|draw|same\s+level|equivalent|neither)\b", text, re.IGNORECASE)
     winner_m = None
-    winner_pat_idx = -1
     for idx, (pat, label) in enumerate(_BATTLE_PATTERNS):
         if label == "explicit":
             m = pat.search(text)
@@ -276,10 +273,9 @@ def parse_battle(judge_response: str) -> Tuple[str, int]:
 
     if winner_m is None:
         for idx, (pat, label) in enumerate(_BATTLE_PATTERNS):
-            if label in ("A", "B"):
-                if pat.search(text):
-                    winner_m = (label, idx)
-                    break
+            if label in ("A", "B") and pat.search(text):
+                winner_m = (label, idx)
+                break
 
     if winner_m is None:
         # 没有 winner 标签, 全部 tie

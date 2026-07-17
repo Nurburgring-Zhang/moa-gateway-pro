@@ -1,25 +1,20 @@
 """per_provider_rl 真实测试(非 mock,全部 assert)"""
-import sys
 import json
+import sys
 import threading
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.per_provider_rl import (
-    WINDOW_SECONDS,
-    DEFAULT_MAX_CONCURRENT,
-    ProviderLimit,
-    UsageRecord,
-    RateLimitDecision,
-    ProviderLimiter,
     MultiProviderLimiter,
+    ProviderLimit,
+    ProviderLimiter,
     decision_to_dict,
     decision_to_json,
-    snapshot_to_json,
     make_default_limits,
+    snapshot_to_json,
 )
-
 
 # ============ Helpers ============
 
@@ -228,7 +223,7 @@ def test_empty_provider_no_error():
     """空 provider 不报错(用空字符串应被 dataclass 拒绝)"""
     try:
         ProviderLimit(provider="", max_requests_per_minute=10, max_inputs_per_minute=10, max_concurrent=1)
-        assert False, "should have raised"
+        raise AssertionError("should have raised")
     except ValueError:
         pass
     # 合法空 usage:0 record 也能查
@@ -368,19 +363,19 @@ def test_invalid_limit_raises():
     # max_rpm 负数
     try:
         ProviderLimit(provider="x", max_requests_per_minute=-1, max_inputs_per_minute=10, max_concurrent=1)
-        assert False
+        raise AssertionError()
     except ValueError:
         pass
     # max_concurrent 负数
     try:
         ProviderLimit(provider="x", max_requests_per_minute=10, max_inputs_per_minute=10, max_concurrent=-5)
-        assert False
+        raise AssertionError()
     except ValueError:
         pass
     # cooldown 负数
     try:
         ProviderLimit(provider="x", max_requests_per_minute=10, max_inputs_per_minute=10, max_concurrent=1, cooldown_seconds_after_429=-1.0)
-        assert False
+        raise AssertionError()
     except ValueError:
         pass
     print("  ✓ test_invalid_limit_raises")

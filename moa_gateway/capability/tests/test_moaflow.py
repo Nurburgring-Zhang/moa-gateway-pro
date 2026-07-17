@@ -5,8 +5,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.moaflow import (
-    MemberResponse, score_sycophancy, detect_movers_and_flips,
-    score_conformity, group_think_verdict,
+    MemberResponse,
+    detect_movers_and_flips,
+    group_think_verdict,
+    score_conformity,
+    score_sycophancy,
 )
 
 

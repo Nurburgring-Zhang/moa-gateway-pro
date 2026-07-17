@@ -19,10 +19,8 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import List, Dict, Set, Optional, Tuple
-
 
 __all__ = [
     "IterationSnapshot",
@@ -55,7 +53,7 @@ ADOPTION_RATIO: float = 1.05
 WORD_RE = re.compile(r"[a-zA-Z][a-zA-Z\-]+|[\u4e00-\u9fff]")
 
 # 简单停用词
-STOPWORDS: Set[str] = frozenset({
+STOPWORDS: set[str] = frozenset({
     "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
     "have", "has", "had", "do", "does", "did", "will", "would", "could",
     "should", "may", "might", "must", "shall", "can", "need", "dare",
@@ -93,12 +91,12 @@ class Step5Mode(str, Enum):
 class IterationSnapshot:
     """一次迭代的轻量快照 (M-50 输入)"""
     iter_idx: int
-    proposals: List[str] = field(default_factory=list)
+    proposals: list[str] = field(default_factory=list)
     best_score: float = 0.0
     best_proposal_idx: int = -1
     summary: str = ""
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -107,10 +105,10 @@ class SynthesisResult:
     """M-50 cross-iteration synthesis 的输出"""
     mode: SynthesisMode
     output: str
-    sources: List[int] = field(default_factory=list)  # 引用的 iter indices
+    sources: list[int] = field(default_factory=list)  # 引用的 iter indices
     confidence: float = 0.0  # 0-1
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         d = asdict(self)
         d["mode"] = self.mode.value
         return d
@@ -123,7 +121,7 @@ class Step5Result:
     output: str
     action_taken: str = ""
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         d = asdict(self)
         d["mode"] = self.mode.value
         return d
@@ -131,18 +129,18 @@ class Step5Result:
 
 # ============ 辅助函数 ============
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     if not text:
         return []
     return [t.lower() for t in WORD_RE.findall(text)]
 
 
-def _keywords(text: str) -> List[str]:
+def _keywords(text: str) -> list[str]:
     """去停用词 + 短词过滤 + dedup 保序"""
     if not text:
         return []
-    out: List[str] = []
-    seen: Set[str] = set()
+    out: list[str] = []
+    seen: set[str] = set()
     for tok in _tokenize(text):
         if tok in STOPWORDS:
             continue
@@ -155,9 +153,9 @@ def _keywords(text: str) -> List[str]:
     return out
 
 
-def _snapshot_keyword_set(snap: IterationSnapshot) -> Set[str]:
+def _snapshot_keyword_set(snap: IterationSnapshot) -> set[str]:
     """聚合一次 snapshot 的关键词 (proposals + summary)"""
-    kws: Set[str] = set()
+    kws: set[str] = set()
     for p in snap.proposals:
         for k in _keywords(p):
             kws.add(k)
@@ -166,7 +164,7 @@ def _snapshot_keyword_set(snap: IterationSnapshot) -> Set[str]:
     return kws
 
 
-def _jaccard(a: Set[str], b: Set[str]) -> float:
+def _jaccard(a: set[str], b: set[str]) -> float:
     if not a and not b:
         return 1.0
     union = a | b
@@ -193,19 +191,19 @@ def _safe_best_text(snap: IterationSnapshot) -> str:
 
 # ============ 序列化辅助 ============
 
-def snapshot_to_dict(snap: IterationSnapshot) -> Dict:
+def snapshot_to_dict(snap: IterationSnapshot) -> dict:
     return snap.to_dict()
 
 
-def result_to_dict(result: SynthesisResult) -> Dict:
+def result_to_dict(result: SynthesisResult) -> dict:
     return result.to_dict()
 
 
-def step5_result_to_dict(result: Step5Result) -> Dict:
+def step5_result_to_dict(result: Step5Result) -> dict:
     return result.to_dict()
 
 
-def snapshot_from_dict(d: Dict) -> IterationSnapshot:
+def snapshot_from_dict(d: dict) -> IterationSnapshot:
     return IterationSnapshot(
         iter_idx=int(d.get("iter_idx", 0)),
         proposals=list(d.get("proposals", []) or []),
@@ -217,7 +215,7 @@ def snapshot_from_dict(d: Dict) -> IterationSnapshot:
 
 # ============ 核心 API: convergence_mode ============
 
-def convergence_mode(iters: List[IterationSnapshot]) -> SynthesisResult:
+def convergence_mode(iters: list[IterationSnapshot]) -> SynthesisResult:
     """M-50 convergence 模式: 用关键词 Jaccard 算 iter 间 overlap
 
     流程:
@@ -240,7 +238,7 @@ def convergence_mode(iters: List[IterationSnapshot]) -> SynthesisResult:
             confidence=0.0,
         )
 
-    kw_sets: List[Set[str]] = [_snapshot_keyword_set(s) for s in iters]
+    kw_sets: list[set[str]] = [_snapshot_keyword_set(s) for s in iters]
 
     if len(iters) == 1:
         # 单一 iter: trivial convergent, output 其关键词
@@ -255,7 +253,7 @@ def convergence_mode(iters: List[IterationSnapshot]) -> SynthesisResult:
         )
 
     # 两两 Jaccard
-    pair_scores: List[float] = []
+    pair_scores: list[float] = []
     for i in range(len(kw_sets)):
         for j in range(i + 1, len(kw_sets)):
             pair_scores.append(_jaccard(kw_sets[i], kw_sets[j]))
@@ -264,7 +262,7 @@ def convergence_mode(iters: List[IterationSnapshot]) -> SynthesisResult:
 
     # 公共关键词: 出现在 >= half iter
     half = max(1, len(kw_sets) // 2)
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for ks in kw_sets:
         for k in ks:
             counts[k] = counts.get(k, 0) + 1
@@ -290,7 +288,7 @@ def convergence_mode(iters: List[IterationSnapshot]) -> SynthesisResult:
 
 # ============ 核心 API: best_of_each_mode ============
 
-def best_of_each_mode(iters: List[IterationSnapshot]) -> SynthesisResult:
+def best_of_each_mode(iters: list[IterationSnapshot]) -> SynthesisResult:
     """M-50 best_of_each 模式: 每个 iter 取 best_proposal → 综合输出
 
     流程:
@@ -299,8 +297,8 @@ def best_of_each_mode(iters: List[IterationSnapshot]) -> SynthesisResult:
       3. sources = 所有 iter indices
       4. confidence = mean(best_score) / 100 (归一到 0-1), 但 0-1 裁剪
     """
-    sources: List[int] = []
-    lines: List[str] = []
+    sources: list[int] = []
+    lines: list[str] = []
     score_sum = 0.0
     score_n = 0
 
@@ -372,14 +370,13 @@ def recommended_adoption_mode(
     elif adoption == "prev":
         chosen_idx = prev.best_proposal_idx
         chosen_text = _truncate(_safe_best_text(prev), max_len=120)
+    # either: 选分数更高的那个作为参考输出
+    elif cs >= ps:
+        chosen_idx = curr.best_proposal_idx
+        chosen_text = _truncate(_safe_best_text(curr), max_len=120)
     else:
-        # either: 选分数更高的那个作为参考输出
-        if cs >= ps:
-            chosen_idx = curr.best_proposal_idx
-            chosen_text = _truncate(_safe_best_text(curr), max_len=120)
-        else:
-            chosen_idx = prev.best_proposal_idx
-            chosen_text = _truncate(_safe_best_text(prev), max_len=120)
+        chosen_idx = prev.best_proposal_idx
+        chosen_text = _truncate(_safe_best_text(prev), max_len=120)
 
     output = (
         f"Recommended adoption: {adoption} "
@@ -398,9 +395,9 @@ def recommended_adoption_mode(
 
 # ============ 核心 API: run_step5 ============
 
-def _self_improve_suggestions(synth: SynthesisResult) -> List[str]:
+def _self_improve_suggestions(synth: SynthesisResult) -> list[str]:
     """基于 best_of_each 输出生成改进建议"""
-    suggestions: List[str] = []
+    suggestions: list[str] = []
     if synth.confidence < 0.5:
         suggestions.append("Mean best score is low; consider re-evaluating the rubric.")
     if not synth.sources:
@@ -412,7 +409,7 @@ def _self_improve_suggestions(synth: SynthesisResult) -> List[str]:
     return suggestions
 
 
-def run_step5(iters: List[IterationSnapshot], mode: Step5Mode) -> Step5Result:
+def run_step5(iters: list[IterationSnapshot], mode: Step5Mode) -> Step5Result:
     """M-52 Step-5 三种模式统一入口
 
     SINTESIS_CENTRAL: 跑 convergence_mode, 取最稳的综合结论

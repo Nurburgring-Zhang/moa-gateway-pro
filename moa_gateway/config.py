@@ -3,14 +3,15 @@
 对全系统暴露统一的 Settings 对象。
 """
 from __future__ import annotations
+
+import logging
 import os
 import secrets
-import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Literal
-from pydantic import BaseModel, Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Any, Literal
+
 import yaml
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class ModelEndpointConfig(BaseModel):
     timeout: int = 120
     weight: int = 100
     enabled: bool = False
-    tags: List[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
     # 运行时字段(不存到 yaml)
     api_key_runtime: str = ""    # 启动时从 env 或 webui 注入的 key
     health_status: str = "unknown"
@@ -50,7 +51,7 @@ class ServerConfig(BaseModel):
     log_level: str = "INFO"
     # P1-2 安全加固:默认 CORS 改为精确 origin,不再用 "*"
     # 用户如需跨域访问,显式在 config.yaml 里添加可信 origin
-    cors_origins: List[str] = Field(
+    cors_origins: list[str] = Field(
         default_factory=lambda: ["http://localhost:8910", "http://127.0.0.1:8910"]
     )
 
@@ -62,7 +63,7 @@ class StorageConfig(BaseModel):
 
 class AuthConfig(BaseModel):
     # P1-4 安全加固:默认 gateway_api_keys 为空(必须显式添加或通过 WebUI 生成)
-    gateway_api_keys: List[str] = Field(default_factory=list)
+    gateway_api_keys: list[str] = Field(default_factory=list)
     admin_username: str = "admin"
     admin_password: str = "admin"
     jwt_secret: str = ""
@@ -70,11 +71,11 @@ class AuthConfig(BaseModel):
 
 
 class RoutingConfig(BaseModel):
-    thresholds: Dict[str, int] = Field(default_factory=lambda: {
+    thresholds: dict[str, int] = Field(default_factory=lambda: {
         "trivial_length": 10, "simple_length": 50,
         "medium_length": 200, "complex_length": 500
     })
-    tier_mapping: Dict[str, str] = Field(default_factory=lambda: {
+    tier_mapping: dict[str, str] = Field(default_factory=lambda: {
         "trivial": "free", "simple": "lite", "medium": "standard",
         "complex": "premium", "expert": "flagship"
     })
@@ -105,7 +106,7 @@ class MoAPresetConfig(BaseModel):
                        "compose", "judge", "chain",
                        "layered", "single_proposer", "ranker"] = "parallel"
     # 显式参考模型列表(Hermes v0.18 风格)— 留空表示动态选择
-    reference_models: List[ReferenceModelConfig] = Field(default_factory=list)
+    reference_models: list[ReferenceModelConfig] = Field(default_factory=list)
     reference_count: int = 3              # 动态选时的目标数量
     aggregator: str = ""                  # 显式指定 aggregator model id
     aggregator_tier: str = "premium"     # 动态选 aggregator 时的 tier
@@ -115,7 +116,7 @@ class MoAPresetConfig(BaseModel):
     reference_temperature: float = 0.6    # 参考模型稍高(多样性)
     aggregator_temperature: float = 0.4   # 聚合器稍低(稳定/裁决)
     max_tokens: int = 4096
-    stages: List[MoAStageConfig] = Field(default_factory=list)
+    stages: list[MoAStageConfig] = Field(default_factory=list)
     # Layered MoA 层数(论文 §2.2)
     layer_count: int = 3
     # 描述(给人看)
@@ -131,7 +132,7 @@ class MoAConfig(BaseModel):
     reference_timeout: int = 60
     aggregator_timeout: int = 120
     consensus_threshold: float = 0.35
-    presets: Dict[str, MoAPresetConfig] = Field(default_factory=dict)
+    presets: dict[str, MoAPresetConfig] = Field(default_factory=dict)
 
 
 class HealthConfig(BaseModel):
@@ -161,7 +162,7 @@ class Settings(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
     storage: StorageConfig = Field(default_factory=StorageConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
-    models: List[ModelEndpointConfig] = Field(default_factory=list)
+    models: list[ModelEndpointConfig] = Field(default_factory=list)
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
     moa: MoAConfig = Field(default_factory=MoAConfig)
     health: HealthConfig = Field(default_factory=HealthConfig)
@@ -201,12 +202,12 @@ def _resolve_api_keys(cfg: Settings) -> Settings:
     return cfg
 
 
-def load_settings(config_path: Optional[Path] = None) -> Settings:
+def load_settings(config_path: Path | None = None) -> Settings:
     """加载完整配置"""
     config_path = config_path or DEFAULT_CONFIG_PATH
-    raw: Dict[str, Any] = {}
+    raw: dict[str, Any] = {}
     if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
         logger.info("Loaded base config from %s", config_path)
     else:
@@ -225,7 +226,7 @@ def load_settings(config_path: Optional[Path] = None) -> Settings:
 
 
 # 全局单例 + 订阅(修19)
-_settings: Optional[Settings] = None
+_settings: Settings | None = None
 _settings_subscribers: list = []
 
 
@@ -256,7 +257,7 @@ def subscribe_settings_change(callback):
     _settings_subscribers.append(callback)
 
 
-def apply_db_overrides(settings: Settings, overrides: Dict[str, Any]) -> Settings:
+def apply_db_overrides(settings: Settings, overrides: dict[str, Any]) -> Settings:
     """应用数据库里存的覆盖配置(用于热更新)"""
     if not overrides:
         return settings

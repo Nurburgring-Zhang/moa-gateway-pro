@@ -18,18 +18,16 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import List, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.fuzzy_dedup import (
     FuzzyDedupIndex,
     hamming_distance,
-    similarity,
     simhash,
+    similarity,
     tokenize,
 )
-
 
 # =============================================================================
 # tokenize
@@ -414,8 +412,8 @@ def test_index_multiple_matches_sorted_desc():
     """多条匹配时按相似度降序"""
     idx = FuzzyDedupIndex()
     rid_exact = idx.add("the quick brown fox jumps over the lazy dog")
-    rid_near = idx.add("the quick brown fox jumps over a lazy dog")
-    rid_far = idx.add("the quick brown fox jumps over lazy dog")
+    idx.add("the quick brown fox jumps over a lazy dog")
+    idx.add("the quick brown fox jumps over lazy dog")
     dups = idx.find_duplicates(
         "the quick brown fox jumps over the lazy dog", threshold=0.5
     )
@@ -490,7 +488,7 @@ def test_long_text_under_1mb_fast():
 def test_thread_concurrent_add_and_query():
     """5 线程 × 100 操作(混合 add + query)不崩、size 正确"""
     idx = FuzzyDedupIndex(max_size=5000)
-    errors: List[Exception] = []
+    errors: list[Exception] = []
 
     def worker(wid: int) -> None:
         try:
@@ -537,7 +535,7 @@ def test_fuzzy_vs_exact_dedup():
     )
 
     # 字符串去重:id 都不同(因为 add 每次都新生成 uuid)
-    assert a != b and b != c
+    assert b not in (a, c)
 
     # 模糊去重:用 b 的内容查询,b 自身 sim=1.0,a sim 高,c sim 低
     dups = idx.find_duplicates(
@@ -567,7 +565,7 @@ def test_fuzzy_vs_exact_dedup():
 # =============================================================================
 
 
-def run_all() -> Tuple[int, int]:
+def run_all() -> tuple[int, int]:
     tests = [
         # tokenize
         test_tokenize_basic,
@@ -615,7 +613,7 @@ def run_all() -> Tuple[int, int]:
         test_fuzzy_vs_exact_dedup,
     ]
     passed = 0
-    failed: List[str] = []
+    failed: list[str] = []
     for t in tests:
         try:
             t()

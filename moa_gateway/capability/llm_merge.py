@@ -17,10 +17,9 @@ from __future__ import annotations
 
 import json
 import re
-from collections import Counter
-from dataclasses import dataclass, field, asdict
+from collections.abc import Callable
+from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, Dict, List, Optional, Tuple
 
 
 # ============ 数据模型 ============
@@ -43,7 +42,7 @@ class LLMResponse:
     cost_usd: float
     confidence: float  # 0-1
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "source": self.source,
             "text": self.text,
@@ -58,13 +57,13 @@ class LLMResponse:
 class MergedResult:
     """合并结果"""
     text: str
-    sources: List[str]
+    sources: list[str]
     strategy: MergeStrategy
     total_tokens: int
     total_cost_usd: float
     confidence: float  # 0-1
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "text": self.text,
             "sources": list(self.sources),
@@ -81,12 +80,12 @@ class MergedResult:
 # ============ 异常 ============
 class AllProvidersFailedError(Exception):
     """FallbackChain 中所有 provider 均失败"""
-    def __init__(self, providers: List[str], errors: Optional[List[Exception]] = None):
+    def __init__(self, providers: list[str], errors: list[Exception] | None = None):
         self.providers = list(providers)
         self.errors = list(errors or [])
         msg = f"All providers failed: {self.providers}"
         if self.errors:
-            detail = "; ".join(f"{p}: {type(e).__name__}: {e}" for p, e in zip(self.providers, self.errors))
+            detail = "; ".join(f"{p}: {type(e).__name__}: {e}" for p, e in zip(self.providers, self.errors, strict=False))
             msg = f"{msg} | {detail}"
         super().__init__(msg)
 
@@ -108,15 +107,15 @@ def _normalize_text(text: str) -> str:
     return s
 
 
-def _aggregate_cost(responses: List[LLMResponse]) -> float:
+def _aggregate_cost(responses: list[LLMResponse]) -> float:
     return float(sum(max(0.0, r.cost_usd) for r in responses))
 
 
-def _aggregate_tokens(responses: List[LLMResponse]) -> int:
+def _aggregate_tokens(responses: list[LLMResponse]) -> int:
     return int(sum(max(0, r.tokens) for r in responses))
 
 
-def _avg_confidence(responses: List[LLMResponse]) -> float:
+def _avg_confidence(responses: list[LLMResponse]) -> float:
     if not responses:
         return 0.0
     total = sum(max(0.0, min(1.0, float(r.confidence))) for r in responses)
@@ -124,7 +123,7 @@ def _avg_confidence(responses: List[LLMResponse]) -> float:
 
 
 # ============ 合并策略实现 ============
-def _merge_concat(responses: List[LLMResponse]) -> MergedResult:
+def _merge_concat(responses: list[LLMResponse]) -> MergedResult:
     """CONCAT: 用 "---" 拼接所有响应文本"""
     if not responses:
         return MergedResult(
@@ -147,7 +146,7 @@ def _merge_concat(responses: List[LLMResponse]) -> MergedResult:
     )
 
 
-def _merge_dedup(responses: List[LLMResponse]) -> MergedResult:
+def _merge_dedup(responses: list[LLMResponse]) -> MergedResult:
     """DEDUP: 移除完全重复的响应(基于 normalized text)
     保留首次出现的 source。
     """
@@ -160,8 +159,8 @@ def _merge_dedup(responses: List[LLMResponse]) -> MergedResult:
             total_cost_usd=0.0,
             confidence=0.0,
         )
-    seen: Dict[str, int] = {}
-    kept: List[LLMResponse] = []
+    seen: dict[str, int] = {}
+    kept: list[LLMResponse] = []
     for r in responses:
         key = _normalize_text(r.text)
         if key in seen:
@@ -189,7 +188,7 @@ def _merge_dedup(responses: List[LLMResponse]) -> MergedResult:
     )
 
 
-def _merge_vote(responses: List[LLMResponse]) -> MergedResult:
+def _merge_vote(responses: list[LLMResponse]) -> MergedResult:
     """VOTE: 多数共识 — 按 normalized text 分组,选票数最多者
     选平局时按 confidence 总分高者胜;仍平局取首次出现。
     """
@@ -202,13 +201,13 @@ def _merge_vote(responses: List[LLMResponse]) -> MergedResult:
             total_cost_usd=0.0,
             confidence=0.0,
         )
-    groups: Dict[str, List[LLMResponse]] = {}
+    groups: dict[str, list[LLMResponse]] = {}
     for r in responses:
         key = _normalize_text(r.text)
         groups.setdefault(key, []).append(r)
 
     # 计算每组得票与 confidence 总分
-    scored: List[Tuple[int, float, str, List[LLMResponse]]] = []
+    scored: list[tuple[int, float, str, list[LLMResponse]]] = []
     for key, group in groups.items():
         votes = len(group)
         conf_sum = sum(max(0.0, min(1.0, float(r.confidence))) for r in group)
@@ -237,7 +236,7 @@ def _merge_vote(responses: List[LLMResponse]) -> MergedResult:
     )
 
 
-def _merge_weighted(responses: List[LLMResponse]) -> MergedResult:
+def _merge_weighted(responses: list[LLMResponse]) -> MergedResult:
     """WEIGHTED: 按 confidence 加权选择最佳响应
     选 confidence 最高的单个响应(若平局选首次出现)。
     """
@@ -268,7 +267,7 @@ def _merge_weighted(responses: List[LLMResponse]) -> MergedResult:
     )
 
 
-def _merge_first_success(responses: List[LLMResponse]) -> MergedResult:
+def _merge_first_success(responses: list[LLMResponse]) -> MergedResult:
     """FIRST_SUCCESS: 选第一个非空响应"""
     if not responses:
         return MergedResult(
@@ -279,7 +278,7 @@ def _merge_first_success(responses: List[LLMResponse]) -> MergedResult:
             total_cost_usd=0.0,
             confidence=0.0,
         )
-    chosen: Optional[LLMResponse] = None
+    chosen: LLMResponse | None = None
     for r in responses:
         if r.text and r.text.strip():
             chosen = r
@@ -306,7 +305,7 @@ _STRATEGY_DISPATCH = {
 }
 
 
-def merge_responses(responses: List[LLMResponse], strategy: MergeStrategy) -> MergedResult:
+def merge_responses(responses: list[LLMResponse], strategy: MergeStrategy) -> MergedResult:
     """合并多源 LLM 响应
 
     Args:
@@ -329,8 +328,8 @@ class FallbackChain:
     priority 数字越小越优先(0 最高)。同 priority 按注册顺序。
     """
 
-    def __init__(self, providers: Optional[List[str]] = None):
-        self._entries: List[Tuple[int, int, str]] = []  # (priority, order, provider)
+    def __init__(self, providers: list[str] | None = None):
+        self._entries: list[tuple[int, int, str]] = []  # (priority, order, provider)
         if providers:
             for p in providers:
                 self.add_fallback(p, 0)
@@ -345,7 +344,7 @@ class FallbackChain:
         self._entries.append((int(priority), order, str(provider)))
 
     @property
-    def providers(self) -> List[str]:
+    def providers(self) -> list[str]:
         """按 priority 排序后的 provider 列表"""
         return [p for _, _, p in sorted(self._entries, key=lambda x: (x[0], x[1]))]
 
@@ -367,8 +366,8 @@ class FallbackChain:
         if not self._entries:
             raise AllProvidersFailedError([], [])
 
-        errors: List[Optional[Exception]] = []
-        providers_tried: List[str] = []
+        errors: list[Exception | None] = []
+        providers_tried: list[str] = []
         sorted_entries = sorted(self._entries, key=lambda x: (x[0], x[1]))
         for _priority, _order, provider in sorted_entries:
             providers_tried.append(provider)

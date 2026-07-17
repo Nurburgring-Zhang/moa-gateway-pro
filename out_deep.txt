@@ -1,0 +1,38 @@
+﻿=== Phase 0: 启动 server ===
+  [+] server ready in 1.5s
+
+=== Phase 1: Auth + API Keys ===
+  + admin token len=217
+  + api_key created: mgw-l4mYw7K4fFDU1rjo... id=key_9573139548bd
+
+=== Phase 2: Endpoints 管理 ===
+  + 0 endpoints listed
+
+=== Phase 3: Observability ===
+
+=== Phase 4: MoA Pipeline ===
+
+=== Phase 5: Chat Completions ===
+
+=== Phase 6: ALL capability 端点 深度遍历 ===
+  total endpoints in plan: 77
+  [OK] capability phase done - 76 unique endpoints covered
+
+=== Phase 7: 错误处理 ===
+
+=== Phase 8: Rate Limit ===
+  rate_test: 5 OK + 0 429
+
+=== Phase 9: Storage CRUD ===
+
+======================================================================
+  DEEP E2E REPORT
+======================================================================
+  DEEP_E2E_TOTAL: 511 pass, 1 fail, 0 skipped
+  endpoints covered: 76 unique / 77 routes (76 unique planned)
+  total actions exercised: 190
+  unique actions: 104
+  UNTESTED_ENDPOINTS: []  (all planned endpoints were hit)
+
+  FAILED_CASES (1 total, first 50 shown):
+    (rate_limit, action=-, status=-1, expected=['200/429'])  body=no 429 in 8 calls (ok=5, limited=0)

@@ -14,13 +14,13 @@
 非 mock,所有提示词 / 决策算法均基于真实启发式。
 """
 from __future__ import annotations
+
 import asyncio
 import re
 import time
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Tuple, Optional, Any
-
+from typing import Any
 
 # ============ 枚举 ============
 
@@ -41,7 +41,7 @@ class MetaPrompt:
     system_prompt: str
     user_prompt_template: str
 
-    def render(self, query: str, **kwargs: Any) -> Dict[str, str]:
+    def render(self, query: str, **kwargs: Any) -> dict[str, str]:
         """渲染成 messages(自动注入 self.role)"""
         merged = {"role": self.role, **kwargs}
         user_content = self.user_prompt_template.format(query=query, **merged)
@@ -50,7 +50,7 @@ class MetaPrompt:
             "user": user_content,
         }
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["stage"] = self.stage.value
         return d
@@ -61,12 +61,12 @@ class MetaResult:
     """单阶段执行结果"""
     stage: MetaStage
     output: str
-    reasoning_chain: List[str] = field(default_factory=list)
-    next_stage_directive: Optional[str] = None
+    reasoning_chain: list[str] = field(default_factory=list)
+    next_stage_directive: str | None = None
     role: str = "answerer"
     elapsed_ms: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["stage"] = self.stage.value
         return d
@@ -75,7 +75,7 @@ class MetaResult:
 # ============ 阶段模板 (真实启发式,非 mock) ============
 
 # Stage 1: 角色分化 — 4 个真实角色,不同视角
-STAGE1_TEMPLATES: Dict[str, str] = {
+STAGE1_TEMPLATES: dict[str, str] = {
     "answerer": (
         "You are a precise {role}. Think about {query} from this perspective: "
         "give a direct, evidence-based answer in 2-3 sentences. "
@@ -142,7 +142,7 @@ DEFAULT_STAGE1_ROLES = ["answerer", "director", "critic", "expert"]
 
 # ============ 阶段模板生成器 ============
 
-def get_stage_prompts(query: str, roles: Optional[List[str]] = None) -> List[MetaPrompt]:
+def get_stage_prompts(query: str, roles: list[str] | None = None) -> list[MetaPrompt]:
     """生成 3 阶段元 Prompt 列表
 
     Args:
@@ -169,7 +169,7 @@ def get_stage_prompts(query: str, roles: Optional[List[str]] = None) -> List[Met
     )
 
     # Stage 2: 显性对抗
-    other_role = roles[1] if len(roles) > 1 else "critic"
+    roles[1] if len(roles) > 1 else "critic"
     s2 = MetaPrompt(
         stage=MetaStage.STRUCTURED_DEBATE,
         role="critic",
@@ -230,16 +230,16 @@ async def _call_provider(provider: Any, system: str, user: str,
 
 async def _run_meta_protocol_async(
     query: str,
-    providers: Optional[List[Any]] = None,
-    roles: Optional[List[str]] = None,
-) -> List[MetaResult]:
+    providers: list[Any] | None = None,
+    roles: list[str] | None = None,
+) -> list[MetaResult]:
     """异步:真实跑 3 阶段元协议"""
     if providers is None or not providers:
         from moa_gateway.providers.mock_provider import MockProvider
         providers = [MockProvider()]
 
     prompts = get_stage_prompts(query, roles=roles)
-    results: List[MetaResult] = []
+    results: list[MetaResult] = []
     prior_perspectives = ""
     all_prior = ""
 
@@ -313,9 +313,9 @@ async def _run_meta_protocol_async(
 
 def run_meta_protocol(
     query: str,
-    providers: Optional[List[Any]] = None,
-    roles: Optional[List[str]] = None,
-) -> List[MetaResult]:
+    providers: list[Any] | None = None,
+    roles: list[str] | None = None,
+) -> list[MetaResult]:
     """同步入口:跑 3 阶段元协议
 
     真实调用 provider (若无则 MockProvider 兜底)。
@@ -326,7 +326,7 @@ def run_meta_protocol(
 # ============ 认知摩擦对抗 ============
 
 # 真实对立角色配对 (非 mock)
-CLASH_ROLE_PAIRS: List[Tuple[str, str]] = [
+CLASH_ROLE_PAIRS: list[tuple[str, str]] = [
     ("optimist", "pessimist"),
     ("theorist", "pragmatist"),
     ("innovator", "conservative"),
@@ -334,7 +334,7 @@ CLASH_ROLE_PAIRS: List[Tuple[str, str]] = [
     ("individualist", "collectivist"),
 ]
 
-CLASH_PERSPECTIVES: Dict[str, str] = {
+CLASH_PERSPECTIVES: dict[str, str] = {
     "optimist": "Focus on upside, opportunities, and positive outcomes. Assume success is likely.",
     "pessimist": "Focus on downside, risks, and failure modes. Assume things will go wrong.",
     "theorist": "Focus on abstract principles, first principles, and conceptual rigor.",
@@ -352,7 +352,7 @@ def cognitively_clash(
     role_a: str,
     role_b: str,
     query: str,
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """生成两个对立视角的 prompt
 
     Returns:
@@ -394,7 +394,7 @@ JUMP_LABELS = [
 ]
 
 
-def three_jumps(initial_output: str) -> List[str]:
+def three_jumps(initial_output: str) -> list[str]:
     """3 次认知跃迁
 
     真实启发式:
@@ -421,7 +421,7 @@ def three_jumps(initial_output: str) -> List[str]:
     if not sentences:
         sentences = [initial_output]
     role_names = DEFAULT_STAGE1_ROLES
-    perspectives: List[str] = []
+    perspectives: list[str] = []
     n = max(1, len(sentences))
     for i, role in enumerate(role_names):
         # 把原句按角色轮转分配
@@ -430,7 +430,7 @@ def three_jumps(initial_output: str) -> List[str]:
     jump1 = f"{JUMP_LABELS[0]} → generated {len(perspectives)} perspectives"
 
     # Jump 2: 显性对抗 — 对每个视角生成对抗 prompt
-    debate_pairs: List[str] = []
+    debate_pairs: list[str] = []
     for i, p in enumerate(perspectives):
         opponent = perspectives[(i + 1) % len(perspectives)]
         debate_pairs.append(
@@ -446,14 +446,14 @@ def three_jumps(initial_output: str) -> List[str]:
     return [jump1, jump2, jump3]
 
 
-def _split_sentences(text: str) -> List[str]:
+def _split_sentences(text: str) -> list[str]:
     """分句(支持中英文标点)"""
     # 按 。.!?！？;\n 切
     parts = re.split(r"(?<=[.!?。！？\n;])\s*", text.strip())
     return [p.strip() for p in parts if p.strip()]
 
 
-def _synthesize_fusion(perspectives: List[str], debates: List[str]) -> str:
+def _synthesize_fusion(perspectives: list[str], debates: list[str]) -> str:
     """熔铸:选最长视角做基线,叠加辩论关键点"""
     if not perspectives:
         return ""
@@ -473,7 +473,7 @@ DECISION_KEYWORDS = {
 }
 
 
-def fuse_decision(options: List[str], context: str = "") -> str:
+def fuse_decision(options: list[str], context: str = "") -> str:
     """冲突消解:基于逻辑裁决,非投票
 
     启发式 (真实算法):
@@ -506,7 +506,7 @@ def fuse_decision(options: List[str], context: str = "") -> str:
 
     ctx_tokens = set(re.findall(r"\w+", context.lower())) if context else set()
 
-    scored: List[Tuple[float, int, str]] = []
+    scored: list[tuple[float, int, str]] = []
     for idx, opt in enumerate(valid):
         opt_lc = opt.lower()
         # 1. 长度分 (0-1)
@@ -535,23 +535,23 @@ def fuse_decision(options: List[str], context: str = "") -> str:
 
 # ============ JSON 序列化 ============
 
-def meta_result_to_json(result: MetaResult) -> Dict[str, Any]:
+def meta_result_to_json(result: MetaResult) -> dict[str, Any]:
     """MetaResult → JSON-safe dict"""
     return result.to_dict()
 
 
-def meta_prompt_to_json(prompt: MetaPrompt) -> Dict[str, Any]:
+def meta_prompt_to_json(prompt: MetaPrompt) -> dict[str, Any]:
     """MetaPrompt → JSON-safe dict"""
     return prompt.to_dict()
 
 
 # ============ 便捷:3 阶段结果合并 ============
 
-def merge_meta_results(results: List[MetaResult]) -> str:
+def merge_meta_results(results: list[MetaResult]) -> str:
     """把多阶段结果合并为单字符串(用 stage 标记分隔)"""
     if not results:
         return ""
-    parts: List[str] = []
+    parts: list[str] = []
     for r in results:
         parts.append(f"=== {r.stage.value} (role={r.role}) ===\n{r.output}")
     return "\n\n".join(parts)

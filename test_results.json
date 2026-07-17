@@ -1,0 +1,1032 @@
+﻿{
+  "total": 113,
+  "elapsed_seconds": 8.57,
+  "by_status": {
+    "200": 71,
+    "503": 1,
+    "405": 4,
+    "500": 14,
+    "401": 17,
+    "400": 6
+  },
+  "ok_count": 81,
+  "results": [
+    {
+      "i": 1,
+      "method": "GET",
+      "path": "/health",
+      "status": 200,
+      "size": 99,
+      "ok": true,
+      "snippet": "{\"status\":\"ok\",\"version\":\"1.0.0\",\"endpoints_total\":17,\"endpoints_enabled\":17,\"en"
+    },
+    {
+      "i": 2,
+      "method": "GET",
+      "path": "/api/health/detailed",
+      "status": 200,
+      "size": 4140,
+      "ok": true,
+      "snippet": "{\"total\":17,\"enabled\":17,\"healthy\":5,\"unhealthy\":0,\"in_breaker\":0,\"by_tier\":{\"fr"
+    },
+    {
+      "i": 3,
+      "method": "GET",
+      "path": "/v1/models",
+      "status": 200,
+      "size": 3553,
+      "ok": true,
+      "snippet": "{\"object\":\"list\",\"data\":[{\"id\":\"auto\",\"object\":\"model\",\"created\":1784055408,\"own"
+    },
+    {
+      "i": 4,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "status": 503,
+      "size": 31,
+      "ok": false,
+      "snippet": "{\"detail\":\"no available model\"}"
+    },
+    {
+      "i": 5,
+      "method": "POST",
+      "path": "/v1/chat/completions",
+      "status": 200,
+      "size": 719,
+      "ok": true,
+      "snippet": "{\"id\":\"chatcmpl-ff1ed35f2d6a\",\"object\":\"chat.completion\",\"created\":1784055409,\"m"
+    },
+    {
+      "i": 6,
+      "method": "POST",
+      "path": "/v1/moa/execute",
+      "status": 200,
+      "size": 3400,
+      "ok": true,
+      "snippet": "{\"request_id\":\"moa_76ac6157cdaa\",\"query\":\"hi\",\"preset\":\"balanced\",\"strategy\":\"pa"
+    },
+    {
+      "i": 7,
+      "method": "POST",
+      "path": "/v1/moa/eval",
+      "status": 200,
+      "size": 1863,
+      "ok": true,
+      "snippet": "{\"judge_model\":\"qwen-max\",\"judge_cost\":0.002618,\"candidates\":[{\"model\":\"deepseek"
+    },
+    {
+      "i": 8,
+      "method": "POST",
+      "path": "/v1/moa/similarity",
+      "status": 200,
+      "size": 127,
+      "ok": true,
+      "snippet": "{\"bleu3\":0.0,\"bleu4\":0.0,\"bleu5\":0.0,\"levenshtein_similarity\":0.2,\"tfidf_cosine\""
+    },
+    {
+      "i": 9,
+      "method": "POST",
+      "path": "/v1/moa/flask",
+      "status": 200,
+      "size": 559,
+      "ok": true,
+      "snippet": "{\"judge_model\":\"deepseek-r1\",\"judge_cost\":0.0009688,\"scores\":{},\"average_1_5\":0,"
+    },
+    {
+      "i": 10,
+      "method": "POST",
+      "path": "/v1/moa/benchmark",
+      "status": 200,
+      "size": 806,
+      "ok": true,
+      "snippet": "{\"categories\":[\"chinese\",\"code\",\"creative\",\"professional\",\"reasoning\"],\"prompts_"
+    },
+    {
+      "i": 11,
+      "method": "POST",
+      "path": "/v1/moa/cost-pareto",
+      "status": 200,
+      "size": 362,
+      "ok": true,
+      "snippet": "{\"prompts_count\":3,\"presets_tested\":[\"fast\"],\"pareto_points\":[{\"preset\":\"fast\",\""
+    },
+    {
+      "i": 12,
+      "method": "GET",
+      "path": "/v1/moa/presets",
+      "status": 200,
+      "size": 4737,
+      "ok": true,
+      "snippet": "{\"presets\":[{\"name\":\"fast\",\"strategy\":\"single\",\"description\":\"�� lite ģ��,��������\",\""
+    },
+    {
+      "i": 13,
+      "method": "GET",
+      "path": "/v1/moa/prompts",
+      "status": 200,
+      "size": 2162,
+      "ok": true,
+      "snippet": "{\"templates\":[{\"name\":\"aggregator\",\"source\":\"default\",\"path\":\"D:\\\\MoA Gateway Pr"
+    },
+    {
+      "i": 14,
+      "method": "GET",
+      "path": "/v1/moa/prompts/aggregator_system",
+      "status": 200,
+      "size": 103,
+      "ok": true,
+      "snippet": "{\"name\":\"aggregator_system\",\"content\":\"# aggregator_system\\n\\n����������Ļش��û����⡣\"}"
+    },
+    {
+      "i": 15,
+      "method": "PUT",
+      "path": "/v1/moa/prompts/test_save_001",
+      "status": 405,
+      "size": 31,
+      "ok": true,
+      "snippet": "{\"detail\":\"Method Not Allowed\"}"
+    },
+    {
+      "i": 16,
+      "method": "DELETE",
+      "path": "/v1/moa/prompts/test_save_001",
+      "status": 405,
+      "size": 31,
+      "ok": true,
+      "snippet": "{\"detail\":\"Method Not Allowed\"}"
+    },
+    {
+      "i": 17,
+      "method": "GET",
+      "path": "/v1/route/preview",
+      "status": 200,
+      "size": 124,
+      "ok": true,
+      "snippet": "{\"complexity\":\"trivial\",\"tier\":\"free\",\"primary\":null,\"fallback_chain\":[],\"estima"
+    },
+    {
+      "i": 18,
+      "method": "GET",
+      "path": "/v1/quota",
+      "status": 200,
+      "size": 75,
+      "ok": true,
+      "snippet": "{\"daily_tokens_used\":1183,\"daily_tokens_limit\":999999999,\"rpm_limit\":10000}"
+    },
+    {
+      "i": 19,
+      "method": "POST",
+      "path": "/v1/capability/secret-scan",
+      "status": 200,
+      "size": 6785,
+      "ok": true,
+      "snippet": "{\"scanned_files\":237,\"scanned_lines\":81034,\"scanned_at\":1784055411.830078,\"findi"
+    },
+    {
+      "i": 20,
+      "method": "POST",
+      "path": "/v1/capability/group-think-check",
+      "status": 200,
+      "size": 428,
+      "ok": true,
+      "snippet": "{\"session_id\":\"s1\",\"sycophancy_by_member\":{\"a\":{\"member_id\":\"a\",\"sycophancy_scor"
+    },
+    {
+      "i": 21,
+      "method": "POST",
+      "path": "/v1/capability/ensemble-vote",
+      "status": 200,
+      "size": 156,
+      "ok": true,
+      "snippet": "{\"winner\":\"x\",\"score\":1.0,\"votes\":[{\"voter_id\":\"a\",\"candidate\":\"x\",\"confidence\":"
+    },
+    {
+      "i": 22,
+      "method": "POST",
+      "path": "/v1/capability/should-rebalance",
+      "status": 500,
+      "size": 21,
+      "ok": false,
+      "snippet": "Internal Server Error"
+    },
+    {
+      "i": 23,
+      "method": "POST",
+      "path": "/v1/capability/cost-estimate",
+      "status": 500,
+      "size": 21,
+      "ok": false,
+      "snippet": "Internal Server Error"
+    },
+    {
+      "i": 24,
+      "method": "POST",
+      "path": "/v1/capability/gate-l0",
+      "status": 200,
+      "size": 199,
+      "ok": true,
+      "snippet": "{\"passed\":true,\"reason\":\"mechanical pattern matched: arithmetic\",\"category\":\"mec"
+    },
+    {
+      "i": 25,
+      "method": "POST",
+      "path": "/v1/capability/score-panel",
+      "status": 200,
+      "size": 1075,
+      "ok": true,
+      "snippet": "{\"tq\":{\"name\":\"TQ\",\"full_name\":\"Technical Quality\",\"score\":15.0,\"max_score\":100,"
+    },
+    {
+      "i": 26,
+      "method": "GET",
+      "path": "/v1/capability/models",
+      "status": 200,
+      "size": 11162,
+      "ok": true,
+      "snippet": "{\"count\":41,\"models\":[{\"id\":\"gemini-1.5-pro\",\"provider\":\"google\",\"family\":\"gemin"
+    },
+    {
+      "i": 27,
+      "method": "POST",
+      "path": "/v1/capability/calculate-max-tokens",
+      "status": 200,
+      "size": 39,
+      "ok": true,
+      "snippet": "{\"model_id\":\"gpt-4o\",\"max_tokens\":2000}"
+    },
+    {
+      "i": 28,
+      "method": "POST",
+      "path": "/v1/capability/estimate-cost",
+      "status": 200,
+      "size": 78,
+      "ok": true,
+      "snippet": "{\"input_cost\":0.0025,\"output_cost\":0.005,\"total_cost\":0.0075,\"currency\":\"USD\"}"
+    },
+    {
+      "i": 29,
+      "method": "POST",
+      "path": "/v1/capability/quota-check",
+      "status": 200,
+      "size": 101,
+      "ok": true,
+      "snippet": "{\"available\":true,\"reason\":\"ok: window '5h' has 100000 tokens free >= 1000\",\"eta"
+    },
+    {
+      "i": 30,
+      "method": "POST",
+      "path": "/v1/capability/quota-record",
+      "status": 200,
+      "size": 148,
+      "ok": true,
+      "snippet": "{\"windows\":{\"5h\":{\"name\":\"5h\",\"limit_tokens\":100000,\"used_tokens\":100,\"used_hist"
+    },
+    {
+      "i": 31,
+      "method": "POST",
+      "path": "/v1/capability/moa-n-layer",
+      "status": 500,
+      "size": 21,
+      "ok": false,
+      "snippet": "Internal Server Error"
+    },
+    {
+      "i": 32,
+      "method": "POST",
+      "path": "/v1/capability/convergent-detect",
+      "status": 200,
+      "size": 112,
+      "ok": true,
+      "snippet": "{\"convergent\":[],\"conflicts\":[],\"total_ideas\":0,\"total_unique_ideas\":0,\"diversit"
+    },
+    {
+      "i": 33,
+      "method": "POST",
+      "path": "/v1/capability/action-policy",
+      "status": 500,
+      "size": 21,
+      "ok": false,
+      "snippet": "Internal Server Error"
+    },
+    {
+      "i": 34,
+      "method": "POST",
+      "path": "/v1/capability/embeddings",
+      "status": 200,
+      "size": 1472,
+      "ok": true,
+      "snippet": "{\"object\":\"list\",\"data\":[{\"object\":\"embedding\",\"index\":0,\"embedding\":[0.07033780"
+    },
+    {
+      "i": 35,
+      "method": "POST",
+      "path": "/v1/capability/semantic-search",
+      "status": 200,
+      "size": 143,
+      "ok": true,
+      "snippet": "{\"query\":\"hello\",\"results\":[{\"rank\":1,\"score\":0.669001145207259,\"text\":\"hello wo"
+    },
+    {
+      "i": 36,
+      "method": "POST",
+      "path": "/v1/capability/prompt-features",
+      "status": 200,
+      "size": 639,
+      "ok": true,
+      "snippet": "{\"features\":{\"length\":0.2917,\"word_count\":0.1445,\"sentence_count\":0.1763,\"avg_wo"
+    },
+    {
+      "i": 37,
+      "method": "POST",
+      "path": "/v1/capability/provider-health",
+      "status": 500,
+      "size": 21,
+      "ok": false,
+      "snippet": "Internal Server Error"
+    },
+    {
+      "i": 38,
+      "method": "POST",
+      "path": "/v1/capability/context-clean",
+      "status": 200,
+      "size": 248,
+      "ok": true,
+      "snippet": "{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stats\":{\"original_count\":1,\"cleane"
+    },
+    {
+      "i": 39,
+      "method": "POST",
+      "path": "/v1/capability/self-heal",
+      "status": 200,
+      "size": 172,
+      "ok": true,
+      "snippet": "{\"actions\":[],\"state\":{\"endpoints\":{},\"log\":{\"actions\":[]},\"failure_threshold\":3"
+    },
+    {
+      "i": 40,
+      "method": "POST",
+      "path": "/v1/capability/multi-mode-synth",
+      "status": 200,
+      "size": 151,
+      "ok": true,
+      "snippet": "{\"mode\":\"classification\",\"output\":\"[]\",\"source_attribution\":{},\"confidence\":0.0,"
+    },
+    {
+      "i": 41,
+      "method": "POST",
+      "path": "/v1/capability/conflict-arbitrate",
+      "status": 500,
+      "size": 21,
+      "ok": false,
+      "snippet": "Internal Server Error"
+    },
+    {
+      "i": 42,
+      "method": "POST",
+      "path": "/v1/capability/section-viability",
+      "status": 200,
+      "size": 106,
+      "ok": true,
+      "snippet": "{\"proposal_idx\":0,\"total_sections\":0,\"viable_sections\":0,\"failing_sections\":[],\""
+    },
+    {
+      "i": 43,
+      "method": "POST",
+      "path": "/v1/capability/feedback-iter",
+      "status": 401,
+      "size": 37,
+      "ok": false,
+      "snippet": "{\"detail\":\"Invalid or expired token\"}"
+    },
+    {
+      "i": 44,
+      "method": "POST",
+      "path": "/v1/capability/stream-aggregate",
+      "status": 200,
+      "size": 168,
+      "ok": true,
+      "snippet": "{\"full_content\":\"\",\"tool_calls\":[],\"finish_reason\":\"stop\",\"total_chunks\":1,\"stre"
+    },
+    {
+      "i": 45,
+      "method": "POST",
+      "path": "/v1/capability/per-provider-rl",
+      "status": 500,
+      "size": 21,
+      "ok": false,
+      "snippet": "Internal Server Error"
+    },
+    {
+      "i": 46,
+      "method": "POST",
+      "path": "/v1/capability/tier-recalibrate",
+      "status": 200,
+      "size": 50,
+      "ok": true,
+      "snippet": "{\"plans\":[],\"should_retrain\":false,\"plan_count\":0}"
+    },
+    {
+      "i": 47,
+      "method": "POST",
+      "path": "/v1/capability/consumption-intel",
+      "status": 500,
+      "size": 21,
+      "ok": false,
+      "snippet": "Internal Server Error"
+    },
+    {
+      "i": 48,
+      "method": "POST",
+      "path": "/v1/capability/importance-score",
+      "status": 200,
+      "size": 55,
+      "ok": true,
+      "snippet": "{\"scores\":[],\"top_k_indices\":[],\"should_compress\":true}"
+    },
+    {
+      "i": 49,
+      "method": "POST",
+      "path": "/v1/capability/quorum-check",
+      "status": 200,
+      "size": 119,
+      "ok": true,
+      "snippet": "{\"status\":{\"reached\":false,\"reached_at\":null,\"responded_count\":0,\"missing\":[],\"w"
+    },
+    {
+      "i": 50,
+      "method": "POST",
+      "path": "/v1/capability/model-entry",
+      "status": 200,
+      "size": 46,
+      "ok": true,
+      "snippet": "{\"models\":[],\"count\":0,\"multimodal_scores\":{}}"
+    },
+    {
+      "i": 51,
+      "method": "POST",
+      "path": "/v1/capability/tool-replay",
+      "status": 200,
+      "size": 164,
+      "ok": true,
+      "snippet": "{\"tool_calls\":[],\"deduplicated_count\":0,\"conflicts_resolved\":0,\"should_disable_t"
+    },
+    {
+      "i": 52,
+      "method": "POST",
+      "path": "/v1/capability/hook-events",
+      "status": 200,
+      "size": 85,
+      "ok": true,
+      "snippet": "{\"current_stage\":\"analyze\",\"next_stage\":\"implement\",\"iteration\":0,\"terminated\":f"
+    },
+    {
+      "i": 53,
+      "method": "POST",
+      "path": "/v1/capability/meta-prompt",
+      "status": 200,
+      "size": 1686,
+      "ok": true,
+      "snippet": "{\"stages\":[{\"stage\":\"role_differentiation\",\"role\":\"answerer\",\"system_prompt\":\"Yo"
+    },
+    {
+      "i": 54,
+      "method": "POST",
+      "path": "/v1/capability/task-tree",
+      "status": 500,
+      "size": 21,
+      "ok": false,
+      "snippet": "Internal Server Error"
+    },
+    {
+      "i": 55,
+      "method": "POST",
+      "path": "/v1/capability/distill",
+      "status": 200,
+      "size": 98,
+      "ok": true,
+      "snippet": "{\"distillation\":{\"kept_count\":0,\"dropped_count\":0,\"original_count\":0,\"ratio\":0.0"
+    },
+    {
+      "i": 56,
+      "method": "POST",
+      "path": "/v1/capability/rerank",
+      "status": 200,
+      "size": 239,
+      "ok": true,
+      "snippet": "{\"query\":\"test\",\"candidates\":[{\"doc_id\":\"doc-0\",\"text\":\"a\",\"initial_score\":0.0,\""
+    },
+    {
+      "i": 57,
+      "method": "POST",
+      "path": "/v1/capability/goal-eval",
+      "status": 200,
+      "size": 36,
+      "ok": true,
+      "snippet": "{\"results\":[],\"ceiling_report\":null}"
+    },
+    {
+      "i": 58,
+      "method": "POST",
+      "path": "/v1/capability/auto-converge",
+      "status": 200,
+      "size": 2,
+      "ok": true,
+      "snippet": "{}"
+    },
+    {
+      "i": 59,
+      "method": "POST",
+      "path": "/v1/capability/subagent-comms",
+      "status": 500,
+      "size": 21,
+      "ok": false,
+      "snippet": "Internal Server Error"
+    },
+    {
+      "i": 60,
+      "method": "POST",
+      "path": "/v1/capability/version",
+      "status": 200,
+      "size": 19,
+      "ok": true,
+      "snippet": "{\"version_id\":\"v1\"}"
+    },
+    {
+      "i": 61,
+      "method": "POST",
+      "path": "/v1/capability/config",
+      "status": 200,
+      "size": 34,
+      "ok": true,
+      "snippet": "{\"value\":null,\"source_layer\":null}"
+    },
+    {
+      "i": 62,
+      "method": "POST",
+      "path": "/v1/capability/bubble",
+      "status": 500,
+      "size": 21,
+      "ok": false,
+      "snippet": "Internal Server Error"
+    },
+    {
+      "i": 63,
+      "method": "POST",
+      "path": "/v1/capability/worktree",
+      "status": 401,
+      "size": 37,
+      "ok": false,
+      "snippet": "{\"detail\":\"Invalid or expired token\"}"
+    },
+    {
+      "i": 64,
+      "method": "POST",
+      "path": "/v1/capability/route",
+      "status": 500,
+      "size": 21,
+      "ok": false,
+      "snippet": "Internal Server Error"
+    },
+    {
+      "i": 65,
+      "method": "POST",
+      "path": "/v1/capability/session-lock",
+      "status": 400,
+      "size": 36,
+      "ok": true,
+      "snippet": "{\"detail\":\"unknown action: acquire\"}"
+    },
+    {
+      "i": 66,
+      "method": "POST",
+      "path": "/v1/capability/flask",
+      "status": 200,
+      "size": 2,
+      "ok": true,
+      "snippet": "{}"
+    },
+    {
+      "i": 67,
+      "method": "POST",
+      "path": "/v1/capability/elo",
+      "status": 200,
+      "size": 13,
+      "ok": true,
+      "snippet": "{\"ranked\":[]}"
+    },
+    {
+      "i": 68,
+      "method": "POST",
+      "path": "/v1/capability/brainstorm",
+      "status": 200,
+      "size": 2082,
+      "ok": true,
+      "snippet": "{\"ideas\":{\"radical_innovator\":\"[Radical Innovator �� test]\\nDiscard everything we"
+    },
+    {
+      "i": 69,
+      "method": "POST",
+      "path": "/v1/capability/cross-iter",
+      "status": 200,
+      "size": 110,
+      "ok": true,
+      "snippet": "{\"mode\":\"sintesis_central\",\"output\":\"(no iterations)\",\"action_taken\":\"ran conver"
+    },
+    {
+      "i": 70,
+      "method": "POST",
+      "path": "/v1/capability/audit",
+      "status": 200,
+      "size": 324,
+      "ok": true,
+      "snippet": "{\"audit_id\":\"aeb0edb2-0086-4da7-9923-62740560b742\",\"action_id\":\"a1\",\"hash_before"
+    },
+    {
+      "i": 71,
+      "method": "POST",
+      "path": "/v1/capability/in-flight",
+      "status": 400,
+      "size": 34,
+      "ok": true,
+      "snippet": "{\"detail\":\"unknown action: check\"}"
+    },
+    {
+      "i": 72,
+      "method": "POST",
+      "path": "/v1/capability/mx",
+      "status": 200,
+      "size": 28,
+      "ok": true,
+      "snippet": "{\"annotations\":[],\"count\":0}"
+    },
+    {
+      "i": 73,
+      "method": "POST",
+      "path": "/v1/capability/tier-promo",
+      "status": 200,
+      "size": 36,
+      "ok": true,
+      "snippet": "{\"tier\":\"TIER_1\",\"evidence_count\":0}"
+    },
+    {
+      "i": 74,
+      "method": "POST",
+      "path": "/v1/capability/artifact",
+      "status": 500,
+      "size": 21,
+      "ok": false,
+      "snippet": "Internal Server Error"
+    },
+    {
+      "i": 75,
+      "method": "POST",
+      "path": "/v1/capability/frozen",
+      "status": 500,
+      "size": 21,
+      "ok": false,
+      "snippet": "Internal Server Error"
+    },
+    {
+      "i": 76,
+      "method": "POST",
+      "path": "/v1/capability/turboquant",
+      "status": 200,
+      "size": 57,
+      "ok": true,
+      "snippet": "{\"compressed\":[],\"original_count\":0,\"compressed_count\":0}"
+    },
+    {
+      "i": 77,
+      "method": "POST",
+      "path": "/v1/capability/moa-engine",
+      "status": 400,
+      "size": 128,
+      "ok": true,
+      "snippet": "{\"detail\":\"MoA config invalid: ['proposers: must have at least 1 proposer (got 0)', 'aggregator: must be provided (got None)']\"}"
+    },
+    {
+      "i": 78,
+      "method": "POST",
+      "path": "/v1/capability/acceptance",
+      "status": 200,
+      "size": 46,
+      "ok": true,
+      "snippet": "{\"root_id\":\"root\",\"tree\":{\"criteria_count\":1}}"
+    },
+    {
+      "i": 79,
+      "method": "POST",
+      "path": "/v1/capability/llm-merge",
+      "status": 200,
+      "size": 99,
+      "ok": true,
+      "snippet": "{\"text\":\"\",\"sources\":[],\"strategy\":\"CONCAT\",\"total_tokens\":0,\"total_cost_usd\":0."
+    },
+    {
+      "i": 80,
+      "method": "POST",
+      "path": "/v1/capability/grace",
+      "status": 400,
+      "size": 34,
+      "ok": true,
+      "snippet": "{\"detail\":\"unknown action: check\"}"
+    },
+    {
+      "i": 81,
+      "method": "POST",
+      "path": "/v1/capability/rag-search",
+      "status": 200,
+      "size": 39,
+      "ok": true,
+      "snippet": "{\"results\":[],\"count\":0,\"query\":\"test\"}"
+    },
+    {
+      "i": 82,
+      "method": "POST",
+      "path": "/v1/capability/plan-act",
+      "status": 200,
+      "size": 45,
+      "ok": true,
+      "snippet": "{\"mode\":\"chat\",\"confidence\":0.0,\"signals\":[]}"
+    },
+    {
+      "i": 83,
+      "method": "POST",
+      "path": "/v1/capability/channels",
+      "status": 400,
+      "size": 33,
+      "ok": true,
+      "snippet": "{\"detail\":\"unknown action: list\"}"
+    },
+    {
+      "i": 84,
+      "method": "POST",
+      "path": "/v1/capability/reference-router",
+      "status": 200,
+      "size": 378,
+      "ok": true,
+      "snippet": "{\"main_answer\":\"this is a reference answer covering test and additional context\""
+    },
+    {
+      "i": 85,
+      "method": "POST",
+      "path": "/v1/capability/checkpoint",
+      "status": 401,
+      "size": 37,
+      "ok": false,
+      "snippet": "{\"detail\":\"Invalid or expired token\"}"
+    },
+    {
+      "i": 86,
+      "method": "POST",
+      "path": "/v1/capability/audit",
+      "status": 200,
+      "size": 324,
+      "ok": true,
+      "snippet": "{\"audit_id\":\"c067fb0b-9327-445c-9325-47eda4e34aca\",\"action_id\":\"a1\",\"hash_before"
+    },
+    {
+      "i": 87,
+      "method": "POST",
+      "path": "/v1/capability/canary",
+      "status": 200,
+      "size": 114,
+      "ok": true,
+      "snippet": "{\"prompt\":\"test\\n\\n[ref: moa_canary_4ChevBJysCRHinqh]\",\"canary\":\"moa_canary_4Che"
+    },
+    {
+      "i": 88,
+      "method": "POST",
+      "path": "/v1/capability/wrap-output",
+      "status": 200,
+      "size": 141,
+      "ok": true,
+      "snippet": "{\"wrapped\":\"<untrusted_tool_output source=\\\"tool\\\" trust=\\\"untrusted\\\" length=\\\""
+    },
+    {
+      "i": 89,
+      "method": "POST",
+      "path": "/v1/capability/fuzzy-dedup",
+      "status": 200,
+      "size": 36,
+      "ok": true,
+      "snippet": "{\"duplicates\":[],\"count\":0,\"size\":0}"
+    },
+    {
+      "i": 90,
+      "method": "POST",
+      "path": "/v1/capability/input-fingerprint",
+      "status": 200,
+      "size": 679,
+      "ok": true,
+      "snippet": "{\"attrs\":{\"exact\":\"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b"
+    },
+    {
+      "i": 91,
+      "method": "POST",
+      "path": "/v1/capability/tool-screening",
+      "status": 200,
+      "size": 66,
+      "ok": true,
+      "snippet": "{\"findings\":[],\"count\":0,\"risk_level\":\"safe\",\"should_block\":false}"
+    },
+    {
+      "i": 92,
+      "method": "POST",
+      "path": "/v1/capability/anthropic-compat",
+      "status": 200,
+      "size": 189,
+      "ok": true,
+      "snippet": "{\"model\":\"\",\"system\":null,\"messages\":[{\"role\":\"user\",\"content\":\"\"}],\"max_tokens\""
+    },
+    {
+      "i": 93,
+      "method": "POST",
+      "path": "/v1/capability/token-bucket",
+      "status": 400,
+      "size": 36,
+      "ok": true,
+      "snippet": "{\"detail\":\"unknown action: consume\"}"
+    },
+    {
+      "i": 94,
+      "method": "POST",
+      "path": "/v1/capability/request-dedup",
+      "status": 200,
+      "size": 31,
+      "ok": true,
+      "snippet": "{\"is_duplicate\":false,\"size\":0}"
+    },
+    {
+      "i": 95,
+      "method": "POST",
+      "path": "/v1/capability/trace",
+      "status": 200,
+      "size": 148,
+      "ok": true,
+      "snippet": "{\"trace_id\":\"e34865ccead14508b13790c474539c7a\",\"span_id\":\"3d8cb9baf39d4a9f\",\"tra"
+    },
+    {
+      "i": 96,
+      "method": "POST",
+      "path": "/api/auth/login",
+      "status": 401,
+      "size": 41,
+      "ok": false,
+      "snippet": "{\"detail\":\"Invalid username or password\"}"
+    },
+    {
+      "i": 97,
+      "method": "POST",
+      "path": "/api/auth/change-password",
+      "status": 401,
+      "size": 37,
+      "ok": false,
+      "snippet": "{\"detail\":\"Invalid or expired token\"}"
+    },
+    {
+      "i": 98,
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 401,
+      "size": 37,
+      "ok": false,
+      "snippet": "{\"detail\":\"Invalid or expired token\"}"
+    },
+    {
+      "i": 99,
+      "method": "GET",
+      "path": "/api/endpoints",
+      "status": 401,
+      "size": 37,
+      "ok": false,
+      "snippet": "{\"detail\":\"Invalid or expired token\"}"
+    },
+    {
+      "i": 100,
+      "method": "POST",
+      "path": "/api/endpoints",
+      "status": 401,
+      "size": 37,
+      "ok": false,
+      "snippet": "{\"detail\":\"Invalid or expired token\"}"
+    },
+    {
+      "i": 101,
+      "method": "DELETE",
+      "path": "/api/endpoints/test_ep",
+      "status": 405,
+      "size": 31,
+      "ok": true,
+      "snippet": "{\"detail\":\"Method Not Allowed\"}"
+    },
+    {
+      "i": 102,
+      "method": "POST",
+      "path": "/api/endpoints/test_ep/toggle",
+      "status": 401,
+      "size": 37,
+      "ok": false,
+      "snippet": "{\"detail\":\"Invalid or expired token\"}"
+    },
+    {
+      "i": 103,
+      "method": "POST",
+      "path": "/api/endpoints/test_ep/reset-breaker",
+      "status": 401,
+      "size": 37,
+      "ok": false,
+      "snippet": "{\"detail\":\"Invalid or expired token\"}"
+    },
+    {
+      "i": 104,
+      "method": "GET",
+      "path": "/api/api-keys",
+      "status": 401,
+      "size": 37,
+      "ok": false,
+      "snippet": "{\"detail\":\"Invalid or expired token\"}"
+    },
+    {
+      "i": 105,
+      "method": "POST",
+      "path": "/api/api-keys",
+      "status": 401,
+      "size": 37,
+      "ok": false,
+      "snippet": "{\"detail\":\"Invalid or expired token\"}"
+    },
+    {
+      "i": 106,
+      "method": "DELETE",
+      "path": "/api/api-keys/key_xxx",
+      "status": 405,
+      "size": 31,
+      "ok": true,
+      "snippet": "{\"detail\":\"Method Not Allowed\"}"
+    },
+    {
+      "i": 107,
+      "method": "GET",
+      "path": "/api/logs",
+      "status": 401,
+      "size": 37,
+      "ok": false,
+      "snippet": "{\"detail\":\"Invalid or expired token\"}"
+    },
+    {
+      "i": 108,
+      "method": "GET",
+      "path": "/api/stats",
+      "status": 401,
+      "size": 37,
+      "ok": false,
+      "snippet": "{\"detail\":\"Invalid or expired token\"}"
+    },
+    {
+      "i": 109,
+      "method": "GET",
+      "path": "/api/metrics",
+      "status": 401,
+      "size": 37,
+      "ok": false,
+      "snippet": "{\"detail\":\"Invalid or expired token\"}"
+    },
+    {
+      "i": 110,
+      "method": "GET",
+      "path": "/api/adapters",
+      "status": 401,
+      "size": 37,
+      "ok": false,
+      "snippet": "{\"detail\":\"Invalid or expired token\"}"
+    },
+    {
+      "i": 111,
+      "method": "GET",
+      "path": "/api/adapters/curl",
+      "status": 401,
+      "size": 37,
+      "ok": false,
+      "snippet": "{\"detail\":\"Invalid or expired token\"}"
+    },
+    {
+      "i": 112,
+      "method": "GET",
+      "path": "/",
+      "status": 200,
+      "size": 89137,
+      "ok": true,
+      "snippet": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"UTF-8\">\n<title>MoA Gat"
+    },
+    {
+      "i": 113,
+      "method": "GET",
+      "path": "/webui/index.html",
+      "status": 200,
+      "size": 91112,
+      "ok": true,
+      "snippet": "<!DOCTYPE html>\r\n<html lang=\"zh-CN\">\r\n<head>\r\n<meta charset=\"UTF-8\">\r\n<title>MoA"
+    }
+  ]
+}

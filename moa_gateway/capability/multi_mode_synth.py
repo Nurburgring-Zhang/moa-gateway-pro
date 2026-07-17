@@ -18,14 +18,14 @@
   - 与 convergent_detector 解耦: 内部独立 Proposal dataclass, 不 import
 """
 from __future__ import annotations
+
 import json
 import re
 import statistics
 from collections import Counter, defaultdict
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import List, Dict, Tuple, Set, Optional, Any
-
+from typing import Any
 
 __all__ = [
     "SynthesisMode",
@@ -67,7 +67,7 @@ SENTENCE_SPLIT_RE = re.compile(r"[。.!?！？;；\n]+")
 WORD_RE = re.compile(r"[a-zA-Z][a-zA-Z\-]*|[\u4e00-\u9fff]|\d+")
 
 # 停用词 (精简版, 专供 synth 用)
-STOPWORDS: Set[str] = frozenset({
+STOPWORDS: set[str] = frozenset({
     "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
     "have", "has", "had", "do", "does", "did", "will", "would", "could",
     "should", "may", "might", "must", "shall", "can", "need",
@@ -81,7 +81,7 @@ STOPWORDS: Set[str] = frozenset({
 })
 
 # 分类关键词 (中英混合)
-CATEGORY_KEYWORDS: Dict[str, Set[str]] = {
+CATEGORY_KEYWORDS: dict[str, set[str]] = {
     "code": {
         "function", "class", "method", "variable", "import", "return",
         "def", "python", "javascript", "typescript", "java", "code",
@@ -131,7 +131,7 @@ CATEGORY_KEYWORDS: Dict[str, Set[str]] = {
 }
 
 # 分类默认 fallback 顺序
-CATEGORY_FALLBACK_ORDER: List[str] = [
+CATEGORY_FALLBACK_ORDER: list[str] = [
     "conversational", "factual", "creative", "math", "code",
 ]
 
@@ -144,9 +144,9 @@ class Proposal:
     proposal_idx: int
     author: str
     text: str
-    tags: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -155,11 +155,11 @@ class SynthResult:
     """综合结果"""
     mode: SynthesisMode
     output: str
-    source_attribution: Dict[int, str] = field(default_factory=dict)
+    source_attribution: dict[int, str] = field(default_factory=dict)
     confidence: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         d = asdict(self)
         d["mode"] = self.mode.value
         return d
@@ -167,14 +167,14 @@ class SynthResult:
 
 # ============ 辅助函数 ============
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     """分词: 英文 + 数字块 + 单个中文字符"""
     if not text:
         return []
     return [t.lower() for t in WORD_RE.findall(text)]
 
 
-def _split_sentences(text: str) -> List[str]:
+def _split_sentences(text: str) -> list[str]:
     """按句号/分号/换行切句"""
     if not text or not text.strip():
         return []
@@ -189,7 +189,7 @@ def _word_count(text: str) -> int:
     return len(_tokenize(text))
 
 
-def _jaccard(a: List[str], b: List[str]) -> float:
+def _jaccard(a: list[str], b: list[str]) -> float:
     """Jaccard 相似度"""
     if not a and not b:
         return 1.0
@@ -201,7 +201,7 @@ def _jaccard(a: List[str], b: List[str]) -> float:
     return len(inter) / len(union)
 
 
-def _classify_one(text: str) -> Tuple[str, float]:
+def _classify_one(text: str) -> tuple[str, float]:
     """单条 proposal 分类
 
     Returns:
@@ -214,7 +214,7 @@ def _classify_one(text: str) -> Tuple[str, float]:
     tokens = _tokenize(text)
     token_set = set(tokens)
 
-    scores: Dict[str, int] = {}
+    scores: dict[str, int] = {}
     for cat, kws in CATEGORY_KEYWORDS.items():
         # 计算 token 与该类关键词的命中数
         hit = sum(1 for kw in kws if kw.lower() in token_set or kw in text.lower())
@@ -240,7 +240,7 @@ def _classify_one(text: str) -> Tuple[str, float]:
 
 # ============ 模式 1: CLASSIFICATION ============
 
-def classify_proposals(proposals: List[Proposal]) -> SynthResult:
+def classify_proposals(proposals: list[Proposal]) -> SynthResult:
     """启发式分类每条 proposal
 
     Args:
@@ -250,9 +250,9 @@ def classify_proposals(proposals: List[Proposal]) -> SynthResult:
         SynthResult, output 为 JSON 字符串
         metadata 含 categories 汇总
     """
-    items: List[Dict[str, Any]] = []
+    items: list[dict[str, Any]] = []
     cat_counter: Counter = Counter()
-    confidences: List[float] = []
+    confidences: list[float] = []
 
     for p in proposals:
         cat, conf = _classify_one(p.text)
@@ -290,7 +290,7 @@ def classify_proposals(proposals: List[Proposal]) -> SynthResult:
 # ============ 模式 2: INTEGRATED_SYNTHESIS ============
 
 def integrated_synthesis(
-    proposals: List[Proposal],
+    proposals: list[Proposal],
     target_chars: int = 300,
 ) -> SynthResult:
     """集成综合 (curation, 不发明)
@@ -324,9 +324,9 @@ def integrated_synthesis(
         target_chars = 1
 
     # 1. 收集所有句子 + 反向索引
-    sentence_to_proposals: Dict[str, List[int]] = defaultdict(list)
+    sentence_to_proposals: dict[str, list[int]] = defaultdict(list)
     # 同一 proposal 不重复计
-    seen_per_proposal: Dict[int, Set[str]] = defaultdict(set)
+    seen_per_proposal: dict[int, set[str]] = defaultdict(set)
 
     for p in proposals:
         sents = _split_sentences(p.text)
@@ -350,7 +350,7 @@ def integrated_synthesis(
 
     # 2. 排序权重: 出现 proposal 数 × 长度 (出现越多且越长越靠前)
     n_proposals = len(proposals)
-    scored: List[Tuple[float, str, List[int]]] = []
+    scored: list[tuple[float, str, list[int]]] = []
     for sent, pidxs in sentence_to_proposals.items():
         freq = len(pidxs)
         length = len(sent)
@@ -363,7 +363,7 @@ def integrated_synthesis(
     scored.sort(key=lambda x: -x[0])
 
     # 3. 累加到 target_chars
-    selected: List[Tuple[str, List[int]]] = []
+    selected: list[tuple[str, list[int]]] = []
     total_chars = 0
     for score, sent, pidxs in scored:
         if total_chars + len(sent) > target_chars and selected:
@@ -379,7 +379,7 @@ def integrated_synthesis(
     output = " ".join(output_parts)
 
     # 5. source_attribution: key = 首个 proposal_idx, value = 该 sentence (截断 200 字)
-    source_attribution: Dict[int, str] = {}
+    source_attribution: dict[int, str] = {}
     for sent, pidxs in selected:
         key = pidxs[0]
         snippet = sent if len(sent) <= 200 else sent[:200] + "..."
@@ -420,8 +420,8 @@ def integrated_synthesis(
 # ============ 模式 3: FINAL_SELECTION ============
 
 def final_selection(
-    proposals: List[Proposal],
-    scores: Dict[int, float],
+    proposals: list[Proposal],
+    scores: dict[int, float],
 ) -> SynthResult:
     """选最高分 proposal
 
@@ -445,7 +445,7 @@ def final_selection(
         )
 
     # 按 score 降序排
-    ranked: List[Tuple[int, float]] = sorted(
+    ranked: list[tuple[int, float]] = sorted(
         scores.items(), key=lambda x: -x[1]
     )
 
@@ -492,8 +492,8 @@ def final_selection(
 # ============ 模式 4: CROSS_ITERATION ============
 
 def cross_iteration(
-    prev_proposals: List[Proposal],
-    curr_proposals: List[Proposal],
+    prev_proposals: list[Proposal],
+    curr_proposals: list[Proposal],
 ) -> SynthResult:
     """跨轮比较
 
@@ -519,8 +519,8 @@ def cross_iteration(
         )
 
     # 计算每轮 token 集合
-    def _proposal_kws(props: List[Proposal]) -> Set[str]:
-        all_kws: Set[str] = set()
+    def _proposal_kws(props: list[Proposal]) -> set[str]:
+        all_kws: set[str] = set()
         for p in props:
             tokens = _tokenize(p.text)
             all_kws.update(t for t in tokens if t not in STOPWORDS and len(t) >= 2)
@@ -539,7 +539,7 @@ def cross_iteration(
         n = len(tokens)
         if n == 0:
             return 0.0
-        unique = len(set(t for t in tokens if t not in STOPWORDS))
+        unique = len({t for t in tokens if t not in STOPWORDS})
         density = unique / n
         return n * density
 
@@ -547,7 +547,7 @@ def cross_iteration(
     curr_best = max(curr_proposals, key=_score_prop) if curr_proposals else None
 
     # 3. recommended_adoption — 综合分
-    def _round_score(props: List[Proposal]) -> float:
+    def _round_score(props: list[Proposal]) -> float:
         if not props:
             return 0.0
         return sum(_score_prop(p) for p in props) / len(props)
@@ -561,20 +561,19 @@ def cross_iteration(
     elif not curr_proposals:
         recommendation = "keep_prev"
         adopt_reason = "no current proposals"
+    # 阈值: curr 需比 prev 高 5% 才推 adoption
+    elif curr_avg > prev_avg * 1.05:
+        recommendation = "adopt_curr"
+        adopt_reason = f"curr_avg={curr_avg:.2f} > prev_avg={prev_avg:.2f}"
+    elif curr_avg < prev_avg * 0.95:
+        recommendation = "keep_prev"
+        adopt_reason = f"prev_avg={prev_avg:.2f} > curr_avg={curr_avg:.2f}"
     else:
-        # 阈值: curr 需比 prev 高 5% 才推 adoption
-        if curr_avg > prev_avg * 1.05:
-            recommendation = "adopt_curr"
-            adopt_reason = f"curr_avg={curr_avg:.2f} > prev_avg={prev_avg:.2f}"
-        elif curr_avg < prev_avg * 0.95:
-            recommendation = "keep_prev"
-            adopt_reason = f"prev_avg={prev_avg:.2f} > curr_avg={curr_avg:.2f}"
-        else:
-            recommendation = "converged"
-            adopt_reason = f"avg within ±5% (prev={prev_avg:.2f}, curr={curr_avg:.2f})"
+        recommendation = "converged"
+        adopt_reason = f"avg within ±5% (prev={prev_avg:.2f}, curr={curr_avg:.2f})"
 
     # 4. 组装 output
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append(f"[CROSS_ITERATION] prev={len(prev_proposals)} curr={len(curr_proposals)}")
     lines.append(f"convergence: {convergence:.4f} ({'CONVERGED' if converged else 'DIVERGENT'})")
     if prev_best is not None:
@@ -589,7 +588,7 @@ def cross_iteration(
     output = "\n".join(lines)
 
     # source_attribution: best of each
-    source_attribution: Dict[int, str] = {}
+    source_attribution: dict[int, str] = {}
     if prev_best is not None:
         snippet = prev_best.text[:100] + ("..." if len(prev_best.text) > 100 else "")
         source_attribution[prev_best.proposal_idx] = f"[prev_best] {snippet}"
@@ -640,7 +639,7 @@ def cross_iteration(
 
 def run_synthesis(
     mode: SynthesisMode,
-    proposals: List[Proposal],
+    proposals: list[Proposal],
     **kwargs: Any,
 ) -> SynthResult:
     """统一入口 — 根据 mode 分派
@@ -677,8 +676,8 @@ def run_synthesis(
 # ============ 共识判定 ============
 
 def should_run_integration(
-    proposals: List[Proposal],
-    scores: Dict[int, float],
+    proposals: list[Proposal],
+    scores: dict[int, float],
 ) -> bool:
     """判定是否需要 INTEGRATED_SYNTHESIS
 

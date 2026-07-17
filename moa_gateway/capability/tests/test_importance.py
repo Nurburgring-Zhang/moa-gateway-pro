@@ -8,6 +8,7 @@
 - 单消息不崩
 """
 from __future__ import annotations
+
 import json
 import sys
 from pathlib import Path
@@ -16,18 +17,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.importance import (
-    Message,
-    ImportanceScore,
     WEIGHTS,
+    ImportanceScore,
+    Message,
     score_message,
     score_messages,
-    select_top_k,
-    should_compress,
-    select_within_radius,
-    scores_to_json,
     scores_from_json,
+    scores_to_json,
+    select_top_k,
+    select_within_radius,
+    should_compress,
 )
-
 
 # ============ 辅助构造 ============
 
@@ -110,7 +110,6 @@ def test_tool_result_adds_025():
     """is_tool_result → +0.25 (相对无 flag baseline, recency 一致)"""
     baseline = make_msg(role="user")
     flagged = make_msg(role="user", is_tool_result=True)
-    msgs = [baseline, flagged]
     # 用 current_idx=0 比较 baseline (idx=0, recency=1.0) vs flagged 在另一组
     s_base = score_message(baseline, [baseline], current_idx=0)
     # flagged 单独放入,以其 idx=0 评估,recency=1.0
@@ -291,7 +290,7 @@ def test_json_serialization_roundtrip():
     # roundtrip
     restored = scores_from_json(text)
     assert len(restored) == 3
-    for orig, back in zip(scores, restored):
+    for orig, back in zip(scores, restored, strict=False):
         assert orig.message_idx == back.message_idx
         assert abs(orig.score - back.score) < 1e-9
         assert orig.reasons == back.reasons

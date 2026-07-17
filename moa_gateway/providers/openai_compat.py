@@ -4,13 +4,16 @@
 所有 OpenAI 兼容 /chat/completions 端点。
 """
 from __future__ import annotations
-import time
-import logging
-from typing import Dict, List, Any, Optional, AsyncIterator
-import httpx
-import json
 
-from .base import Provider, ChatRequest, ChatResponse, ProviderError
+import json
+import logging
+import time
+from collections.abc import AsyncIterator
+from typing import Any
+
+import httpx
+
+from .base import ChatRequest, ChatResponse, Provider, ProviderError
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +23,7 @@ class OpenAICompatProvider(Provider):
 
     async def chat(self, req: ChatRequest) -> ChatResponse:
         url = f"{self.api_base}/chat/completions"
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "model": req.model,
             "messages": req.messages,
             "temperature": req.temperature,
@@ -48,8 +51,8 @@ class OpenAICompatProvider(Provider):
         try:
             if req.stream:
                 # 流式
-                content_parts: List[str] = []
-                tool_calls_data: List[Dict[str, Any]] = []
+                content_parts: list[str] = []
+                tool_calls_data: list[dict[str, Any]] = []
                 async with self.client.stream(
                     "POST", url, json=payload, headers=headers,
                     timeout=httpx.Timeout(req.timeout)
@@ -94,9 +97,9 @@ class OpenAICompatProvider(Provider):
                     timeout=httpx.Timeout(req.timeout)
                 )
         except httpx.TimeoutException as e:
-            raise ProviderError(f"timeout: {e}", status=408)
+            raise ProviderError(f"timeout: {e}", status=408) from e
         except httpx.HTTPError as e:
-            raise ProviderError(f"http error: {e}", status=502)
+            raise ProviderError(f"http error: {e}", status=502) from e
 
         if resp.status_code != 200:
             txt = resp.text[:500]
@@ -123,7 +126,7 @@ class OpenAICompatProvider(Provider):
     async def chat_stream(self, req: ChatRequest) -> AsyncIterator[str]:
         """真实流式:逐 chunk 产出"""
         url = f"{self.api_base}/chat/completions"
-        payload: Dict[str, Any] = {
+        payload: dict[str, Any] = {
             "model": req.model,
             "messages": req.messages,
             "temperature": req.temperature,
@@ -170,9 +173,9 @@ class OpenAICompatProvider(Provider):
                         if delta.get("content"):
                             yield delta["content"]
         except httpx.TimeoutException as e:
-            raise ProviderError(f"timeout: {e}", status=408)
+            raise ProviderError(f"timeout: {e}", status=408) from e
         except httpx.HTTPError as e:
-            raise ProviderError(f"http error: {e}", status=502)
+            raise ProviderError(f"http error: {e}", status=502) from e
 
     async def health_check(self) -> bool:
         """轻量 GET /models;401/403 视为 key 无效(返回 False 让 pool 自动 fallback mock)"""

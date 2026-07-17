@@ -14,7 +14,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
 import tempfile
 import time
@@ -25,20 +24,19 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.in_flight import (
-    Phase,
-    PhaseState,
+    PHASE_ORDER,
     Checkpoint,
     InFlightDetector,
+    Phase,
+    PhaseState,
     TeamCheckpointMerger,
-    PHASE_ORDER,
-    phase_to_dict,
-    phase_from_str,
-    phase_state_to_dict,
-    phase_state_from_dict,
-    checkpoint_to_dict,
     checkpoint_from_dict,
+    checkpoint_to_dict,
+    phase_from_str,
+    phase_state_from_dict,
+    phase_state_to_dict,
+    phase_to_dict,
 )
-
 
 # ============ 工具: 临时 state_dir fixture ============
 
@@ -108,7 +106,7 @@ def test_record_start_returns_session_id(tmp_state_dir):
 
 def test_record_start_and_detect_in_flight(tmp_state_dir):
     det = InFlightDetector(state_dir=tmp_state_dir)
-    sid = det.record_start(Phase.IMPLEMENT, at=200.0)
+    det.record_start(Phase.IMPLEMENT, at=200.0)
     in_flight = det.detect_in_flight()
     assert len(in_flight) == 1
     assert in_flight[0].phase == Phase.IMPLEMENT
@@ -135,9 +133,9 @@ def test_record_interrupted_keeps_in_flight_with_flag(tmp_state_dir):
 
 def test_detect_in_flight_multiple_sessions(tmp_state_dir):
     det = InFlightDetector(state_dir=tmp_state_dir)
-    sid1 = det.record_start(Phase.ANALYZE, at=1.0)
+    det.record_start(Phase.ANALYZE, at=1.0)
     sid2 = det.record_start(Phase.IMPLEMENT, at=2.0)
-    sid3 = det.record_start(Phase.TEST, at=3.0)
+    det.record_start(Phase.TEST, at=3.0)
     # 完成其中一个
     det.record_complete(sid2, Phase.IMPLEMENT, at=4.0)
     in_flight = det.detect_in_flight()
@@ -298,7 +296,7 @@ def test_checkpoint_json_roundtrip():
 def test_detector_persists_state_across_instances(tmp_state_dir):
     """关闭 detector 再开, 状态应从磁盘恢复。"""
     det1 = InFlightDetector(state_dir=tmp_state_dir)
-    sid = det1.record_start(Phase.IMPLEMENT, at=100.0)
+    det1.record_start(Phase.IMPLEMENT, at=100.0)
     # 新实例, 同一目录
     det2 = InFlightDetector(state_dir=tmp_state_dir)
     in_flight = det2.detect_in_flight()

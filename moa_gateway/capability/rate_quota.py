@@ -21,9 +21,8 @@
 非 mock,所有计算为确定性的数学公式。
 """
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import List, Tuple, Optional, Dict
 
+from dataclasses import dataclass, field
 
 # ============ Constants ============
 
@@ -31,7 +30,7 @@ WINDOW_5H_SECONDS = 5 * 3600           # 5 hours
 WINDOW_WEEKLY_SECONDS = 7 * 86400       # 7 days
 WINDOW_MONTHLY_SECONDS = 30 * 86400     # 30 days
 
-WINDOW_DURATIONS: Dict[str, int] = {
+WINDOW_DURATIONS: dict[str, int] = {
     "5h": WINDOW_5H_SECONDS,
     "weekly": WINDOW_WEEKLY_SECONDS,
     "monthly": WINDOW_MONTHLY_SECONDS,
@@ -49,7 +48,7 @@ class QuotaWindow:
     limit_tokens: int
     used_tokens: int = 0
     # (timestamp, tokens) 历史记录,按时间戳升序追加,prune 旧记录
-    used_history: List[Tuple[float, int]] = field(default_factory=list)
+    used_history: list[tuple[float, int]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.name not in WINDOW_DURATIONS:
@@ -81,7 +80,7 @@ class QuotaWindow:
 @dataclass
 class QuotaState:
     """多窗口配额总状态"""
-    windows: Dict[str, QuotaWindow]
+    windows: dict[str, QuotaWindow]
     last_updated: float = 0.0
 
     def __post_init__(self) -> None:
@@ -109,7 +108,7 @@ def _prune_history(window: QuotaWindow, now: float) -> None:
     cutoff = now - window.window_seconds
     # 假设 history 已按时间戳升序;从左侧 pop 掉 < cutoff 的
     # 若不保证有序,此处会全扫一遍(复杂度 O(n),但正确)
-    new_hist: List[Tuple[float, int]] = []
+    new_hist: list[tuple[float, int]] = []
     for ts, tk in window.used_history:
         if ts >= cutoff:
             new_hist.append((ts, tk))
@@ -131,7 +130,7 @@ def _recompute_used_from_history(window: QuotaWindow, now: float) -> None:
 def record_usage(
     state: QuotaState,
     tokens: int,
-    at: Optional[float] = None,
+    at: float | None = None,
 ) -> None:
     """记录一次 token 使用。
 
@@ -161,7 +160,7 @@ def record_usage(
     state.last_updated = float(at)
 
 
-def check_available(state: QuotaState, requested: int) -> Tuple[bool, str]:
+def check_available(state: QuotaState, requested: int) -> tuple[bool, str]:
     """检查是否有窗口能容纳 requested tokens。
 
     真实逻辑:遍历所有窗口,至少一个满足 limit - used >= requested
@@ -171,8 +170,8 @@ def check_available(state: QuotaState, requested: int) -> Tuple[bool, str]:
     if requested < 0:
         raise ValueError(f"requested must be >= 0, got {requested}")
 
-    feasible: List[Tuple[str, int]] = []  # (window_name, free)
-    min_gap: Optional[Tuple[str, int]] = None  # 最受限窗口
+    feasible: list[tuple[str, int]] = []  # (window_name, free)
+    min_gap: tuple[str, int] | None = None  # 最受限窗口
 
     for name, w in state.windows.items():
         free = w.remaining()
@@ -204,7 +203,7 @@ def eta_exhaustion(
     state: QuotaState,
     burn_rate_per_hour: float,
     window_name: str,
-) -> Optional[float]:
+) -> float | None:
     """计算指定窗口耗尽 ETA(小时)。
 
     真实逻辑:
@@ -245,7 +244,7 @@ def would_exceed_within(
         raise ValueError(f"burn_rate must be >= 0, got {burn_rate}")
 
     now = state.last_updated
-    for name, w in state.windows.items():
+    for _name, w in state.windows.items():
         cutoff = now - w.window_seconds
         current_used = sum(tk for ts, tk in w.used_history if ts >= cutoff)
         predicted = current_used + requested + burn_rate * horizon_hours
@@ -274,7 +273,7 @@ def rolling_remaining(state: QuotaState, window_name: str) -> int:
     return w.limit_tokens - used_in_window
 
 
-def prune_all(state: QuotaState, at: Optional[float] = None) -> None:
+def prune_all(state: QuotaState, at: float | None = None) -> None:
     """对所有窗口做 prune + recompute(单独可调用,维护用)。"""
     now = at if at is not None else state.last_updated
     if now < 0:

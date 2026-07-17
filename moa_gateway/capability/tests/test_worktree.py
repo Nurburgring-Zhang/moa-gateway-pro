@@ -6,10 +6,10 @@
   - 至少 14 个测试用例,覆盖:字段 / 初始化 / snapshot 真实命令 /
     porcelain / tracked / is_clean 两路 / diff 三向 / JSON / 0 文件边界
 """
-import sys
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -17,11 +17,16 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.worktree import (
-    WorktreeInfo, WorktreeSnapshot, WorktreeManager,
-    snapshot, diff_snapshots, is_clean,
-    snapshot_to_json, snapshot_from_json,
-    worktree_info_to_json, worktree_info_from_json,
-    _parse_porcelain, GitCommandError,
+    WorktreeInfo,
+    WorktreeManager,
+    _parse_porcelain,
+    diff_snapshots,
+    is_clean,
+    snapshot,
+    snapshot_from_json,
+    snapshot_to_json,
+    worktree_info_from_json,
+    worktree_info_to_json,
 )
 
 
@@ -268,7 +273,7 @@ def test_worktree_info_json():
     # roundtrip
     info2 = worktree_info_from_json(text)
     assert info2 == info
-    print(f"  ✓ test_worktree_info_json: roundtrip ok")
+    print("  ✓ test_worktree_info_json: roundtrip ok")
 
 
 # ============ 13. WorktreeSnapshot JSON ============
@@ -348,7 +353,7 @@ def test_worktree_manager_full_lifecycle(tmp_path):
     listed2 = mgr.list_worktrees()
     paths2 = {w.path for w in listed2}
     assert wt.path not in paths2
-    print(f"  ✓ test_worktree_manager_full_lifecycle: create/list/remove ok")
+    print("  ✓ test_worktree_manager_full_lifecycle: create/list/remove ok")
 
 
 if __name__ == "__main__":

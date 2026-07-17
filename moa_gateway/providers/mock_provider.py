@@ -12,13 +12,14 @@
 - 支持流式输出
 """
 from __future__ import annotations
+
 import asyncio
-import time
 import random
 import re
-from typing import Dict, List, Optional, AsyncIterator
-from .base import Provider, ChatRequest, ChatResponse
+import time
+from collections.abc import AsyncIterator
 
+from .base import ChatRequest, ChatResponse, Provider
 
 # 不同 query 类型的智能回答模板
 MOCK_RESPONSES = {

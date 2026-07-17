@@ -13,13 +13,14 @@ CAP_DIR = os.path.dirname(THIS_DIR)
 if CAP_DIR not in sys.path:
     sys.path.insert(0, CAP_DIR)
 
+import contextlib
+
 import rag_search  # noqa: E402
 from rag_search import (  # noqa: E402
     clear_cache,
     rag_search,
     set_cache_db_path,
 )
-
 
 CORPUS_BASIC = [
     {
@@ -55,10 +56,8 @@ class RagSearchTestBase(unittest.TestCase):
         clear_cache()
 
     def tearDown(self) -> None:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(self._tmp.name)
-        except OSError:
-            pass
 
 
 class TestBasicKeywordMatching(RagSearchTestBase):
@@ -226,9 +225,8 @@ class TestCaching(RagSearchTestBase):
 
     def test_cache_expired(self) -> None:
         clear_cache()
-        from rag_search import _hash_query
-        from rag_search import _cache_put
-        import json as _json
+
+        from rag_search import _cache_put, _hash_query
         h = _hash_query("python", 3)
         with open(self._tmp.name, "rb"):
             pass

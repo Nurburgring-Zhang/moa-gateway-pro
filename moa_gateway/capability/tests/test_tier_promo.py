@@ -20,31 +20,27 @@ import math
 import sys
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.tier_promo import (
-    PromotionLevel,
+    DEFAULT_CONFIDENCE_THRESHOLD,
     Evidence,
     PromotionConfig,
+    PromotionLevel,
     PromotionState,
     SubAgentBoundary,
-    CONFIDENCE_KAPPA,
-    DEFAULT_CONFIDENCE_THRESHOLD,
-    compute_tier,
-    record_evidence,
     classify_tier_from_evidence,
-    evidence_to_dict,
+    compute_tier,
     evidence_from_dict,
-    promotion_state_to_dict,
-    promotion_state_from_dict,
-    promotion_config_to_dict,
+    evidence_to_dict,
     promotion_config_from_dict,
-    subagent_boundary_to_dict,
+    promotion_config_to_dict,
+    promotion_state_from_dict,
+    promotion_state_to_dict,
+    record_evidence,
     subagent_boundary_from_dict,
+    subagent_boundary_to_dict,
 )
-
 
 # ============ PromotionLevel 枚举 ============
 

@@ -14,6 +14,7 @@
 - Config 校验
 """
 from __future__ import annotations
+
 import json
 import re
 import sys
@@ -22,21 +23,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.turboquant import (
-    QuantLevel,
-    Message,
-    TurboQuantConfig,
     LEVEL_CHARS,
-    compress_message,
-    should_compress,
+    Message,
+    QuantLevel,
+    TurboQuantConfig,
     apply_turboquant,
-    extract_system_messages,
-    is_finish_marker,
-    messages_to_json,
-    messages_from_json,
-    config_to_json,
+    compress_message,
     config_from_json,
+    config_to_json,
+    messages_from_json,
+    messages_to_json,
+    should_compress,
 )
-
 
 # ============ 辅助构造 ============
 
@@ -325,7 +323,7 @@ def test_messages_json_roundtrip():
     assert len(parsed) == 3
     restored = messages_from_json(text)
     assert len(restored) == 3
-    for orig, back in zip(msgs, restored):
+    for orig, back in zip(msgs, restored, strict=False):
         assert orig.role == back.role
         assert orig.content == back.content
         assert orig.timestamp == back.timestamp

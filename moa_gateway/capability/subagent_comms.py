@@ -14,9 +14,8 @@ import json
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Any, Optional, Literal
-
+from dataclasses import asdict, dataclass, field
+from typing import Any, Literal
 
 # ============ 数据类 ============
 
@@ -29,9 +28,9 @@ class Message:
     content: str
     timestamp: float
     kind: Literal["send", "broadcast", "reply"] = "send"
-    parent_msg_id: Optional[str] = None
+    parent_msg_id: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def to_json(self) -> str:
@@ -43,12 +42,12 @@ class TaskCreate:
     """任务描述,支持父子层级"""
     task_id: str
     title: str
-    assignee_session: Optional[str] = None
-    parent_task_id: Optional[str] = None
+    assignee_session: str | None = None
+    parent_task_id: str | None = None
     status: Literal["pending", "in_progress", "completed", "failed"] = "pending"
     created_at: float = field(default_factory=time.time)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     def to_json(self) -> str:
@@ -77,8 +76,8 @@ class SubagentHub:
 
     def __init__(self, session_id: str) -> None:
         self.session_id: str = session_id
-        self._inboxes: Dict[str, List[Message]] = {session_id: []}
-        self._outbox: List[Message] = []  # 本 session 主动发出的(便于回溯/调试)
+        self._inboxes: dict[str, list[Message]] = {session_id: []}
+        self._outbox: list[Message] = []  # 本 session 主动发出的(便于回溯/调试)
         self._lock: threading.RLock = threading.RLock()
 
     # ---- 内部 ----
@@ -92,7 +91,7 @@ class SubagentHub:
         to_session: str,
         content: str,
         kind: str,
-        parent_msg_id: Optional[str] = None,
+        parent_msg_id: str | None = None,
     ) -> Message:
         if kind not in _VALID_MSG_KIND:
             raise ValueError(f"invalid kind: {kind!r}; must be one of {_VALID_MSG_KIND}")
@@ -125,7 +124,7 @@ class SubagentHub:
             self._outbox.append(msg)
             return msg
 
-    def broadcast(self, sessions: List[str], content: str) -> List[Message]:
+    def broadcast(self, sessions: list[str], content: str) -> list[Message]:
         """广播:为每个 session 生成一条独立 Message(便于单独 ack / reply)
 
         sessions 允许包含 sender 自身(自身也会收到一份)
@@ -133,7 +132,7 @@ class SubagentHub:
         if not sessions:
             return []
         with self._lock:
-            results: List[Message] = []
+            results: list[Message] = []
             for s in sessions:
                 self._register(s)
                 msg = self._new_msg(to_session=s, content=content, kind="broadcast")
@@ -142,7 +141,7 @@ class SubagentHub:
             self._outbox.extend(results)
             return results
 
-    def inbox(self) -> List[Message]:
+    def inbox(self) -> list[Message]:
         """返回本 session 当前 inbox 的快照(不暴露内部 list 引用)"""
         with self._lock:
             return list(self._inboxes.get(self.session_id, []))
@@ -155,7 +154,7 @@ class SubagentHub:
         """
         with self._lock:
             my_inbox = self._inboxes.get(self.session_id, [])
-            target: Optional[str] = None
+            target: str | None = None
             for m in my_inbox:
                 if m.msg_id == parent_msg_id:
                     target = m.from_session
@@ -183,12 +182,12 @@ class SubagentHub:
             self._register(msg.to_session)
             self._inboxes[msg.to_session].append(msg)
 
-    def sessions(self) -> List[str]:
+    def sessions(self) -> list[str]:
         """列出所有已知 session(用于诊断/UI)"""
         with self._lock:
             return list(self._inboxes.keys())
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         with self._lock:
             return {
                 "session_id": self.session_id,
@@ -213,14 +212,14 @@ class TaskBoard:
 
     def __init__(self, session_id: str) -> None:
         self.session_id: str = session_id
-        self._tasks: Dict[str, TaskCreate] = {}
+        self._tasks: dict[str, TaskCreate] = {}
         self._lock: threading.RLock = threading.RLock()
 
     def create_task(
         self,
         title: str,
-        assignee: Optional[str] = None,
-        parent: Optional[str] = None,
+        assignee: str | None = None,
+        parent: str | None = None,
     ) -> str:
         """创建任务,返回 task_id"""
         with self._lock:
@@ -250,15 +249,15 @@ class TaskBoard:
                 raise KeyError(f"task not found: {task_id!r}")
             t.status = status
 
-    def get_task(self, task_id: str) -> Optional[TaskCreate]:
+    def get_task(self, task_id: str) -> TaskCreate | None:
         with self._lock:
             return self._tasks.get(task_id)
 
     def list_tasks(
         self,
-        status: Optional[str] = None,
-        assignee: Optional[str] = None,
-    ) -> List[TaskCreate]:
+        status: str | None = None,
+        assignee: str | None = None,
+    ) -> list[TaskCreate]:
         """按 status / assignee 过滤;都为 None 时返回全部(按 created_at 升序)"""
         with self._lock:
             results = list(self._tasks.values())
@@ -269,7 +268,7 @@ class TaskBoard:
             results.sort(key=lambda t: t.created_at)
             return results
 
-    def get_subtasks(self, parent_task_id: str) -> List[TaskCreate]:
+    def get_subtasks(self, parent_task_id: str) -> list[TaskCreate]:
         """取所有 parent_task_id == parent_task_id 的子任务(按 created_at 升序)"""
         with self._lock:
             return sorted(
@@ -277,7 +276,7 @@ class TaskBoard:
                 key=lambda t: t.created_at,
             )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         with self._lock:
             return {
                 "session_id": self.session_id,
@@ -308,7 +307,7 @@ class AdvisoryLock:
         —— 避免持锁线程卡死后锁永远拿不回来
     """
 
-    _registry: Dict[str, "AdvisoryLock"] = {}
+    _registry: dict[str, AdvisoryLock] = {}
     _registry_lock: threading.RLock = threading.RLock()
 
     def __init__(self, lock_id: str, holder: str, timeout: float = 10.0) -> None:
@@ -321,7 +320,7 @@ class AdvisoryLock:
         self.lock_id: str = lock_id
         self.holder: str = holder
         self.timeout: float = float(timeout)
-        self._acquired_at: Optional[float] = None
+        self._acquired_at: float | None = None
         # 同一 lock_id 在同进程内只允许一个实例
         with AdvisoryLock._registry_lock:
             if lock_id in AdvisoryLock._registry:
@@ -331,7 +330,7 @@ class AdvisoryLock:
             AdvisoryLock._registry[lock_id] = self
 
     @classmethod
-    def get(cls, lock_id: str) -> Optional["AdvisoryLock"]:
+    def get(cls, lock_id: str) -> AdvisoryLock | None:
         with cls._registry_lock:
             return cls._registry.get(lock_id)
 
@@ -388,13 +387,13 @@ class AdvisoryLock:
     def is_held_by_me(self) -> bool:
         return self._current_holder() == self.holder
 
-    def held_by(self) -> Optional[str]:
+    def held_by(self) -> str | None:
         return self._current_holder()
 
     # ---- 内部(进程级共享状态) ----
 
     @staticmethod
-    def _state(lock_id: str) -> Dict[str, Any]:
+    def _state(lock_id: str) -> dict[str, Any]:
         """返回进程级共享 holder 槽位(每个 lock_id 独立 dict)"""
         # 借用 registry 锁保证 _state dict 自身的创建/读取原子
         with AdvisoryLock._registry_lock:
@@ -402,10 +401,10 @@ class AdvisoryLock:
                 _LOCK_STATE[lock_id] = {"holder": None, "acquired_at": None, "timeout": None}
             return _LOCK_STATE[lock_id]
 
-    def _current_holder(self) -> Optional[str]:
+    def _current_holder(self) -> str | None:
         return AdvisoryLock._state(self.lock_id)["holder"]
 
-    def _acquired_at_snapshot(self) -> Optional[float]:
+    def _acquired_at_snapshot(self) -> float | None:
         return AdvisoryLock._state(self.lock_id)["acquired_at"]
 
     def _try_claim(self, now: float) -> bool:
@@ -430,7 +429,7 @@ class AdvisoryLock:
             self._acquired_at = now
             return True
 
-    def _set_holder(self, holder: Optional[str], acquired_at: Optional[float]) -> None:
+    def _set_holder(self, holder: str | None, acquired_at: float | None) -> None:
         with AdvisoryLock._registry_lock:
             st = AdvisoryLock._state(self.lock_id)
             st["holder"] = holder
@@ -441,7 +440,7 @@ class AdvisoryLock:
 
 
 # 进程级共享 holder 槽位
-_LOCK_STATE: Dict[str, Dict[str, Any]] = {}
+_LOCK_STATE: dict[str, dict[str, Any]] = {}
 _LOCK_STATE_LOCK = threading.RLock()
 
 
@@ -460,5 +459,5 @@ def message_to_json(m: Message) -> str:
 
 
 # 模块级断言:防止 Literal 集合被误改
-assert _VALID_MSG_KIND == {"send", "broadcast", "reply"}
-assert _VALID_TASK_STATUS == {"pending", "in_progress", "completed", "failed"}
+assert {"send", "broadcast", "reply"} == _VALID_MSG_KIND
+assert {"pending", "in_progress", "completed", "failed"} == _VALID_TASK_STATUS

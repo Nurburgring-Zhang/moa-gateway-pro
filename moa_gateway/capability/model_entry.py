@@ -24,9 +24,9 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,7 @@ class ModelEntry:
     family: str
     context_window: int
     max_output: int
-    modalities: List[Modality]
+    modalities: list[Modality]
     supports_tools: bool
     supports_vision: bool
     supports_reasoning: bool
@@ -137,7 +137,7 @@ class ModelEntry:
                 f"output_cost_per_1k must be >= 0, got {self.output_cost_per_1k}"
             )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["modalities"] = [m.value if isinstance(m, Modality) else str(m) for m in self.modalities]
         return d
@@ -155,7 +155,7 @@ class CapabilityCheck:
     supports_tools: bool
     supports_streaming: bool
     supports_reasoning: bool
-    compatible_modalities: List[str]
+    compatible_modalities: list[str]
 
 
 # =============================================================================
@@ -196,10 +196,10 @@ _CAPABILITY_FIELDS = {
 
 
 def filter_by_capability(
-    entries: List[ModelEntry],
+    entries: list[ModelEntry],
     capability: str,
     value: bool = True,
-) -> List[ModelEntry]:
+) -> list[ModelEntry]:
     """按 capability 字段过滤
 
     Args:
@@ -222,9 +222,9 @@ def filter_by_capability(
 
 
 def filter_by_modality(
-    entries: List[ModelEntry],
+    entries: list[ModelEntry],
     modality: Modality,
-) -> List[ModelEntry]:
+) -> list[ModelEntry]:
     """按模态过滤 — 保留含目标 modality 的 entry"""
     if not entries:
         return []
@@ -236,9 +236,9 @@ def filter_by_modality(
 
 
 def filter_by_min_context(
-    entries: List[ModelEntry],
+    entries: list[ModelEntry],
     min_context: int,
-) -> List[ModelEntry]:
+) -> list[ModelEntry]:
     """按最小 context window 过滤(>= min_context)"""
     if not entries:
         return []
@@ -253,10 +253,10 @@ def filter_by_min_context(
 
 
 def sort_by_cost(
-    entries: List[ModelEntry],
+    entries: list[ModelEntry],
     ascending: bool = True,
     cost_field: str = "input_cost_per_1k",
-) -> List[ModelEntry]:
+) -> list[ModelEntry]:
     """按 cost 排序
 
     Args:
@@ -275,9 +275,9 @@ def sort_by_cost(
 
 
 def sort_by_context(
-    entries: List[ModelEntry],
+    entries: list[ModelEntry],
     descending: bool = True,
-) -> List[ModelEntry]:
+) -> list[ModelEntry]:
     """按 context_window 排序
 
     Args:
@@ -295,10 +295,10 @@ def sort_by_context(
 
 
 def find_within_budget(
-    entries: List[ModelEntry],
-    max_input_cost: Optional[float] = None,
-    max_output_cost: Optional[float] = None,
-) -> List[ModelEntry]:
+    entries: list[ModelEntry],
+    max_input_cost: float | None = None,
+    max_output_cost: float | None = None,
+) -> list[ModelEntry]:
     """预算匹配 — 找出 input/output cost 都在阈值下的 entry
 
     Args:
@@ -312,7 +312,7 @@ def find_within_budget(
     """
     if not entries:
         return []
-    result: List[ModelEntry] = []
+    result: list[ModelEntry] = []
     for e in entries:
         if max_input_cost is not None and e.input_cost_per_1k > max_input_cost:
             continue
@@ -329,7 +329,7 @@ def find_within_budget(
 
 def multimodal_score(
     entry: ModelEntry,
-    query_modalities: List[Modality],
+    query_modalities: list[Modality],
 ) -> float:
     """多模态匹配评分 — 0-1,表示 entry 覆盖 query_modalities 的比例
 
@@ -342,7 +342,7 @@ def multimodal_score(
     """
     if not query_modalities:
         return 0.0
-    query_set = set(query_modalities)
+    set(query_modalities)
     matched = sum(1 for m in query_modalities if m in entry.modalities)
     return matched / len(query_modalities)
 
@@ -352,7 +352,7 @@ def multimodal_score(
 # =============================================================================
 
 
-def to_json(entries: List[ModelEntry], indent: Optional[int] = 2) -> str:
+def to_json(entries: list[ModelEntry], indent: int | None = 2) -> str:
     """ModelEntry 列表 → JSON 字符串
 
     Modality 自动展开为字符串值。
@@ -361,7 +361,7 @@ def to_json(entries: List[ModelEntry], indent: Optional[int] = 2) -> str:
     return json.dumps(payload, indent=indent, ensure_ascii=False)
 
 
-def from_json(data: str) -> List[ModelEntry]:
+def from_json(data: str) -> list[ModelEntry]:
     """JSON 字符串 → ModelEntry 列表
 
     modalities 字段从字符串列表还原为 Modality 枚举。
@@ -371,7 +371,7 @@ def from_json(data: str) -> List[ModelEntry]:
         raise ValueError(
             f"JSON payload must be a list, got {type(raw).__name__}"
         )
-    out: List[ModelEntry] = []
+    out: list[ModelEntry] = []
     for item in raw:
         if not isinstance(item, dict):
             raise ValueError(

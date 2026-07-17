@@ -1,32 +1,23 @@
 """self_heal 真实测试(非 mock,全部 assert)"""
 import sys
-import math
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.self_heal import (
-    VALID_TIERS,
     DEFAULT_COOLDOWN_SECONDS,
-    DEFAULT_FAILURE_THRESHOLD,
-    ActionType,
-    EndpointState,
-    HealAction,
-    HealLog,
-    HealState,
-    record_success,
-    record_failure,
+    auto_balance,
     check_recovery,
-    promote,
     demote,
     enter_cooldown,
     get_available_endpoints,
-    auto_balance,
-    state_to_dict,
-    state_from_dict,
     make_default_state,
+    promote,
+    record_failure,
+    record_success,
+    state_from_dict,
+    state_to_dict,
 )
-
 
 # ============ Tests ============
 
@@ -247,7 +238,7 @@ def test_auto_balance_triggers_check_recovery_multiple():
         assert ep.tier == "primary"
     # last_auto_balance_at 更新
     assert state.last_auto_balance_at == 700.0
-    print(f"  ✓ test_auto_balance_triggers_check_recovery_multiple (3 recovered)")
+    print("  ✓ test_auto_balance_triggers_check_recovery_multiple (3 recovered)")
 
 
 def test_full_flow_failure_cooldown_recovery():

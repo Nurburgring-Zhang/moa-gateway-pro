@@ -1,12 +1,13 @@
 """moa_gateway.providers — 各模型提供商的 HTTP 调用实现
 抽象出统一接口,所有提供商实现都遵循相同协议。
 """
-import os
 import logging
-from .base import Provider, ChatRequest, ChatResponse, ProviderError
-from .openai_compat import OpenAICompatProvider
+import os
+
 from .anthropic_provider import AnthropicProvider
+from .base import ChatRequest, ChatResponse, Provider, ProviderError
 from .mock_provider import MockProvider
+from .openai_compat import OpenAICompatProvider
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +35,7 @@ def is_mock_key(api_key: str) -> bool:
         return True
     if k.startswith("your-") or k.startswith("sk-your-"):
         return True
-    if k == "mock" or k == "mock-key":
-        return True
-    return False
+    return bool(k in {"mock", "mock-key"})
 
 
 def build_provider(provider_id: str, **kwargs) -> Provider:

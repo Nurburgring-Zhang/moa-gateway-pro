@@ -10,10 +10,10 @@
   7. 截断超长 → 保护 context window
 """
 from __future__ import annotations
-import copy
-from typing import List, Dict, Tuple, Optional, Literal
-from dataclasses import dataclass, field, asdict
 
+import copy
+from dataclasses import asdict, dataclass
+from typing import Literal
 
 Role = Literal["system", "user", "assistant", "tool"]
 
@@ -25,12 +25,12 @@ class Message:
     """OpenAI 风格消息"""
     role: Role
     content: str
-    name: Optional[str] = None
-    tool_call_id: Optional[str] = None
-    tool_calls: Optional[List[Dict]] = None  # 仅 assistant 可能持有
+    name: str | None = None
+    tool_call_id: str | None = None
+    tool_calls: list[dict] | None = None  # 仅 assistant 可能持有
 
-    def to_dict(self) -> Dict:
-        d: Dict = {"role": self.role, "content": self.content}
+    def to_dict(self) -> dict:
+        d: dict = {"role": self.role, "content": self.content}
         if self.name is not None:
             d["name"] = self.name
         if self.tool_call_id is not None:
@@ -54,7 +54,7 @@ class CleanStats:
     chars_before: int = 0
     chars_after: int = 0
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -64,15 +64,15 @@ def _content_len(m: Message) -> int:
     return len(m.content or "")
 
 
-def _total_chars(messages: List[Message]) -> int:
+def _total_chars(messages: list[Message]) -> int:
     return sum(_content_len(m) for m in messages)
 
 
 # ============ Stage 1: 空消息过滤 ============
 
-def _filter_empty(messages: List[Message]) -> List[Message]:
+def _filter_empty(messages: list[Message]) -> list[Message]:
     """去掉 content 空字符串的消息;None content 一律视为空"""
-    out: List[Message] = []
+    out: list[Message] = []
     for m in messages:
         if m.content is None:
             continue
@@ -84,9 +84,9 @@ def _filter_empty(messages: List[Message]) -> List[Message]:
 
 # ============ Stage 2: 合并同角色连续 ============
 
-def merge_consecutive_role(messages: List[Message], role: Role) -> List[Message]:
+def merge_consecutive_role(messages: list[Message], role: Role) -> list[Message]:
     """合并连续同 role 的消息:content 用 \\n\\n 连接;首条保留 name / tool_call_id / tool_calls"""
-    out: List[Message] = []
+    out: list[Message] = []
     for m in messages:
         if m.role != role:
             out.append(m)
@@ -112,15 +112,15 @@ def merge_consecutive_role(messages: List[Message], role: Role) -> List[Message]
 
 # ============ Stage 3: system 前置 ============
 
-def _promote_systems_to_front(messages: List[Message]) -> Tuple[List[Message], int]:
+def _promote_systems_to_front(messages: list[Message]) -> tuple[list[Message], int]:
     """把所有 system 消息移动到 messages[0],并合并为单条
     返回 (新列表, 被前置的 system 数量):
       - 0 条 system → 0
       - 1 条 system 但原本不在头部 → 1
       - ≥2 条 system → 总数(因为全部从非头部移到头部)
     """
-    systems: List[Message] = [m for m in messages if m.role == "system"]
-    others: List[Message] = [m for m in messages if m.role != "system"]
+    systems: list[Message] = [m for m in messages if m.role == "system"]
+    others: list[Message] = [m for m in messages if m.role != "system"]
     if not systems:
         return messages, 0
     # 原本 system 已经在头部(index 0 且没有非 system 在它前面)→ 视为未移动
@@ -135,17 +135,17 @@ def _promote_systems_to_front(messages: List[Message]) -> Tuple[List[Message], i
 
 # ============ Stage 4: 剥离 orphan tool message ============
 
-def _strip_orphan_tool_messages(messages: List[Message]) -> Tuple[List[Message], int]:
+def _strip_orphan_tool_messages(messages: list[Message]) -> tuple[list[Message], int]:
     """tool message 必须有前一个 assistant with tool_calls(且 tool_call_id 匹配)
     无主 tool message 直接丢弃"""
-    out: List[Message] = []
+    out: list[Message] = []
     removed = 0
-    for i, m in enumerate(messages):
+    for _i, m in enumerate(messages):
         if m.role != "tool":
             out.append(m)
             continue
         # 向前找最近一个 assistant
-        parent_assistant: Optional[Message] = None
+        parent_assistant: Message | None = None
         for j in range(len(out) - 1, -1, -1):
             if out[j].role == "assistant":
                 parent_assistant = out[j]
@@ -165,9 +165,9 @@ def _strip_orphan_tool_messages(messages: List[Message]) -> Tuple[List[Message],
 
 # ============ Stage 5: 剥离 orphan tool_calls ============
 
-def _strip_orphan_tool_calls(messages: List[Message]) -> Tuple[List[Message], int]:
+def _strip_orphan_tool_calls(messages: list[Message]) -> tuple[list[Message], int]:
     """assistant 带 tool_calls 但后续没有对应 tool 响应 → 剥掉 tool_calls(保留消息本身)"""
-    out: List[Message] = []
+    out: list[Message] = []
     stripped_total = 0
     for i, m in enumerate(messages):
         if m.role != "assistant" or not m.tool_calls:
@@ -201,7 +201,7 @@ def _strip_orphan_tool_calls(messages: List[Message]) -> Tuple[List[Message], in
 
 # ============ Stage 4+5 合并入口 ============
 
-def strip_orphan_tool(messages: List[Message]) -> List[Message]:
+def strip_orphan_tool(messages: list[Message]) -> list[Message]:
     """先剥 orphan tool message,再剥 orphan tool_calls"""
     after_tool, _ = _strip_orphan_tool_messages(messages)
     after_calls, _ = _strip_orphan_tool_calls(after_tool)
@@ -210,7 +210,7 @@ def strip_orphan_tool(messages: List[Message]) -> List[Message]:
 
 # ============ Stage 6: 合成 user 注入 ============
 
-def prepend_user_if_first_assistant(messages: List[Message]) -> Tuple[List[Message], bool]:
+def prepend_user_if_first_assistant(messages: list[Message]) -> tuple[list[Message], bool]:
     """若 messages[0] 是 assistant,前置一个空 user '...';否则不动"""
     if not messages:
         return messages, False
@@ -222,7 +222,7 @@ def prepend_user_if_first_assistant(messages: List[Message]) -> Tuple[List[Messa
 
 # ============ Stage 7: 截断超长 ============
 
-def truncate_to_chars(messages: List[Message], max_chars: int) -> Tuple[List[Message], bool]:
+def truncate_to_chars(messages: list[Message], max_chars: int) -> tuple[list[Message], bool]:
     """从尾部开始累加,超 max_chars 的消息被截掉;system 永不丢"""
     if max_chars <= 0:
         return [], True
@@ -233,7 +233,7 @@ def truncate_to_chars(messages: List[Message], max_chars: int) -> Tuple[List[Mes
     if remaining < 0:
         # system 本身超限 → 仍保留,但不丢
         return messages, True
-    kept: List[Message] = []
+    kept: list[Message] = []
     used = 0
     truncated = False
     for m in non_system:
@@ -249,9 +249,9 @@ def truncate_to_chars(messages: List[Message], max_chars: int) -> Tuple[List[Mes
 # ============ 7 阶段主入口 ============
 
 def clean_messages(
-    messages: List[Message],
+    messages: list[Message],
     max_total_chars: int = 100000,
-) -> Tuple[List[Message], CleanStats]:
+) -> tuple[list[Message], CleanStats]:
     """7 阶段消息清洗;返回 (cleaned, stats)"""
     stats = CleanStats()
     stats.original_count = len(messages)
@@ -296,15 +296,15 @@ def clean_messages(
 
 # ============ OpenAI 兼容转换 ============
 
-def to_openai_format(messages: List[Message]) -> List[Dict]:
+def to_openai_format(messages: list[Message]) -> list[dict]:
     """转 OpenAI messages JSON 格式"""
     return [m.to_dict() for m in messages]
 
 
-def from_openai_format(data: List[Dict]) -> List[Message]:
+def from_openai_format(data: list[dict]) -> list[Message]:
     """反向解析;role 非法值抛 ValueError"""
     allowed = {"system", "user", "assistant", "tool"}
-    out: List[Message] = []
+    out: list[Message] = []
     for item in data:
         if not isinstance(item, dict):
             raise ValueError(f"message must be dict, got {type(item).__name__}")

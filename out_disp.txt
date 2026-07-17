@@ -1,0 +1,118 @@
+﻿login OK, token len=217
+key created: mgw-ESs_nylav8b3CJ-E...
+
+agents: 200
+{
+  "agents": [
+    {
+      "name": "moa",
+      "description": "Mixture-of-Agents orchestration: 3-layer / multi-mode / engine / cross-iter",
+      "version": "1.0.0",
+      "methods": [
+        {
+          "name": "run_three_layer",
+          "description": "3-layer MoA (论文主架构): L1 proposers 并行, L2 + L3 用 aggregators 合成",
+          "is_async": true,
+          "input_required": [
+            "query",
+            "proposers",
+            "aggregators"
+          ],
+          "input_optional": [
+            "temperature",
+            "max_total_tokens"
+          ],
+          "examples": []
+        },
+        {
+          "name": "run_engine",
+          "description": "MoA Engine (3 proposer + 1 aggregator), 轻量级单层 MoA",
+          "is_async": true,
+          "input_required": [
+            "query",
+            "proposers",
+            "aggregator"
+          ],
+          "input_optional": [
+            "validate_only",
+            "temperature"
+          ],
+          "examples": []
+        },
+        {
+          "name": "cross_iter",
+          "description": "跨迭代分析: convergence / best_of_each / adoption / step5",
+          "is_async": false,
+          "input_required": [
+            "iters",
+            "action"
+          ],
+          "input_optional": [],
+          "examples": []
+        },
+        {
+          "name": "validate_config",
+          "description": "校验 MoA 配置(不实际运行)",
+          "is_async": false,
+          "input_required": [
+            "proposers",
+            "aggr
+
+dispatch group_think: 400
+{
+  "detail": "ImportError: cannot import name 'build_consensus' from 'moa_gateway.capability.consensus' (D:\\MoA Gateway Pro\\moa_gateway\\capability\\consensus.py)"
+}
+
+dispatch_batch: 200
+{
+  "results": [
+    {
+      "ok": true,
+      "data": {
+        "channels": [
+          "subagent",
+          "cli",
+          "api"
+        ],
+        "topology": [
+          {
+            "name": "subagent",
+            "type": "ChannelType.SUBAGENT"
+          },
+          {
+            "name": "cli",
+            "type": "ChannelType.CLI"
+          },
+          {
+            "name": "api",
+            "type": "ChannelType.API"
+          }
+        ]
+      },
+      "error": null,
+      "error_code": null,
+      "latency_ms": 0.8751999994274229,
+      "service": "routing",
+      "method": "chain_info",
+      "meta": {}
+    },
+    {
+      "ok": true,
+      "data": "cli",
+      "error": null,
+      "error_code": null,
+      "latency_ms": 0.01200000406242907,
+      "service": "routing",
+      "method": "classify_error",
+      "meta": {}
+    }
+  ],
+  "latency_ms": 0.9979999740608037
+}
+
+workflows: 200
+{
+  "workflows": []
+}
+
+ALL DISPATCHER TESTS PASSED

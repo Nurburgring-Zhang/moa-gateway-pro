@@ -17,12 +17,11 @@ import re
 import threading
 import unicodedata
 from collections import Counter
-from typing import Dict, List, Optional, Tuple
 
 try:
     from typing import Literal
 except ImportError:  # pragma: no cover - py<3.8
-    from typing_extensions import Literal  # type: ignore
+    pass  # type: ignore
 
 __all__ = [
     "exact_hash",
@@ -81,7 +80,7 @@ def normalized_hash(text: str) -> str:
     def _is_cjk(t: str) -> bool:
         return t and "\u4e00" <= t[0] <= "\u9fff"
 
-    pieces: List[str] = []
+    pieces: list[str] = []
     for t in toks:
         if not (t[0].isalnum() or _is_cjk(t)):
             continue
@@ -134,7 +133,7 @@ def semantic_hash(text: str, top_k: int = 5) -> str:
     return _sha256(sig)
 
 
-def _lcs_length(a: List[str], b: List[str]) -> int:
+def _lcs_length(a: list[str], b: list[str]) -> int:
     """Length of the longest common subsequence (iterative DP)."""
     if not a or not b:
         return 0
@@ -150,13 +149,13 @@ def _lcs_length(a: List[str], b: List[str]) -> int:
 class InputFingerprint:
     """A 4-layer fingerprint of a single text input."""
 
-    LEVELS: Tuple[str, ...] = ("exact", "normalized", "structural", "semantic")
+    LEVELS: tuple[str, ...] = ("exact", "normalized", "structural", "semantic")
 
     def __init__(self, text: str, top_k: int = 5) -> None:
         self.text: str = text or ""
         self.top_k: int = top_k
         try:
-            self.attrs: Dict[str, str] = {
+            self.attrs: dict[str, str] = {
                 "exact": exact_hash(self.text),
                 "normalized": normalized_hash(self.text),
                 "structural": structural_hash(self.text),
@@ -173,7 +172,7 @@ class InputFingerprint:
             }
 
     # ---- similarity ----------------------------------------------------
-    def similar_to(self, other: "InputFingerprint", level: str = "normalized") -> float:
+    def similar_to(self, other: InputFingerprint, level: str = "normalized") -> float:
         """Return a similarity in [0, 1] at the requested ``level``."""
         if level not in self.LEVELS:
             raise ValueError(f"unknown level {level!r}; expected one of {self.LEVELS}")
@@ -185,7 +184,7 @@ class InputFingerprint:
             return self._structural_similarity(other)
         return self._semantic_similarity(other)
 
-    def _structural_similarity(self, other: "InputFingerprint") -> float:
+    def _structural_similarity(self, other: InputFingerprint) -> float:
         seq_a = self._structural_sequence()
         seq_b = other._structural_sequence()
         if not seq_a and not seq_b:
@@ -198,7 +197,7 @@ class InputFingerprint:
         union = len(seq_a) + len(seq_b) - lcs
         return lcs / union if union else 0.0
 
-    def _semantic_similarity(self, other: "InputFingerprint") -> float:
+    def _semantic_similarity(self, other: InputFingerprint) -> float:
         set_a = self._semantic_set()
         set_b = other._semantic_set()
         if not set_a and not set_b:
@@ -207,7 +206,7 @@ class InputFingerprint:
         union = len(set_a | set_b)
         return inter / union if union else 0.0
 
-    def _structural_sequence(self) -> List[str]:
+    def _structural_sequence(self) -> list[str]:
         if not self.text:
             return []
         return [_classify(t) for t in _TOKEN_RE.findall(self.text)]
@@ -232,7 +231,7 @@ class InputFingerprint:
         # Use the exact hash so set/dict membership is well-defined.
         return int(self.attrs["exact"], 16)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Return a JSON-serializable dict representation."""
         return {
             "text": self.text,
@@ -241,7 +240,7 @@ class InputFingerprint:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict) -> "InputFingerprint":
+    def from_dict(cls, data: dict) -> InputFingerprint:
         """Inverse of :meth:`to_dict`."""
         fp = cls(data.get("text", ""), top_k=int(data.get("top_k", 5)))
         for k, v in (data.get("attrs") or {}).items():
@@ -266,11 +265,11 @@ class FingerprintStore:
             raise ValueError("max_size must be positive")
         self.max_size = int(max_size)
         self._lock = threading.RLock()
-        self._items: List[Tuple[InputFingerprint, Optional[Dict]]] = []
-        self._by_exact: Dict[str, int] = {}
+        self._items: list[tuple[InputFingerprint, dict | None]] = []
+        self._by_exact: dict[str, int] = {}
 
     # ---- mutators ------------------------------------------------------
-    def add(self, text: str, metadata: Optional[Dict] = None) -> InputFingerprint:
+    def add(self, text: str, metadata: dict | None = None) -> InputFingerprint:
         """Add a text to the store and return its fingerprint.
 
         If the store is full, the oldest entry is evicted (FIFO).
@@ -301,7 +300,7 @@ class FingerprintStore:
         self,
         text: str,
         min_levels: int = 2,
-    ) -> List[Tuple[InputFingerprint, float]]:
+    ) -> list[tuple[InputFingerprint, float]]:
         """Find stored entries that match ``text`` on at least ``min_levels`` layers.
 
         Returns a list of ``(fingerprint, score)`` where ``score`` is the
@@ -313,7 +312,7 @@ class FingerprintStore:
             target = InputFingerprint(text)
         except Exception:
             return []
-        results: List[Tuple[InputFingerprint, float]] = []
+        results: list[tuple[InputFingerprint, float]] = []
         with self._lock:
             snapshot = list(self._items)
         for fp, _meta in snapshot:

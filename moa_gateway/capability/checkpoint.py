@@ -8,12 +8,13 @@
 """
 from __future__ import annotations
 
+import builtins
+import contextlib
 import json
 import os
 import threading
 import time
-from typing import Any, Dict, List, Optional, Union
-
+from typing import Any, Union
 
 # ============ A-23: atomic_write ============
 
@@ -51,7 +52,7 @@ def atomic_write(
         os.makedirs(parent, exist_ok=True)
 
     tmp_path = f"{path}.tmp.{os.getpid()}.{int(time.time() * 1000)}"
-    fd: Optional[int] = None
+    fd: int | None = None
     try:
         if isinstance(data, str):
             fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
@@ -70,10 +71,8 @@ def atomic_write(
         os.replace(tmp_path, path)
     except BaseException:
         if fd is not None:
-            try:
+            with contextlib.suppress(OSError):
                 os.close(fd)
-            except OSError:
-                pass
         try:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
@@ -156,7 +155,7 @@ class CheckpointStore:
             atomic_write(target, blob, encoding="utf-8", mode=0o644)
         return target
 
-    def load(self, name: str) -> Optional[Any]:
+    def load(self, name: str) -> Any | None:
         """按 name 加载 checkpoint;不存在或损坏返回 None
 
         Args:
@@ -185,7 +184,7 @@ class CheckpointStore:
 
     # ---------- list ----------
 
-    def list(self) -> List[Dict[str, Any]]:
+    def list(self) -> builtins.list[dict[str, Any]]:
         """列出所有 checkpoint 元数据,按 mtime 倒序 (最新在前)
 
         Returns:
@@ -194,9 +193,9 @@ class CheckpointStore:
         with self._lock:
             return self._list_locked()
 
-    def _list_locked(self) -> List[Dict[str, Any]]:
+    def _list_locked(self) -> builtins.list[dict[str, Any]]:
         """list() 的锁内实现,供 cleanup 复用 (避免重入死锁)"""
-        entries: List[Dict[str, Any]] = []
+        entries: list[dict[str, Any]] = []
         if not os.path.isdir(self.root_dir):
             return entries
         try:
@@ -226,7 +225,7 @@ class CheckpointStore:
 
     # ---------- cleanup ----------
 
-    def cleanup(self, older_than_seconds: Optional[int] = None) -> int:
+    def cleanup(self, older_than_seconds: int | None = None) -> int:
         """清理 checkpoint
 
         规则:
@@ -255,7 +254,7 @@ class CheckpointStore:
                         to_delete.append(e)
             # 去重
             seen = set()
-            unique: List[Dict[str, Any]] = []
+            unique: list[dict[str, Any]] = []
             for e in to_delete:
                 p = e["path"]
                 if p in seen:

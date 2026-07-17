@@ -22,12 +22,14 @@ Intelligence" — Wang et al., Together AI, 2024.
   - 模仿 n_layer_moa.py 风格 (dataclass 优先, 显式 logger, 不依赖外部状态)
 """
 from __future__ import annotations
+
 import asyncio
 import json
 import logging
 import time
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Optional, Callable, Tuple, Any
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +69,7 @@ class ProposerResult:
     latency_ms: float
     tokens: int
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -75,12 +77,12 @@ class ProposerResult:
 class MoAResult:
     """一次完整 MoA 调用的结果"""
     query: str
-    proposals: List[ProposerResult] = field(default_factory=list)
+    proposals: list[ProposerResult] = field(default_factory=list)
     aggregated: str = ""
     total_tokens: int = 0
     total_latency_ms: float = 0.0
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "query": self.query,
             "proposals": [p.to_dict() for p in self.proposals],
@@ -93,7 +95,7 @@ class MoAResult:
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=2)
 
     @staticmethod
-    def from_dict(d: Dict) -> "MoAResult":
+    def from_dict(d: dict) -> MoAResult:
         proposals_raw = d.get("proposals", []) or []
         proposals = [
             ProposerResult(
@@ -113,28 +115,28 @@ class MoAResult:
         )
 
     @staticmethod
-    def from_json(s: str) -> "MoAResult":
+    def from_json(s: str) -> MoAResult:
         return MoAResult.from_dict(json.loads(s))
 
 
 # provider_fn 签名: (proposer_or_aggregator, prompt) -> (text, tokens)
 # proposer_or_aggregator 是 Proposer 或 Aggregator
 # prompt 是已经拼好的字符串(由 caller 准备好)
-ProviderFn = Callable[[Any, str], Tuple[str, int]]
+ProviderFn = Callable[[Any, str], tuple[str, int]]
 
 
 # ============ 配置校验 ============
 
 def validate_moa(
-    proposers: List[Proposer],
-    aggregator: Optional[Aggregator],
-) -> List[str]:
+    proposers: list[Proposer],
+    aggregator: Aggregator | None,
+) -> list[str]:
     """校验 MoA 配置
 
     Returns:
         缺失/非法项的描述列表; 空列表 = 配置合法
     """
-    errors: List[str] = []
+    errors: list[str] = []
     if not proposers:
         errors.append("proposers: must have at least 1 proposer (got 0)")
     else:
@@ -147,9 +149,8 @@ def validate_moa(
                 )
     if aggregator is None:
         errors.append("aggregator: must be provided (got None)")
-    else:
-        if not aggregator.model_id or not isinstance(aggregator.model_id, str):
-            errors.append("aggregator.model_id: must be non-empty string")
+    elif not aggregator.model_id or not isinstance(aggregator.model_id, str):
+        errors.append("aggregator.model_id: must be non-empty string")
     return errors
 
 
@@ -157,7 +158,7 @@ def validate_moa(
 
 def _build_proposer_prompt(query: str, proposer: Proposer) -> str:
     """给 proposer 的完整 prompt(含 system + user)"""
-    parts: List[str] = []
+    parts: list[str] = []
     if proposer.system_prompt:
         parts.append(f"[SYSTEM]\n{proposer.system_prompt}\n")
     parts.append(f"[USER]\n{query}")
@@ -167,10 +168,10 @@ def _build_proposer_prompt(query: str, proposer: Proposer) -> str:
 def _build_aggregator_prompt(
     query: str,
     aggregator: Aggregator,
-    proposals: List[ProposerResult],
+    proposals: list[ProposerResult],
 ) -> str:
     """给 aggregator 的完整 prompt(含 synthesis + proposals)"""
-    parts: List[str] = []
+    parts: list[str] = []
     if aggregator.synthesis_prompt:
         parts.append(f"[SYSTEM]\n{aggregator.synthesis_prompt}\n")
     body_parts = [f"[USER] 用户问题:\n{query}\n"]
@@ -221,9 +222,9 @@ async def call_proposer(
 async def call_aggregator(
     aggregator: Aggregator,
     query: str,
-    proposals: List[ProposerResult],
+    proposals: list[ProposerResult],
     provider_fn: ProviderFn,
-) -> Tuple[str, int, float]:
+) -> tuple[str, int, float]:
     """调 1 个 aggregator 合成所有 proposals
 
     Returns:
@@ -249,7 +250,7 @@ async def call_aggregator(
 
 async def run_moa(
     query: str,
-    proposers: List[Proposer],
+    proposers: list[Proposer],
     aggregator: Aggregator,
     provider_fn: ProviderFn,
 ) -> MoAResult:
@@ -274,7 +275,7 @@ async def run_moa(
 
     # Step 1: 并行跑 proposers
     tasks = [call_proposer(p, query, provider_fn) for p in proposers]
-    proposals: List[ProposerResult] = await asyncio.gather(*tasks)
+    proposals: list[ProposerResult] = await asyncio.gather(*tasks)
 
     # Step 2: aggregator 合成
     aggregated_text, agg_tokens, agg_latency_ms = await call_aggregator(
@@ -298,7 +299,7 @@ async def run_moa(
 
 # ============ 工厂: 标准 3+1 配置 ============
 
-def default_three_proposers() -> List[Proposer]:
+def default_three_proposers() -> list[Proposer]:
     """论文主配置: 3 个 proposer, 多样化 system prompt 鼓励独立思考"""
     return [
         Proposer(

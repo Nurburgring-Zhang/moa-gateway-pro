@@ -12,10 +12,8 @@ from __future__ import annotations
 import json
 import re
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional
-
 
 # ============ A-21: Artifact Type Enum ============
 
@@ -29,7 +27,7 @@ class ArtifactType(str, Enum):
 
 
 # 必填字段 (id / name / type / description)
-REQUIRED_FIELDS: List[str] = ["id", "name", "type", "description"]
+REQUIRED_FIELDS: list[str] = ["id", "name", "type", "description"]
 
 
 # ============ A-21: Artifact dataclass ============
@@ -43,13 +41,13 @@ class Artifact:
     description: str
     version: str = "1.0.0"
     schema_version: int = 1
-    tags: List[str] = field(default_factory=list)
-    inputs: Dict = field(default_factory=dict)
-    outputs: Dict = field(default_factory=dict)
-    dependencies: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
+    inputs: dict = field(default_factory=dict)
+    outputs: dict = field(default_factory=dict)
+    dependencies: list[str] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         d = asdict(self)
         # ArtifactType 序列化为 value
         if isinstance(d.get("type"), ArtifactType):
@@ -66,7 +64,7 @@ class SchemaRegistry:
     """Artifact 内存注册表 — register / get / list_by_type / validate"""
 
     def __init__(self) -> None:
-        self._items: Dict[str, Artifact] = {}
+        self._items: dict[str, Artifact] = {}
 
     def register(self, artifact: Artifact) -> None:
         """注册一个 artifact (按 id 索引,后者覆盖前者)"""
@@ -74,26 +72,26 @@ class SchemaRegistry:
             raise TypeError(f"expected Artifact, got {type(artifact).__name__}")
         self._items[artifact.id] = artifact
 
-    def get(self, artifact_id: str) -> Optional[Artifact]:
+    def get(self, artifact_id: str) -> Artifact | None:
         """按 id 获取;不存在返回 None"""
         return self._items.get(artifact_id)
 
-    def list_by_type(self, type: ArtifactType) -> List[Artifact]:
+    def list_by_type(self, type: ArtifactType) -> list[Artifact]:
         """按类型列出所有 artifact"""
         if not isinstance(type, ArtifactType):
             raise TypeError(f"expected ArtifactType, got {type(type).__name__}")
         return [a for a in self._items.values() if a.type == type]
 
-    def all(self) -> List[Artifact]:
+    def all(self) -> list[Artifact]:
         """全部 artifact"""
         return list(self._items.values())
 
     def __len__(self) -> int:
         return len(self._items)
 
-    def validate(self, artifact: Artifact) -> List[str]:
+    def validate(self, artifact: Artifact) -> list[str]:
         """校验必填字段,返回缺失字段名列表 (空 = 通过)"""
-        missing: List[str] = []
+        missing: list[str] = []
         if not isinstance(artifact, Artifact):
             return list(REQUIRED_FIELDS)
         for f in REQUIRED_FIELDS:
@@ -102,13 +100,11 @@ class SchemaRegistry:
                 missing.append(f)
                 continue
             # str / ArtifactType 都不能为空
-            if isinstance(v, str) and not v.strip():
-                missing.append(f)
-            elif isinstance(v, ArtifactType) and not v.value:
+            if isinstance(v, str) and not v.strip() or isinstance(v, ArtifactType) and not v.value:
                 missing.append(f)
         return missing
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "count": len(self._items),
             "by_type": {
@@ -127,16 +123,16 @@ class TmuxPane:
     pane_id: str
     command: str
     cwd: str
-    env_vars: Dict[str, str] = field(default_factory=dict)
+    env_vars: dict[str, str] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
 # ============ A-50: 敏感 argv 检测 ============
 
 # 触发 unsafe 的关键词 (大小写不敏感)
-SENSITIVE_KEYWORDS: List[str] = [
+SENSITIVE_KEYWORDS: list[str] = [
     "password",
     "secret",
     "api_key",
@@ -180,7 +176,7 @@ class TmuxOrchestrator:
         if not isinstance(max_visible, int) or max_visible < 0:
             raise ValueError(f"max_visible must be non-negative int, got {max_visible!r}")
         self.max_visible = max_visible
-        self._panes: List[TmuxPane] = []
+        self._panes: list[TmuxPane] = []
 
     def add_pane(self, pane: TmuxPane) -> None:
         """追加一个面板"""
@@ -188,11 +184,11 @@ class TmuxOrchestrator:
             raise TypeError(f"expected TmuxPane, got {type(pane).__name__}")
         self._panes.append(pane)
 
-    def layout(self) -> List[TmuxPane]:
+    def layout(self) -> list[TmuxPane]:
         """返回当前可见面板 (前 max_visible 个)"""
         return list(self._panes[: self.max_visible])
 
-    def overflow(self) -> List[TmuxPane]:
+    def overflow(self) -> list[TmuxPane]:
         """返回被截断的面板 (CG mode 隐藏部分)"""
         return list(self._panes[self.max_visible:])
 
@@ -206,19 +202,16 @@ class TmuxOrchestrator:
         if _argv_contains_sensitive(pane.command or ""):
             return False
         # 2) env key 检测 (key 名即视为风险 — 实际部署应改走 secret store)
-        for k in (pane.env_vars or {}).keys():
-            if _key_contains_sensitive(str(k)):
-                return False
-        return True
+        return all(not _key_contains_sensitive(str(k)) for k in (pane.env_vars or {}))
 
-    def safe_layout(self) -> List[TmuxPane]:
+    def safe_layout(self) -> list[TmuxPane]:
         """layout() 的安全子集 — 仅返回 sensitive_env_safe 通过的面板"""
         return [p for p in self.layout() if self.sensitive_env_safe(p)]
 
     def __len__(self) -> int:
         return len(self._panes)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "max_visible": self.max_visible,
             "total_panes": len(self._panes),

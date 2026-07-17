@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import time
 import unittest
-from typing import Any, Dict, List
 
 from capability.tool_screening import (
     CATEGORY_NAMES,
@@ -15,7 +14,6 @@ from capability.tool_screening import (
     ToolScreener,
     screen_input,
 )
-
 
 # --------------------------------------------------------------------------- #
 #  1-9: per-category smoke tests                                               #
@@ -348,7 +346,7 @@ class TestEdges(unittest.TestCase):
         self.assertEqual(len(rm), 1)
 
     def test_all_categories_have_at_least_5_patterns(self):
-        counts: Dict[int, int] = {}
+        counts: dict[int, int] = {}
         for p in DEFAULT_PATTERNS:
             counts[p.category] = counts.get(p.category, 0) + 1
         for cat in range(1, 10):

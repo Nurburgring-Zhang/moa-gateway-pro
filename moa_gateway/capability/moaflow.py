@@ -9,19 +9,18 @@
 非 mock,所有检测器基于数学/统计。
 """
 from __future__ import annotations
-import re
+
 import math
+import re
 import time
 from collections import Counter
-from typing import List, Dict, Tuple, Optional
-from dataclasses import dataclass, field, asdict
-
+from dataclasses import asdict, dataclass, field
 
 # ============ 谄媚语料 (真实短语,不是 mock) ============
 
 # 来自 05 moa-skill 的真实谄媚词典
 # 共 8 类,42 短语
-SYCOPHANCY_PATTERNS: Dict[str, List[str]] = {
+SYCOPHANCY_PATTERNS: dict[str, list[str]] = {
     "agreement_pre": [
         "great point", "excellent observation", "you're absolutely right",
         "well said", "couldn't agree more", "i completely agree",
@@ -64,14 +63,14 @@ SYCOPHANCY_PATTERNS: Dict[str, List[str]] = {
 # ============ 一致性检测 (来自 05) ============
 
 # 一致性短语
-COMPLIANCE_PHRASES: List[str] = [
+COMPLIANCE_PHRASES: list[str] = [
     "i agree", "agreed", "same here", "me too", "as you said",
     "following your point", "like you said", "i second that",
     "i support", "endorsed", "voted yes", "+1",
 ]
 
 # 漂移短语(收尾盲投)
-DRIFT_PHRASES: List[str] = [
+DRIFT_PHRASES: list[str] = [
     "i've changed my mind", "you convinced me", "ok i was wrong",
     "i now think", "i update my position", "new position:",
     "switching to", "moving to", "now i agree with",
@@ -92,7 +91,7 @@ class MemberResponse:
     def lower(self) -> str:
         return self.content.lower()
 
-    def has_any(self, phrases: List[str]) -> List[str]:
+    def has_any(self, phrases: list[str]) -> list[str]:
         lc = self.lower()
         return [p for p in phrases if p.lower() in lc]
 
@@ -104,25 +103,25 @@ class SycophancyReport:
     sycophancy_score: float       # 0-1
     mover_count: int              # 改向多数的次数
     flip_count: int               # 翻转次数(round 间的 180° 转向)
-    by_category: Dict[str, int]   # 8 类谄媚分布
-    flagged_phrases: List[Tuple[str, str]]  # (category, phrase)
+    by_category: dict[str, int]   # 8 类谄媚分布
+    flagged_phrases: list[tuple[str, str]]  # (category, phrase)
     verdict: str                  # "clean" / "mild" / "sycophantic" / "extreme"
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
 @dataclass
 class ConformityReport:
     """一个 session 的一致性 / 漂移 / 锚定报告"""
-    member_order: List[str]              # 发言序
+    member_order: list[str]              # 发言序
     first_anchor_alignment: float         # 第 1 个之后的人与第 1 位的对齐度 0-1
     drift_score: float                   # 收尾漂移 0-1
-    movers: List[str]                    # 改了主意的委员 ID
-    drifters: List[str]                  # 收尾盲投的委员 ID
+    movers: list[str]                    # 改了主意的委员 ID
+    drifters: list[str]                  # 收尾盲投的委员 ID
     verdict: str                         # "clean" / "mild" / "group_think"
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -131,8 +130,8 @@ class ConformityReport:
 def score_sycophancy(member: MemberResponse) -> SycophancyReport:
     """对单个委员的回应打分 0-1"""
     lc = member.lower()
-    by_category: Dict[str, int] = {}
-    flagged: List[Tuple[str, str]] = []
+    by_category: dict[str, int] = {}
+    flagged: list[tuple[str, str]] = []
     total = 0
     for cat, phrases in SYCOPHANCY_PATTERNS.items():
         hits = [p for p in phrases if p.lower() in lc]
@@ -166,8 +165,8 @@ def score_sycophancy(member: MemberResponse) -> SycophancyReport:
 
 
 def detect_movers_and_flips(
-    rounds: List[List[MemberResponse]],
-) -> Dict[str, Tuple[int, int]]:
+    rounds: list[list[MemberResponse]],
+) -> dict[str, tuple[int, int]]:
     """从多轮对话检测改向多数(谄媚的硬指标)
     rounds[r][m] = member m 在第 r 轮的回应
 
@@ -186,11 +185,11 @@ def detect_movers_and_flips(
         if any(p in first for p in ["no", "disagree", "reject", "oppose", "-1", "不应该"]):
             return "negative"
         return "neutral"
-    def positions(rs: List[MemberResponse]) -> Dict[str, str]:
+    def positions(rs: list[MemberResponse]) -> dict[str, str]:
         return {r.member_id: extract_position(r.content) for r in rs}
     r0 = positions(rounds[0])
-    moves: Dict[str, int] = {m: 0 for m in r0}
-    flips: Dict[str, int] = {m: 0 for m in r0}
+    moves: dict[str, int] = dict.fromkeys(r0, 0)
+    flips: dict[str, int] = dict.fromkeys(r0, 0)
     prev = r0
     majority = Counter(r0.values()).most_common(1)[0][0] if r0 else "neutral"
     for r in rounds[1:]:
@@ -225,8 +224,8 @@ def _text_overlap(a: str, b: str, ngram: int = 3) -> float:
     return len(A & B) / len(A | B)
 
 
-def score_conformity(ordered: List[MemberResponse],
-                     rounds: Optional[List[List[MemberResponse]]] = None) -> ConformityReport:
+def score_conformity(ordered: list[MemberResponse],
+                     rounds: list[list[MemberResponse]] | None = None) -> ConformityReport:
     """打分一致性 / 漂移 / 锚定"""
     if not ordered:
         return ConformityReport([], 0.0, 0.0, [], [], "clean")
@@ -235,7 +234,7 @@ def score_conformity(ordered: List[MemberResponse],
     aligns = [_text_overlap(anchor, m.content) for m in ordered[1:]]
     first_anchor_alignment = sum(aligns) / len(aligns) if aligns else 0.0
     # 漂移:收尾(最后 1/3)的立场反转
-    drifters: List[str] = []
+    drifters: list[str] = []
     if rounds and len(rounds) >= 2:
         movers_dict = detect_movers_and_flips(rounds)
         # mover 算 drift(从反对多数到支持多数 = 谄媚式漂移)
@@ -252,7 +251,7 @@ def score_conformity(ordered: List[MemberResponse],
         member_order=[m.member_id for m in ordered],
         first_anchor_alignment=first_anchor_alignment,
         drift_score=drift_score,
-        movers=[m for m in (detect_movers_and_flips(rounds) if rounds else {})],
+        movers=list(detect_movers_and_flips(rounds) if rounds else {}),
         drifters=drifters,
         verdict=verdict,
     )
@@ -264,15 +263,15 @@ def score_conformity(ordered: List[MemberResponse],
 class GroupThinkVerdict:
     """群体思维综合判定"""
     session_id: str
-    sycophancy_by_member: Dict[str, SycophancyReport]
+    sycophancy_by_member: dict[str, SycophancyReport]
     conformity: ConformityReport
     overall_risk: float  # 0-1
     should_warn: bool
     should_block: bool
-    reasons: List[str]
+    reasons: list[str]
     recommendation: str
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "session_id": self.session_id,
             "sycophancy_by_member": {k: v.to_dict() for k, v in self.sycophancy_by_member.items()},
@@ -287,8 +286,8 @@ class GroupThinkVerdict:
 
 def group_think_verdict(
     session_id: str,
-    members: List[MemberResponse],
-    rounds: Optional[List[List[MemberResponse]]] = None,
+    members: list[MemberResponse],
+    rounds: list[list[MemberResponse]] | None = None,
     warn_threshold: float = 0.4,
     block_threshold: float = 0.7,
 ) -> GroupThinkVerdict:
@@ -303,7 +302,7 @@ def group_think_verdict(
     syco_avg = sum(r.sycophancy_score for r in syco_reports.values()) / max(1, len(syco_reports))
     conformity = score_conformity(members, rounds)
     overall = 0.4 * syco_avg + 0.35 * conformity.first_anchor_alignment + 0.25 * conformity.drift_score
-    reasons: List[str] = []
+    reasons: list[str] = []
     if syco_avg >= 0.35:
         reasons.append(f"high sycophancy: {syco_avg:.2f}")
     if conformity.first_anchor_alignment >= 0.5:

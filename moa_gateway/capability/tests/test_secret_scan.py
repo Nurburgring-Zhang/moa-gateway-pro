@@ -1,14 +1,17 @@
 """secret_scan 真实测试 — 端到端验证(非 mock)"""
 import sys
-import os
 import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.secret_scan import (
-    SECRET_PATTERNS, redact, scan_text, scan_path,
-    Finding, ScanResult, should_block,
+    Finding,
+    ScanResult,
+    redact,
+    scan_path,
+    scan_text,
+    should_block,
 )
 
 
@@ -167,7 +170,6 @@ def test_no_false_positive_on_placeholder():
 
 def test_block_decision():
     """block 决策"""
-    from moa_gateway.capability.secret_scan import Finding
     r = ScanResult()
     assert should_block(r) is False
     # 加 1 个 severity 3 的真实 finding

@@ -17,7 +17,7 @@ This module is referenced by capability R-10 in the MoA Gateway spec.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 __all__ = ["classify_mode"]
 
@@ -72,7 +72,7 @@ _ACT_KEYWORDS: frozenset = frozenset({
     "open",
 })
 
-_ACT_PATTERNS: Tuple[Tuple[str, str], ...] = (
+_ACT_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"act_run_command", r"^\s*(?:please\s+)?(?:run|execute|build|deploy|install|click|type|paste|search|fetch|download)\b"),
     (r"act_do_it",       r"\bdo\s+(?:it|this|that)\b"),
     (r"act_can_you",     r"\bcan\s+you\s+(?:please\s+)?(?:run|execute|build|deploy|install|click|type|paste|search|fetch|download|edit|fix|create|make|send|write|open)\b"),
@@ -86,7 +86,7 @@ _ACT_PATTERNS: Tuple[Tuple[str, str], ...] = (
     (r"act_commit_push", r"\bcommit\s+(?:and|&)\s+push\b"),
 )
 
-_PLAN_PATTERNS: Tuple[Tuple[str, str], ...] = (
+_PLAN_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"plan_how_should",  r"\bhow\s+(?:should|would|can|do)\s+(?:we|i|you)\b"),
     (r"plan_what_if",     r"\bwhat\s+if\b"),
     (r"plan_should_we",   r"\bshould\s+(?:we|i)\b"),
@@ -103,9 +103,9 @@ def _normalise(query: str) -> str:
     return re.sub(r"\s+", " ", (query or "").lower()).strip()
 
 
-def _scan_keywords(text: str, keywords: frozenset) -> List[str]:
+def _scan_keywords(text: str, keywords: frozenset) -> list[str]:
     """Return the list of keyword tokens that appear as whole-word substrings."""
-    hits: List[str] = []
+    hits: list[str] = []
     for kw in keywords:
         pattern = r"\b" + re.escape(kw) + r"\b"
         if re.search(pattern, text):
@@ -113,12 +113,12 @@ def _scan_keywords(text: str, keywords: frozenset) -> List[str]:
     return hits
 
 
-def _scan_patterns(text: str, patterns: Tuple[Tuple[str, str], ...]) -> List[str]:
+def _scan_patterns(text: str, patterns: tuple[tuple[str, str], ...]) -> list[str]:
     """Return the list of pattern names that fire against the normalised text."""
     return [name for name, regex in patterns if re.search(regex, text)]
 
 
-def classify_mode(query: Any) -> Dict[str, Any]:
+def classify_mode(query: Any) -> dict[str, Any]:
     """Classify a user ``query`` into plan / act / chat mode.
 
     Parameters
@@ -149,7 +149,7 @@ def classify_mode(query: Any) -> Dict[str, Any]:
     >>> classify_mode("hi there")
     {'mode': 'chat', 'confidence': 0.0, 'signals': []}
     """
-    fallback: Dict[str, Any] = {"mode": "chat", "confidence": 0.0, "signals": []}
+    fallback: dict[str, Any] = {"mode": "chat", "confidence": 0.0, "signals": []}
     try:
         if query is None:
             return dict(fallback)
@@ -176,20 +176,19 @@ def classify_mode(query: Any) -> Dict[str, Any]:
             mode = "act"
             confidence = act_score
             signals = [f"act:{s}" for s in act_kw_hits] + [f"act:{s}" for s in act_pat_hits]
+        # exact tie: prefer the side that produced any keyword hit, else act (more concrete)
+        elif plan_kw_hits and not act_kw_hits:
+            mode = "plan"
+            confidence = plan_score
+            signals = [f"plan:{s}" for s in plan_kw_hits] + [f"plan:{s}" for s in plan_pat_hits]
+        elif act_kw_hits and not plan_kw_hits:
+            mode = "act"
+            confidence = act_score
+            signals = [f"act:{s}" for s in act_kw_hits] + [f"act:{s}" for s in act_pat_hits]
         else:
-            # exact tie: prefer the side that produced any keyword hit, else act (more concrete)
-            if plan_kw_hits and not act_kw_hits:
-                mode = "plan"
-                confidence = plan_score
-                signals = [f"plan:{s}" for s in plan_kw_hits] + [f"plan:{s}" for s in plan_pat_hits]
-            elif act_kw_hits and not plan_kw_hits:
-                mode = "act"
-                confidence = act_score
-                signals = [f"act:{s}" for s in act_kw_hits] + [f"act:{s}" for s in act_pat_hits]
-            else:
-                mode = "act"
-                confidence = act_score
-                signals = [f"act:{s}" for s in act_kw_hits] + [f"act:{s}" for s in act_pat_hits]
+            mode = "act"
+            confidence = act_score
+            signals = [f"act:{s}" for s in act_kw_hits] + [f"act:{s}" for s in act_pat_hits]
 
         confidence = max(0.0, min(1.0, confidence))
         return {"mode": mode, "confidence": confidence, "signals": signals}

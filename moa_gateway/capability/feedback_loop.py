@@ -22,10 +22,8 @@ from __future__ import annotations
 import json
 import math
 import re
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import List, Dict, Optional, Set, Tuple
-
 
 __all__ = [
     "IterationRecord",
@@ -71,7 +69,7 @@ ADOPTION_RATIO: float = 1.05
 WORD_RE = re.compile(r"[a-zA-Z][a-zA-Z\-]+|[\u4e00-\u9fff]")
 
 # 简单停用词 (中英)
-STOPWORDS: Set[str] = frozenset({
+STOPWORDS: set[str] = frozenset({
     "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
     "have", "has", "had", "do", "does", "did", "will", "would", "could",
     "should", "may", "might", "must", "shall", "can", "need", "dare",
@@ -93,14 +91,35 @@ STOPWORDS: Set[str] = frozenset({
 class IterationRecord:
     """一次迭代的完整记录"""
     iter_idx: int
-    proposals: List[str]
-    panel_scores: Dict[int, float] = field(default_factory=dict)  # proposal_idx -> 0-50
-    convergent_ideas: List[str] = field(default_factory=list)
-    conflicts_resolved: List[str] = field(default_factory=list)
+    proposals: list[str]
+    panel_scores: dict[int, float] = field(default_factory=dict)  # proposal_idx -> 0-50
+    convergent_ideas: list[str] = field(default_factory=list)
+    conflicts_resolved: list[str] = field(default_factory=list)
     selected_proposal_idx: int = 0
     timestamp: float = 0.0
 
-    def to_dict(self) -> Dict:
+    @classmethod
+    def from_dict(cls, d: dict) -> 'IterationRecord':
+        """接受字段别名,自动映射到正确字段。空 dict 走 defaults。"""
+        kwargs = {}
+        if "iter_idx" in d: kwargs["iter_idx"] = d["iter_idx"]
+        if "iter_idx" not in kwargs and "iteration" in d: kwargs["iter_idx"] = d["iteration"]
+        if "proposals" in d: kwargs["proposals"] = d["proposals"]
+        if "proposals" not in kwargs and "proposals" in d: kwargs["proposals"] = d["proposals"]
+        if "panel_scores" in d: kwargs["panel_scores"] = d["panel_scores"]
+        if "panel_scores" not in kwargs and "panel_scores" in d: kwargs["panel_scores"] = d["panel_scores"]
+        if "convergent_ideas" in d: kwargs["convergent_ideas"] = d["convergent_ideas"]
+        if "convergent_ideas" not in kwargs and "ideas" in d: kwargs["convergent_ideas"] = d["ideas"]
+        if "conflicts_resolved" in d: kwargs["conflicts_resolved"] = d["conflicts_resolved"]
+        if "conflicts_resolved" not in kwargs and "conflicts_resolved" in d: kwargs["conflicts_resolved"] = d["conflicts_resolved"]
+        if "selected_proposal_idx" in d: kwargs["selected_proposal_idx"] = d["selected_proposal_idx"]
+        if "selected_proposal_idx" not in kwargs and "selected_idx" in d: kwargs["selected_proposal_idx"] = d["selected_idx"]
+        if "selected_proposal_idx" not in kwargs and "best_idx" in d: kwargs["selected_proposal_idx"] = d["best_idx"]
+        if "timestamp" in d: kwargs["timestamp"] = d["timestamp"]
+        if "timestamp" not in kwargs and "timestamp" in d: kwargs["timestamp"] = d["timestamp"]
+        return cls(**kwargs)
+
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -109,23 +128,23 @@ class Feedback:
     """一次迭代的反馈总结"""
     iter_idx: int
     summary: str
-    strengths: List[str] = field(default_factory=list)
-    weaknesses: List[str] = field(default_factory=list)
-    next_iter_directives: List[str] = field(default_factory=list)
+    strengths: list[str] = field(default_factory=list)
+    weaknesses: list[str] = field(default_factory=list)
+    next_iter_directives: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
 # ============ 辅助函数 ============
 
-def _mean(values: List[float]) -> float:
+def _mean(values: list[float]) -> float:
     if not values:
         return 0.0
     return sum(values) / len(values)
 
 
-def _std(values: List[float]) -> float:
+def _std(values: list[float]) -> float:
     """总体标准差 (population std) — 用于评委一致性判定"""
     if not values:
         return 0.0
@@ -136,18 +155,18 @@ def _std(values: List[float]) -> float:
     return math.sqrt(var)
 
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     if not text:
         return []
     return [t.lower() for t in WORD_RE.findall(text)]
 
 
-def _keywords(text: str) -> List[str]:
+def _keywords(text: str) -> list[str]:
     """去停用词 + 短词过滤"""
     if not text:
         return []
-    out: List[str] = []
-    seen: Set[str] = set()
+    out: list[str] = []
+    seen: set[str] = set()
     for tok in _tokenize(text):
         if tok in STOPWORDS:
             continue
@@ -161,7 +180,7 @@ def _keywords(text: str) -> List[str]:
     return out
 
 
-def _jaccard(a: List[str], b: List[str]) -> float:
+def _jaccard(a: list[str], b: list[str]) -> float:
     if not a and not b:
         return 1.0
     sa, sb = set(a), set(b)
@@ -172,9 +191,9 @@ def _jaccard(a: List[str], b: List[str]) -> float:
     return len(inter) / len(union)
 
 
-def _record_keyword_set(record: IterationRecord) -> Set[str]:
+def _record_keyword_set(record: IterationRecord) -> set[str]:
     """聚合一次迭代的关键词 (proposals + convergent_ideas)"""
-    kws: Set[str] = set()
+    kws: set[str] = set()
     for p in record.proposals:
         for k in _keywords(p):
             kws.add(k)
@@ -203,17 +222,17 @@ def _truncate(text: str, max_len: int = 80) -> str:
 
 # ============ 序列化辅助 ============
 
-def record_to_dict(record: IterationRecord) -> Dict:
+def record_to_dict(record: IterationRecord) -> dict:
     """IterationRecord -> dict (JSON 友好)"""
     return record.to_dict()
 
 
-def feedback_to_dict(feedback: Feedback) -> Dict:
+def feedback_to_dict(feedback: Feedback) -> dict:
     """Feedback -> dict (JSON 友好)"""
     return feedback.to_dict()
 
 
-def _record_from_dict(d: Dict) -> IterationRecord:
+def _record_from_dict(d: dict) -> IterationRecord:
     """dict -> IterationRecord (字段兼容)"""
     return IterationRecord(
         iter_idx=int(d.get("iter_idx", 0)),
@@ -226,7 +245,7 @@ def _record_from_dict(d: Dict) -> IterationRecord:
     )
 
 
-def _feedback_from_dict(d: Dict) -> Feedback:
+def _feedback_from_dict(d: dict) -> Feedback:
     return Feedback(
         iter_idx=int(d.get("iter_idx", 0)),
         summary=str(d.get("summary", "") or ""),
@@ -312,7 +331,7 @@ def append_iteration(path: str, record: IterationRecord, feedback: Feedback) -> 
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def load_history(path: str) -> List[IterationRecord]:
+def load_history(path: str) -> list[IterationRecord]:
     """从 path 读取全部迭代记录; 按 iter_idx 升序; 文件不存在 → []"""
     p = Path(path)
     if not p.exists():
@@ -357,8 +376,8 @@ def analyze_iteration(record: IterationRecord) -> Feedback:
     consensus = score_std < CONSENSUS_STD and len(score_values) >= 2
 
     # strengths / weaknesses
-    strengths: List[str] = []
-    weaknesses: List[str] = []
+    strengths: list[str] = []
+    weaknesses: list[str] = []
     for pidx, score in sorted(scores.items(), key=lambda x: -x[1]):
         proposal_text = ""
         if 0 <= pidx < len(record.proposals):
@@ -374,7 +393,7 @@ def analyze_iteration(record: IterationRecord) -> Feedback:
             )
 
     # next_iter_directives 基于 weaknesses + 选中的 proposal 表现
-    directives: List[str] = []
+    directives: list[str] = []
     if not record.panel_scores:
         directives.append("Provide panel_scores to enable comparative analysis.")
     if weaknesses:
@@ -434,7 +453,7 @@ def format_next_iter_prompt(history_path: str) -> str:
     history = load_history(history_path)
 
     # latest_feedback 优先, 没有则从最后一次 record 重算
-    latest: Optional[Feedback] = None
+    latest: Feedback | None = None
     if p.exists():
         try:
             with p.open("r", encoding="utf-8") as f:
@@ -446,7 +465,7 @@ def format_next_iter_prompt(history_path: str) -> str:
     if latest is None and history:
         latest = analyze_iteration(history[-1])
 
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("Previous iteration feedback:")
 
     if latest is None:
@@ -492,9 +511,9 @@ def format_next_iter_prompt(history_path: str) -> str:
 # ============ 核心 API: detect_convergence ============
 
 def detect_convergence(
-    history: List[IterationRecord],
+    history: list[IterationRecord],
     window: int = 3,
-) -> Dict:
+) -> dict:
     """检测迭代是否收敛 (top1 panel_score 稳定)
 
     逻辑:
@@ -516,8 +535,7 @@ def detect_convergence(
           "top1_scores": [float, ...]
         }
     """
-    if window < 1:
-        window = 1
+    window = max(window, 1)
     if not history:
         return {
             "converged": False,
@@ -528,7 +546,7 @@ def detect_convergence(
             "top1_scores": [],
         }
 
-    top1_list: List[float] = [_top1_score(r) for r in history[-window:]]
+    top1_list: list[float] = [_top1_score(r) for r in history[-window:]]
     score_std = _std(top1_list)
     converged = (len(history) >= window) and (score_std < CONVERGENCE_STD)
 
@@ -564,7 +582,7 @@ def detect_convergence(
 def cross_iter_synthesize(
     prev: IterationRecord,
     curr: IterationRecord,
-) -> Dict:
+) -> dict:
     """跨迭代综合: convergence / best_of_each / recommended_adoption
 
     convergence:
@@ -593,7 +611,7 @@ def cross_iter_synthesize(
     convergence = j > JACCARD_CONVERGENCE_THRESHOLD
 
     # best of each
-    def _best(record: IterationRecord) -> Dict:
+    def _best(record: IterationRecord) -> dict:
         if not record.panel_scores:
             return {"proposal_idx": -1, "score": 0.0, "text": ""}
         best_idx = max(record.panel_scores, key=lambda k: record.panel_scores[k])

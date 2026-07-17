@@ -11,11 +11,9 @@ XML 转义: 对 "</untrusted_tool_output>" 和 "<" 提前转义,防止 untrusted
 """
 from __future__ import annotations
 
-import re
 import json
+import re
 from enum import Enum
-from typing import Optional, Dict, List, Tuple
-
 
 # ============ TrustLevel ============
 
@@ -32,9 +30,11 @@ class TrustLevel(str, Enum):
 # 兼容两种格式:
 #   1. FrozenSet[str] of regex strings (prompt_canary 当前实现)
 #   2. List[Tuple[str, str]] of (pattern_id, regex)
-_INJECTION_RAW: List[Tuple[str, str]] = []
+_INJECTION_RAW: list[tuple[str, str]] = []
 try:
-    from moa_gateway.capability.prompt_canary import INJECTION_PATTERNS as _EXTERNAL_INJECTION_PATTERNS  # type: ignore
+    from moa_gateway.capability.prompt_canary import (
+        INJECTION_PATTERNS as _EXTERNAL_INJECTION_PATTERNS,  # type: ignore
+    )
     _items = list(_EXTERNAL_INJECTION_PATTERNS)
     if _items and isinstance(_items[0], tuple):
         # (id, regex, ...) — take first two
@@ -66,18 +66,18 @@ if not _INJECTION_RAW:
     ]
 
 # 始终追加中文 injection 模式(无论外部是否提供)
-_EXTRA_PATTERNS: List[Tuple[str, str]] = [
+_EXTRA_PATTERNS: list[tuple[str, str]] = [
     ("CHINESE_INJECT", r"(忽略|无视|忘记|不理会|不要遵守).{0,8}(指令|规则|提示|命令|设定|限制)"),
     ("CHINESE_OVERRIDE", r"(你现在是|请扮演|从现在开始|新的指令|新的指令[:：])"),
 ]
 _INJECTION_RAW = _INJECTION_RAW + _EXTRA_PATTERNS
 
-INJECTION_PATTERNS: List[Tuple[str, str]] = _INJECTION_RAW
+INJECTION_PATTERNS: list[tuple[str, str]] = _INJECTION_RAW
 
 
 # ============ 编译正则(模块加载时一次) ============
 
-_COMPILED_INJECTION: List[Tuple[str, "re.Pattern[str]"]] = [
+_COMPILED_INJECTION: list[tuple[str, re.Pattern[str]]] = [
     (pid, re.compile(pat, re.IGNORECASE | re.MULTILINE)) for pid, pat in INJECTION_PATTERNS
 ]
 
@@ -213,7 +213,7 @@ _TRUNCATED_INSIDE_RE = re.compile(
 _FOOTER = "</untrusted_tool_output>"
 
 
-def unwrap_output(wrapped: str) -> Optional[Dict[str, str]]:
+def unwrap_output(wrapped: str) -> dict[str, str] | None:
     """从 wrap_output 生成的字符串还原内容
 
     Returns:
@@ -344,7 +344,7 @@ def sanitize_for_prompt(content: str, aggressive: bool = False) -> str:
 
 # ============ needs_wrapping ============
 
-_NEEDS_WRAPPING_PATTERNS: List["re.Pattern[str]"] = [
+_NEEDS_WRAPPING_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE),     # URL
     re.compile(r"```[\s\S]*?```"),                            # code block
     re.compile(r"`[^`\n]+`"),                                 # inline code
@@ -379,10 +379,7 @@ def needs_wrapping(content: str) -> bool:
             except (ValueError, TypeError):
                 pass
         # 正则特征
-        for pat in _NEEDS_WRAPPING_PATTERNS:
-            if pat.search(content):
-                return True
-        return False
+        return any(pat.search(content) for pat in _NEEDS_WRAPPING_PATTERNS)
     except Exception:
         # 出错就保守地返回 True(宁可多 wrap)
         return True

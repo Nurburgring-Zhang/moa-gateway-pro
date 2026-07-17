@@ -1,15 +1,19 @@
 """elo_ranking 真实测试(非 mock)"""
-import sys
 import json
-import time
+import sys
 import threading
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.elo_ranking import (
-    MatchResult, EloRating, EloLeaderboard,
-    bootstrap_ci, WorkerPool, to_json,
+    EloLeaderboard,
+    EloRating,
+    MatchResult,
+    WorkerPool,
+    bootstrap_ci,
+    to_json,
 )
 
 
@@ -19,7 +23,7 @@ def test_add_model_default_1500():
     lb = EloLeaderboard()
     lb.add_model("gpt-4")
     assert lb.get_rating("gpt-4") == 1500.0, f"got {lb.get_rating('gpt-4')}"
-    print(f"  ✓ test_add_model_default_1500: gpt-4=1500.0")
+    print("  ✓ test_add_model_default_1500: gpt-4=1500.0")
     return True
 
 
@@ -106,7 +110,7 @@ def test_get_rating_unknown_zero():
     lb.add_model("real")
     assert lb.get_rating("real") == 1500.0
     assert lb.get_rating("another_unknown") == 0.0
-    print(f"  ✓ test_get_rating_unknown_zero: ghost=0.0, real=1500.0")
+    print("  ✓ test_get_rating_unknown_zero: ghost=0.0, real=1500.0")
     return True
 
 
@@ -117,10 +121,10 @@ def test_match_self_error():
     lb.add_model("B")
     try:
         lb.record_match("A", "A")
-        assert False, "should have raised"
+        raise AssertionError("should have raised")
     except ValueError:
         pass
-    print(f"  ✓ test_match_self_error: ValueError raised")
+    print("  ✓ test_match_self_error: ValueError raised")
     return True
 
 
@@ -188,7 +192,7 @@ def test_bootstrap_ci_seed_reproducible():
     ci1 = bootstrap_ci(base, matches, n_resamples=200, ci=0.95, seed=123)
     ci2 = bootstrap_ci(base, matches, n_resamples=200, ci=0.95, seed=123)
     assert ci1 == ci2, f"same seed should give same result: {ci1} vs {ci2}"
-    print(f"  ✓ test_bootstrap_ci_seed_reproducible: identical with seed=123")
+    print("  ✓ test_bootstrap_ci_seed_reproducible: identical with seed=123")
     return True
 
 
@@ -198,7 +202,7 @@ def test_bootstrap_ci_zero_matches():
     ci = bootstrap_ci(base, [], n_resamples=1000, ci=0.95, seed=0)
     assert ci["A"] == (1500.0, 1500.0), f"got {ci['A']}"
     assert ci["B"] == (1600.0, 1600.0), f"got {ci['B']}"
-    print(f"  ✓ test_bootstrap_ci_zero_matches: degenerate to point estimates")
+    print("  ✓ test_bootstrap_ci_zero_matches: degenerate to point estimates")
     return True
 
 
@@ -211,7 +215,7 @@ def test_workerpool_init():
     loads = wp.worker_loads()
     assert loads == {"w1": 0, "w2": 0, "w3": 0}, f"got {loads}"
     wp.shutdown()
-    print(f"  ✓ test_workerpool_init: 3 workers, strategy=lottery, loads=0")
+    print("  ✓ test_workerpool_init: 3 workers, strategy=lottery, loads=0")
     return True
 
 
@@ -252,7 +256,7 @@ def test_workerpool_shortest_queue_pick():
     picked2 = wp._pick_worker()
     assert picked2 == "w3", f"should pick w3 (only one with 0), got {picked2}"
     wp.shutdown()
-    print(f"  ✓ test_workerpool_shortest_queue_pick: avoided busy, picked min-load")
+    print("  ✓ test_workerpool_shortest_queue_pick: avoided busy, picked min-load")
     return True
 
 
@@ -304,7 +308,7 @@ def test_workerpool_concurrent():
     expected = sorted([i * 2 for i in range(20)])
     assert results == expected, f"got {results}"
     wp.shutdown()
-    print(f"  ✓ test_workerpool_concurrent: 20 jobs done, results correct")
+    print("  ✓ test_workerpool_concurrent: 20 jobs done, results correct")
     return True
 
 
@@ -313,11 +317,11 @@ def test_workerpool_set_strategy_invalid():
     wp = WorkerPool(["w1"])
     try:
         wp.set_strategy("random")
-        assert False, "should have raised"
+        raise AssertionError("should have raised")
     except ValueError:
         pass
     wp.shutdown()
-    print(f"  ✓ test_workerpool_set_strategy_invalid: ValueError raised")
+    print("  ✓ test_workerpool_set_strategy_invalid: ValueError raised")
     return True
 
 
@@ -327,7 +331,7 @@ def test_zero_models():
     lb = EloLeaderboard()
     assert len(lb.ranked()) == 0
     assert lb.get_rating("anything") == 0.0
-    print(f"  ✓ test_zero_models: empty leaderboard")
+    print("  ✓ test_zero_models: empty leaderboard")
     return True
 
 
@@ -340,7 +344,7 @@ def test_zero_matches():
     assert lb.get_rating("A") == 2000.0
     assert lb.get_rating("B") == 1000.0
     assert len(lb.ranked()) == 2
-    print(f"  ✓ test_zero_matches: A=2000, B=1000 unchanged")
+    print("  ✓ test_zero_matches: A=2000, B=1000 unchanged")
     return True
 
 
@@ -377,7 +381,7 @@ def test_json_serialization():
     assert d4["workers"] == ["w1", "w2"]
     assert d4["loads"] == {"w1": 0, "w2": 0}
     wp.shutdown()
-    print(f"  ✓ test_json_serialization: all 4 types serialize cleanly")
+    print("  ✓ test_json_serialization: all 4 types serialize cleanly")
     return True
 
 

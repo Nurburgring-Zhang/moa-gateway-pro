@@ -9,24 +9,22 @@
   - MCPTool dataclass / register / invoke / unregister / list / get / 不存在
   - JSON 序列化
 """
-import sys
 import json
-import time
+import sys
 import threading
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.session_lock import (
-    SessionLockState,
-    SessionLock,
-    SessionLockManager,
-    MCPTool,
     MCPRegistry,
+    MCPTool,
+    SessionLockManager,
+    SessionLockState,
     lock_to_json,
     tool_to_json,
 )
-
 
 # ============ SessionLockState ============
 
@@ -139,7 +137,6 @@ def test_acquire_with_wait_retry_interval():
     assert mgr.try_acquire("L1", "sess_a") is True
 
     release_at = [0.05]
-    poll_log = []
 
     def releaser():
         time.sleep(release_at[0])

@@ -12,9 +12,8 @@
 非 mock,所有计算为确定性的数学公式。
 """
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import List, Dict
 
+from dataclasses import dataclass
 
 # ============ Dataclasses ============
 
@@ -27,6 +26,22 @@ class Channel:
     avg_latency_ms: float
     reliability: float  # 0-1
 
+    @classmethod
+    def from_dict(cls, d: dict) -> 'Channel':
+        """接受字段别名,自动映射到正确字段。空 dict 走 defaults。"""
+        kwargs = {}
+        if "name" in d: kwargs["name"] = d["name"]
+        if "name" not in kwargs and "name" in d: kwargs["name"] = d["name"]
+        if "cost_per_1k_input" in d: kwargs["cost_per_1k_input"] = d["cost_per_1k_input"]
+        if "cost_per_1k_input" not in kwargs and "cost_per_1k_input" in d: kwargs["cost_per_1k_input"] = d["cost_per_1k_input"]
+        if "cost_per_1k_output" in d: kwargs["cost_per_1k_output"] = d["cost_per_1k_output"]
+        if "cost_per_1k_output" not in kwargs and "cost_per_1k_output" in d: kwargs["cost_per_1k_output"] = d["cost_per_1k_output"]
+        if "avg_latency_ms" in d: kwargs["avg_latency_ms"] = d["avg_latency_ms"]
+        if "avg_latency_ms" not in kwargs and "tier" in d: kwargs["avg_latency_ms"] = d["tier"]
+        if "reliability" in d: kwargs["reliability"] = d["reliability"]
+        if "reliability" not in kwargs and "tier" in d: kwargs["reliability"] = d["tier"]
+        return cls(**kwargs)
+
     def __post_init__(self) -> None:
         if not (0.0 <= self.reliability <= 1.0):
             raise ValueError(f"reliability must be 0-1, got {self.reliability}")
@@ -38,12 +53,12 @@ class Channel:
 class CostEstimate:
     """单次 MoA 调用的成本估算"""
     total_cost_usd: float
-    breakdown: Dict[str, float]  # "deepseek-v3": 0.001, "aggregator": 0.002
+    breakdown: dict[str, float]  # "deepseek-v3": 0.001, "aggregator": 0.002
     multiplier: float  # cost multiplier(fallback / retry)
     confidence: float  # 0-1
-    notes: List[str]  # "8 references × deepseek-v3" 等
+    notes: list[str]  # "8 references × deepseek-v3" 等
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "total_cost_usd": round(self.total_cost_usd, 6),
             "breakdown": {k: round(v, 6) for k, v in self.breakdown.items()},
@@ -63,12 +78,12 @@ GPT_MINI = Channel("gpt-4o-mini", 0.00015, 0.0006, 600, 0.97)
 CLAUDE_HAIKU = Channel("claude-haiku", 0.0008, 0.004, 700, 0.94)
 
 # 名称 → channel lookup
-CHANNEL_REGISTRY: Dict[str, Channel] = {
+CHANNEL_REGISTRY: dict[str, Channel] = {
     c.name: c for c in (DEEPSEEK, GLM, MOONSHOT, QWEN, GPT_MINI, CLAUDE_HAIKU)
 }
 
 # 预置 preset(用于 dry_run_preset)
-PRESETS: Dict[str, Dict] = {
+PRESETS: dict[str, dict] = {
     "fast": {
         "name": "fast",
         "reference_models": ["gpt-4o-mini"],
@@ -98,7 +113,7 @@ PRESETS: Dict[str, Dict] = {
 def estimate_moa_cost(
     input_tokens: int,
     output_tokens: int,
-    channels: List[Channel],
+    channels: list[Channel],
     preset_name: str = "balanced",
     include_fallback: bool = True,
     retry_factor: float = 1.0,
@@ -119,8 +134,8 @@ def estimate_moa_cost(
     if not channels:
         raise ValueError("channels list must not be empty")
 
-    breakdown: Dict[str, float] = {}
-    notes: List[str] = []
+    breakdown: dict[str, float] = {}
+    notes: list[str] = []
 
     # --- Reference cost:每个 channel 跑一次 reference ---
     for ch in channels:
@@ -178,7 +193,7 @@ def estimate_moa_cost(
 
 
 def dry_run_preset(
-    preset: Dict,
+    preset: dict,
     input_tokens: int = 1000,
     output_tokens: int = 500,
     include_fallback: bool = True,
@@ -195,8 +210,8 @@ def dry_run_preset(
     真实逻辑:把每个 ref 模型扩成 N 个 Channel(模拟 N 副本并行),
     第一个 channel 兼作 aggregator(按 spec:`channels[0]` 充当 agg)。
     """
-    ref_names: List[str] = list(preset.get("reference_models", []))
-    agg_name: Optional[str] = preset.get("aggregator")
+    ref_names: list[str] = list(preset.get("reference_models", []))
+    agg_name: str | None = preset.get("aggregator")
     ref_count: int = int(preset.get("reference_count", 1))
 
     if not ref_names:
@@ -210,7 +225,7 @@ def dry_run_preset(
             raise ValueError(f"unknown model in preset: {n}")
 
     # 构造 channels 列表:aggregator 在前(ref_count 副本),refs 在后
-    channels: List[Channel] = []
+    channels: list[Channel] = []
     agg_ch = CHANNEL_REGISTRY[agg_name]
     for _ in range(ref_count):
         channels.append(agg_ch)  # aggregator 副本(也会被算 ref cost)
@@ -230,7 +245,7 @@ def dry_run_preset(
     )
 
     # 重写 breakdown + notes 使其更可读(按 preset 视角)
-    new_breakdown: Dict[str, float] = {}
+    new_breakdown: dict[str, float] = {}
     for name in ref_names:
         ch = CHANNEL_REGISTRY[name]
         per_model = (input_tokens / 1000.0) * ch.cost_per_1k_input
@@ -244,7 +259,7 @@ def dry_run_preset(
     agg_out = (output_tokens / 1000.0) * agg_ch.cost_per_1k_output
     new_breakdown[f"aggregator:{agg_name}"] = agg_in + agg_out
 
-    new_notes: List[str] = [
+    new_notes: list[str] = [
         f"preset dry-run '{preset.get('name', 'custom')}': "
         f"{len(ref_names)} unique ref × {ref_count} copies = "
         f"{len(ref_names) * ref_count} ref calls",
@@ -278,13 +293,13 @@ def dry_run_preset(
 
 
 def compare_presets(
-    presets: List[Dict],
+    presets: list[dict],
     input_tokens: int = 1000,
     output_tokens: int = 500,
     include_fallback: bool = True,
-) -> List[CostEstimate]:
+) -> list[CostEstimate]:
     """比较多个 preset 的成本(返回排序结果,lowest first)。"""
-    results: List[CostEstimate] = []
+    results: list[CostEstimate] = []
     for p in presets:
         est = dry_run_preset(
             p,
@@ -299,7 +314,7 @@ def compare_presets(
 
 def format_report(estimate: CostEstimate) -> str:
     """人类可读的成本报告。"""
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append("=== MoA Cost Estimate ===")
     lines.append(
         f"Total: ${estimate.total_cost_usd:.4f} "

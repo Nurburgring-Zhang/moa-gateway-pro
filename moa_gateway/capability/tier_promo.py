@@ -26,12 +26,8 @@
 """
 from __future__ import annotations
 
-import json
-import math
-from dataclasses import dataclass, field, asdict, replace
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import List, Optional, Set
-
 
 __all__ = [
     "PromotionLevel",
@@ -98,7 +94,7 @@ class PromotionConfig:
     tier_4_threshold: int = 10
     confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD
 
-    def threshold_list(self) -> List[int]:
+    def threshold_list(self) -> list[int]:
         """返回单调递增的阈值列表 (供二分查找)"""
         return [
             self.tier_1_threshold,
@@ -136,7 +132,7 @@ def compute_tier(
     evidence_count: int,
     confidence: float,
     config: PromotionConfig,
-    current_tier: Optional[PromotionLevel] = None,
+    current_tier: PromotionLevel | None = None,
 ) -> PromotionLevel:
     """根据 evidence_count + confidence 决定 tier。
 
@@ -212,9 +208,9 @@ def record_evidence(
 
 
 def classify_tier_from_evidence(
-    evidence: List[Evidence],
+    evidence: list[Evidence],
     config: PromotionConfig,
-    initial_state: Optional[PromotionState] = None,
+    initial_state: PromotionState | None = None,
 ) -> PromotionLevel:
     """主入口: 从 evidence 列表推导 tier。
 
@@ -232,7 +228,7 @@ def classify_tier_from_evidence(
 class SubAgentBoundary:
     """子 agent 边界: 父 agent 只能 spawn 白名单内的子 agent, 且不同 parent 互不干扰。"""
     parent_id: str
-    allowed_children: List[str] = field(default_factory=list)
+    allowed_children: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         # 用 frozenset 加速 O(1) 查询
@@ -249,11 +245,11 @@ class SubAgentBoundary:
         """
         return self.parent_id == other_parent_id
 
-    def with_children(self, children: List[str]) -> "SubAgentBoundary":
+    def with_children(self, children: list[str]) -> SubAgentBoundary:
         """返回新的 SubAgentBoundary, 替换白名单 (不可变更新)"""
         return SubAgentBoundary(parent_id=self.parent_id, allowed_children=list(children))
 
-    def add_child(self, child_id: str) -> "SubAgentBoundary":
+    def add_child(self, child_id: str) -> SubAgentBoundary:
         """返回新 SubAgentBoundary, 白名单追加 child_id (去重)"""
         if child_id in self._allowed_set:
             return self

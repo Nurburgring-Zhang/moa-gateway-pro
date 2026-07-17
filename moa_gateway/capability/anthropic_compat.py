@@ -24,8 +24,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any, Dict, List, Optional
-
+from typing import Any
 
 ANTHROPIC_API_VERSION: str = "2023-06-01"
 
@@ -56,7 +55,7 @@ def _safe_text(content: Any) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        parts: List[str] = []
+        parts: list[str] = []
         for blk in content:
             if not isinstance(blk, dict):
                 parts.append(str(blk))
@@ -82,7 +81,7 @@ def _normalize_content(content: Any) -> Any:
     if isinstance(content, str):
         return _truncate(content)
     if isinstance(content, list):
-        norm: List[Dict[str, Any]] = []
+        norm: list[dict[str, Any]] = []
         for blk in content:
             if not isinstance(blk, dict):
                 norm.append({"type": "text", "text": _truncate(str(blk))})
@@ -133,11 +132,11 @@ def _normalize_content(content: Any) -> Any:
     return _truncate(str(content))
 
 
-def parse_anthropic_request(body: Dict[str, Any]) -> Dict[str, Any]:
+def parse_anthropic_request(body: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(body, dict):
         body = {}
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "model": str(body.get("model", "") or ""),
         "system": None,
         "messages": [],
@@ -172,7 +171,7 @@ def parse_anthropic_request(body: Dict[str, Any]) -> Dict[str, Any]:
         pass
 
     top_system = body.get("system")
-    sys_parts: List[str] = []
+    sys_parts: list[str] = []
     if top_system is not None:
         sys_parts.append(_safe_text(top_system))
 
@@ -180,7 +179,7 @@ def parse_anthropic_request(body: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(raw_msgs, list):
         raw_msgs = []
 
-    out_msgs: List[Dict[str, Any]] = []
+    out_msgs: list[dict[str, Any]] = []
     for m in raw_msgs:
         if not isinstance(m, dict):
             continue
@@ -205,9 +204,8 @@ def parse_anthropic_request(body: Dict[str, Any]) -> Dict[str, Any]:
 
     if not out_msgs:
         out_msgs.append({"role": "user", "content": ""})
-    else:
-        if all(m["role"] == "assistant" for m in out_msgs):
-            out_msgs.insert(0, {"role": "user", "content": ""})
+    elif all(m["role"] == "assistant" for m in out_msgs):
+        out_msgs.insert(0, {"role": "user", "content": ""})
 
     result["messages"] = out_msgs
     return result
@@ -225,7 +223,7 @@ def _map_stop_reason(openai_reason: str) -> str:
     return "end_turn"
 
 
-def format_anthropic_response(chat_response: Dict[str, Any]) -> Dict[str, Any]:
+def format_anthropic_response(chat_response: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(chat_response, dict):
         chat_response = {}
 
@@ -233,7 +231,7 @@ def format_anthropic_response(chat_response: Dict[str, Any]) -> Dict[str, Any]:
     model = str(chat_response.get("model") or "")
 
     choices = chat_response.get("choices") or []
-    first_choice: Dict[str, Any] = {}
+    first_choice: dict[str, Any] = {}
     if isinstance(choices, list) and choices and isinstance(choices[0], dict):
         first_choice = choices[0]
 
@@ -242,7 +240,7 @@ def format_anthropic_response(chat_response: Dict[str, Any]) -> Dict[str, Any]:
         raw_msg = {}
 
     role = str(raw_msg.get("role", "assistant"))
-    content_blocks: List[Dict[str, Any]] = []
+    content_blocks: list[dict[str, Any]] = []
 
     text_val = raw_msg.get("content")
     if text_val is not None:
@@ -336,7 +334,7 @@ def format_anthropic_response(chat_response: Dict[str, Any]) -> Dict[str, Any]:
 def format_anthropic_sse_chunk(
     delta: str,
     model: str,
-    stop_reason: Optional[str] = None,
+    stop_reason: str | None = None,
 ) -> str:
     if not isinstance(delta, str):
         try:
@@ -373,7 +371,7 @@ def format_anthropic_sse_chunk(
 
 
 def format_anthropic_message_start(
-    msg_id: Optional[str] = None,
+    msg_id: str | None = None,
     model: str = "",
 ) -> str:
     if not msg_id:
@@ -423,8 +421,8 @@ def format_anthropic_content_block_stop(index: int = 0) -> str:
 def format_anthropic_tool_use(
     tool_id: str,
     name: str,
-    input: Dict,
-) -> Dict[str, Any]:
+    input: dict,
+) -> dict[str, Any]:
     if not isinstance(input, dict):
         try:
             input = dict(input) if input else {}
@@ -442,7 +440,7 @@ def format_anthropic_tool_result(
     tool_use_id: str,
     content: str,
     is_error: bool = False,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if content is None:
         content = ""
     if not isinstance(content, str):
@@ -459,9 +457,9 @@ def format_anthropic_tool_result(
 
 
 def format_anthropic_error(
-    openai_error: Dict[str, Any],
+    openai_error: dict[str, Any],
     status: int = 400,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if not isinstance(openai_error, dict):
         openai_error = {}
     err = openai_error.get("error") or {}

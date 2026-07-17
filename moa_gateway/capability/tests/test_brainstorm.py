@@ -1,18 +1,19 @@
 """brainstorm 真实测试(非 mock)"""
-import sys
 import json
-import re
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.brainstorm import (
-    PersonaType, PERSONA_TEMPLATES, Persona, BrainstormIdea,
-    BrainstormSession, Advocate, DecideMode,
-    build_persona, build_advocate, sanitize_advocate_id,
     HEURISTIC_GENERATORS,
+    PERSONA_TEMPLATES,
+    BrainstormSession,
+    DecideMode,
+    PersonaType,
+    build_persona,
+    sanitize_advocate_id,
 )
-
 
 # ============ 1. PersonaType 枚举完整性(5 个) ============
 
@@ -42,7 +43,7 @@ def test_persona_type_unique():
     """5 个值唯一"""
     vals = [p.value for p in PersonaType]
     assert len(set(vals)) == len(vals), "duplicate values"
-    print(f"  ✓ test_persona_type_unique")
+    print("  ✓ test_persona_type_unique")
     return True
 
 
@@ -51,7 +52,7 @@ def test_persona_type_is_str():
     p = PersonaType.RADICAL_INNOVATOR
     assert isinstance(p, str)
     assert p == "radical_innovator"
-    print(f"  ✓ test_persona_type_is_str")
+    print("  ✓ test_persona_type_is_str")
     return True
 
 
@@ -65,7 +66,7 @@ def test_persona_type_iteration_order():
         "devils_advocate",
         "user_empathy_champion",
     ]
-    print(f"  ✓ test_persona_type_iteration_order")
+    print("  ✓ test_persona_type_iteration_order")
     return True
 
 
@@ -128,7 +129,7 @@ def test_radical_innovator_template_contains_topic():
     rendered = p.render_template(s.topic)
     assert "smart contracts" in rendered
     assert "re-imagined" in rendered.lower()
-    print(f"  ✓ test_radical_innovator_template_contains_topic")
+    print("  ✓ test_radical_innovator_template_contains_topic")
     return True
 
 
@@ -139,7 +140,7 @@ def test_cross_industry_transplanter_template_contains_topic():
     rendered = p.render_template(s.topic)
     assert "appointment booking" in rendered
     assert any(ind in rendered.lower() for ind in ["aviation", "healthcare", "finance"])
-    print(f"  ✓ test_cross_industry_transplanter_template_contains_topic")
+    print("  ✓ test_cross_industry_transplanter_template_contains_topic")
     return True
 
 
@@ -150,7 +151,7 @@ def test_first_principles_thinker_template_contains_topic():
     rendered = p.render_template(s.topic)
     assert "voting systems" in rendered
     assert "assumption" in rendered.lower()
-    print(f"  ✓ test_first_principles_thinker_template_contains_topic")
+    print("  ✓ test_first_principles_thinker_template_contains_topic")
     return True
 
 
@@ -161,7 +162,7 @@ def test_devils_advocate_template_contains_topic():
     rendered = p.render_template(s.topic)
     assert "autonomous vehicles" in rendered
     assert "wrong" in rendered.lower()
-    print(f"  ✓ test_devils_advocate_template_contains_topic")
+    print("  ✓ test_devils_advocate_template_contains_topic")
     return True
 
 
@@ -172,7 +173,7 @@ def test_user_empathy_champion_template_contains_topic():
     rendered = p.render_template(s.topic)
     assert "mobile banking" in rendered
     assert "user" in rendered.lower() or "feel" in rendered.lower()
-    print(f"  ✓ test_user_empathy_champion_template_contains_topic")
+    print("  ✓ test_user_empathy_champion_template_contains_topic")
     return True
 
 
@@ -180,7 +181,7 @@ def test_all_5_templates_distinct():
     """5 个 template 互相不同"""
     templates = [PERSONA_TEMPLATES[p]["template"] for p in PersonaType]
     assert len(set(templates)) == 5, "templates not all distinct"
-    print(f"  ✓ test_all_5_templates_distinct")
+    print("  ✓ test_all_5_templates_distinct")
     return True
 
 
@@ -219,7 +220,7 @@ def test_persona_system_prompt_contains_topic():
     assert len(personas) == 5
     for p in personas:
         assert topic in p.system_prompt, f"{p.persona_type} missing topic"
-    print(f"  ✓ test_persona_system_prompt_contains_topic (5/5)")
+    print("  ✓ test_persona_system_prompt_contains_topic (5/5)")
     return True
 
 
@@ -231,7 +232,7 @@ def test_brainstorm_empty_personas():
     assert s.personas == []
     ideas = s.generate_ideas()
     assert ideas == {}
-    print(f"  ✓ test_brainstorm_empty_personas")
+    print("  ✓ test_brainstorm_empty_personas")
     return True
 
 
@@ -242,7 +243,7 @@ def test_decide_mode_init():
     d = DecideMode("Which DB?", ["Postgres", "Mongo"])
     assert d.topic == "Which DB?"
     assert d.options == ["Postgres", "Mongo"]
-    print(f"  ✓ test_decide_mode_init")
+    print("  ✓ test_decide_mode_init")
     return True
 
 
@@ -254,7 +255,7 @@ def test_decide_mode_3_options_3_advocates():
     assert len(advs) == 3
     expected_ids = {f"advocate_{sanitize_advocate_id(o)}" for o in opts}
     assert set(advs.keys()) == expected_ids
-    for aid, text in advs.items():
+    for _aid, text in advs.items():
         assert isinstance(text, str) and len(text) > 0
     print(f"  ✓ test_decide_mode_3_options_3_advocates ({sorted(advs.keys())})")
     return True
@@ -269,7 +270,7 @@ def test_advocate_template_contains_option():
         aid = f"advocate_{sanitize_advocate_id(o)}"
         assert aid in advs
         assert o in advs[aid], f"{aid} missing option '{o}'"
-    print(f"  ✓ test_advocate_template_contains_option")
+    print("  ✓ test_advocate_template_contains_option")
     return True
 
 
@@ -280,7 +281,7 @@ def test_advocate_id_sanitization():
     assert sanitize_advocate_id("中文选项") == "中文选项"
     assert sanitize_advocate_id("   ") == "option"
     assert sanitize_advocate_id("@#$%") == "option"
-    print(f"  ✓ test_advocate_id_sanitization")
+    print("  ✓ test_advocate_id_sanitization")
     return True
 
 
@@ -291,7 +292,7 @@ def test_decide_mode_empty_options():
     assert advs == {}
     detailed = d.generate_advocates_detailed()
     assert detailed == {}
-    print(f"  ✓ test_decide_mode_empty_options")
+    print("  ✓ test_decide_mode_empty_options")
     return True
 
 
@@ -305,7 +306,7 @@ def test_brainstorm_json_serialization():
     assert obj["topic"] == "test topic"
     assert len(obj["ideas"]) == 5
     assert set(obj["ideas"].keys()) == {p.value for p in PersonaType}
-    print(f"  ✓ test_brainstorm_json_serialization (5 ideas serialized)")
+    print("  ✓ test_brainstorm_json_serialization (5 ideas serialized)")
     return True
 
 
@@ -318,7 +319,7 @@ def test_decide_mode_json_serialization():
     assert obj["options"] == ["A", "B"]
     assert "advocate_a" in obj["advocates"]
     assert "advocate_b" in obj["advocates"]
-    print(f"  ✓ test_decide_mode_json_serialization")
+    print("  ✓ test_decide_mode_json_serialization")
     return True
 
 
@@ -332,7 +333,7 @@ def test_brainstorm_idea_to_dict():
     assert isinstance(d["persona_type"], str)
     assert d["template"]
     assert d["idea"]
-    print(f"  ✓ test_brainstorm_idea_to_dict")
+    print("  ✓ test_brainstorm_idea_to_dict")
     return True
 
 
@@ -345,7 +346,7 @@ def test_multiple_generates_deterministic():
     b = s.generate_ideas()
     c = s.generate_ideas()
     assert a == b == c, "non-deterministic heuristic"
-    print(f"  ✓ test_multiple_generates_deterministic (3 runs identical)")
+    print("  ✓ test_multiple_generates_deterministic (3 runs identical)")
     return True
 
 
@@ -358,7 +359,7 @@ def test_different_topics_different_ideas():
     assert i1 != i2
     assert "quantum networking" in i1
     assert "kindergarten playground" in i2
-    print(f"  ✓ test_different_topics_different_ideas")
+    print("  ✓ test_different_topics_different_ideas")
     return True
 
 
@@ -371,7 +372,7 @@ def test_advocate_argues_for_option():
     text = advs["advocate_option_a"]
     assert "Option A" in text
     assert "FOR" in text or "arguing" in text.lower() or "favor" in text.lower()
-    print(f"  ✓ test_advocate_argues_for_option")
+    print("  ✓ test_advocate_argues_for_option")
     return True
 
 
@@ -382,7 +383,7 @@ def test_5_personas_all_have_heuristics():
         fn = HEURISTIC_GENERATORS[p]
         out = fn("test")
         assert isinstance(out, str) and len(out) > 0
-    print(f"  ✓ test_5_personas_all_have_heuristics (5/5)")
+    print("  ✓ test_5_personas_all_have_heuristics (5/5)")
     return True
 
 

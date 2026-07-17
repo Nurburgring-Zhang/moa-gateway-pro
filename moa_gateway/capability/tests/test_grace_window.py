@@ -19,19 +19,18 @@
 - 边界: 0 check
 - JSON 序列化
 """
-import sys
 import json
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.grace_window import (
+    CheckRegistry,
     CheckResult,
     GraceConfig,
-    CheckRegistry,
     grace_status,
 )
-
 
 # ============ CheckResult ============
 
@@ -349,7 +348,7 @@ def test_clear_removes_all():
 
 def test_registry_export_json_includes_all_checks():
     reg = CheckRegistry()
-    a = reg.register("a")
+    reg.register("a")
     b = reg.register("b")
     reg.record_fail(b, at=0.0)
     j = reg.export_json()

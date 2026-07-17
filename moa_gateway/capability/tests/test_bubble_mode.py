@@ -1,6 +1,6 @@
 """bubble_mode 真实测试 — 端到端验证(非 mock)"""
-import sys
 import json
+import sys
 import threading
 import time
 from pathlib import Path
@@ -8,10 +8,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.bubble_mode import (
-    BubbleStatus, EscalationRequest, BubbleManager,
-    EventType, Event, EventScheduler,
+    BubbleManager,
+    BubbleStatus,
+    EscalationRequest,
+    Event,
+    EventScheduler,
+    EventType,
 )
-
 
 # ==================== A-06 Bubble Mode ====================
 
@@ -425,7 +428,6 @@ def test_json_serialization_event():
 # ==================== main ====================
 
 if __name__ == "__main__":
-    import inspect
     funcs = [f for f in globals() if f.startswith("test_")]
     passed = 0
     failed = 0

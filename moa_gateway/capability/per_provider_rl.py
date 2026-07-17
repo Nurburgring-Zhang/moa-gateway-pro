@@ -23,9 +23,8 @@ import json
 import threading
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Any
-
+from dataclasses import asdict, dataclass
+from typing import Any
 
 # ============ Constants ============
 
@@ -87,7 +86,7 @@ class RateLimitDecision:
     """限流检查结果。"""
     allowed: bool
     reason: str
-    retry_after_seconds: Optional[float]
+    retry_after_seconds: float | None
     current_rpm: float
     current_ipm: float
     current_concurrent: int
@@ -100,7 +99,7 @@ class ProviderLimiter:
 
     def __init__(self, limit: ProviderLimit) -> None:
         self.limit = limit
-        self._history: List[UsageRecord] = []
+        self._history: list[UsageRecord] = []
         self._cooldown_until: float = 0.0
         self._concurrent: int = 0
         self._lock = threading.RLock()
@@ -109,7 +108,7 @@ class ProviderLimiter:
 
     # ---------- Sliding window ----------
 
-    def _usage_window(self, now: float, window_seconds: float = WINDOW_SECONDS) -> List[UsageRecord]:
+    def _usage_window(self, now: float, window_seconds: float = WINDOW_SECONDS) -> list[UsageRecord]:
         """获取 [now-window, now] 内的 usage 记录(已 prune 窗口外)。"""
         with self._lock:
             cutoff = now - window_seconds
@@ -140,7 +139,7 @@ class ProviderLimiter:
 
     # ---------- Cooldown ----------
 
-    def mark_429(self, duration_seconds: Optional[float] = None, at: Optional[float] = None) -> float:
+    def mark_429(self, duration_seconds: float | None = None, at: float | None = None) -> float:
         """标记 429,设置 cooldown 截止时间。返回 cooldown_until 绝对时间戳。"""
         if at is None:
             at = time.time()
@@ -150,17 +149,16 @@ class ProviderLimiter:
             raise ValueError(f"duration_seconds must be >= 0, got {duration_seconds}")
         with self._lock:
             new_until = at + duration_seconds
-            if new_until > self._cooldown_until:
-                self._cooldown_until = new_until
+            self._cooldown_until = max(self._cooldown_until, new_until)
             return self._cooldown_until
 
-    def is_in_cooldown(self, at: Optional[float] = None) -> bool:
+    def is_in_cooldown(self, at: float | None = None) -> bool:
         if at is None:
             at = time.time()
         with self._lock:
             return at < self._cooldown_until
 
-    def cooldown_remaining(self, at: Optional[float] = None) -> float:
+    def cooldown_remaining(self, at: float | None = None) -> float:
         if at is None:
             at = time.time()
         with self._lock:
@@ -171,8 +169,8 @@ class ProviderLimiter:
 
     def check_rate_limit(
         self,
-        concurrent_now: Optional[int] = None,
-        at: Optional[float] = None,
+        concurrent_now: int | None = None,
+        at: float | None = None,
     ) -> RateLimitDecision:
         """检查是否允许下一次请求。"""
         if at is None:
@@ -267,7 +265,7 @@ class ProviderLimiter:
         self,
         request_count: int = 1,
         input_tokens: int = 0,
-        at: Optional[float] = None,
+        at: float | None = None,
     ) -> None:
         """追加一次 usage 记录到滑窗。"""
         if at is None:
@@ -302,7 +300,7 @@ class ProviderLimiter:
                 self._concurrent -= 1
             self._slot_cond.notify_all()
 
-    def acquire_slot(self, max_concurrent: Optional[int] = None) -> Optional[Any]:
+    def acquire_slot(self, max_concurrent: int | None = None) -> Any | None:
         """获取一个 semaphore-style 上下文管理器。
 
         - 若 provider 池未满,返回 contextmanager(__enter__ 占用,__exit__ 释放)
@@ -337,7 +335,7 @@ class ProviderLimiter:
         with self._lock:
             return len(self._history)
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self) -> dict[str, Any]:
         """当前状态快照(用于 JSON 序列化 / 调试)。"""
         with self._lock:
             return {
@@ -354,10 +352,10 @@ class ProviderLimiter:
 class MultiProviderLimiter:
     """多 provider 限流聚合。"""
 
-    def __init__(self, limits: Dict[str, ProviderLimit]) -> None:
+    def __init__(self, limits: dict[str, ProviderLimit]) -> None:
         if not limits:
             raise ValueError("limits must not be empty")
-        self._limiters: Dict[str, ProviderLimiter] = {
+        self._limiters: dict[str, ProviderLimiter] = {
             p: ProviderLimiter(lim) for p, lim in limits.items()
         }
 
@@ -369,8 +367,8 @@ class MultiProviderLimiter:
     def check(
         self,
         provider: str,
-        concurrent_now: Optional[int] = None,
-        at: Optional[float] = None,
+        concurrent_now: int | None = None,
+        at: float | None = None,
     ) -> RateLimitDecision:
         return self._get(provider).check_rate_limit(concurrent_now=concurrent_now, at=at)
 
@@ -379,34 +377,34 @@ class MultiProviderLimiter:
         provider: str,
         request_count: int = 1,
         input_tokens: int = 0,
-        at: Optional[float] = None,
+        at: float | None = None,
     ) -> None:
         self._get(provider).record_usage(request_count=request_count, input_tokens=input_tokens, at=at)
 
     def mark_429(
         self,
         provider: str,
-        duration_seconds: Optional[float] = None,
-        at: Optional[float] = None,
+        duration_seconds: float | None = None,
+        at: float | None = None,
     ) -> float:
         return self._get(provider).mark_429(duration_seconds=duration_seconds, at=at)
 
-    def is_in_cooldown(self, provider: str, at: Optional[float] = None) -> bool:
+    def is_in_cooldown(self, provider: str, at: float | None = None) -> bool:
         return self._get(provider).is_in_cooldown(at=at)
 
-    def acquire_slot(self, provider: str, max_concurrent: Optional[int] = None) -> Optional[Any]:
+    def acquire_slot(self, provider: str, max_concurrent: int | None = None) -> Any | None:
         return self._get(provider).acquire_slot(max_concurrent=max_concurrent)
 
-    def providers(self) -> List[str]:
+    def providers(self) -> list[str]:
         return list(self._limiters.keys())
 
-    def snapshot(self) -> Dict[str, Dict[str, Any]]:
+    def snapshot(self) -> dict[str, dict[str, Any]]:
         return {p: lim.snapshot() for p, lim in self._limiters.items()}
 
 
 # ============ JSON helpers ============
 
-def decision_to_dict(decision: RateLimitDecision) -> Dict[str, Any]:
+def decision_to_dict(decision: RateLimitDecision) -> dict[str, Any]:
     d = asdict(decision)
     # 已经是 dict 了
     return d
@@ -422,7 +420,7 @@ def snapshot_to_json(multi: MultiProviderLimiter) -> str:
 
 # ============ Presets ============
 
-def make_default_limits() -> Dict[str, ProviderLimit]:
+def make_default_limits() -> dict[str, ProviderLimit]:
     """3 个常见 provider 的默认限流配置(测试 / 启动用)。"""
     return {
         "openai": ProviderLimit(

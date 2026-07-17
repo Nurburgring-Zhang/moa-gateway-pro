@@ -14,11 +14,10 @@
   - diversity_score = 1 - convergent_count / total_unique_ideas (越高越分歧)
 """
 from __future__ import annotations
+
 import re
 from collections import defaultdict
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Tuple, Set, Optional
-
+from dataclasses import asdict, dataclass, field
 
 __all__ = [
     "Idea",
@@ -38,7 +37,7 @@ __all__ = [
 # ============ 启发式常量 ============
 
 # 停用词 (中英) — 关键词过滤
-STOPWORDS: Set[str] = frozenset({
+STOPWORDS: set[str] = frozenset({
     "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
     "have", "has", "had", "do", "does", "did", "will", "would", "could",
     "should", "may", "might", "must", "shall", "can", "need", "dare",
@@ -49,7 +48,7 @@ STOPWORDS: Set[str] = frozenset({
     "we", "they", "what", "which", "who", "whom", "how", "why",
     "的", "了", "是", "在", "和", "与", "或", "但", "如果", "那么",
     "我", "你", "他", "她", "它", "我们", "他们", "这", "那", "什么",
-    "怎么", "为什么", "哪个", "哪些", "一个", "一些", "我们", "认为",
+    "怎么", "为什么", "哪个", "哪些", "一个", "一些", "认为",
     "可以", "可能", "应该", "需要", "进行", "使用", "通过", "得到",
 })
 
@@ -60,7 +59,7 @@ MIN_IDEA_WORDS = 4
 JACCARD_THRESHOLD = 0.5
 
 # 冲突检测 — 互斥前缀模式 (should X vs should not X 等)
-NEGATION_PATTERNS: List[Tuple[str, str]] = [
+NEGATION_PATTERNS: list[tuple[str, str]] = [
     (r"\bshould\s+not\b", r"\bshould\b"),
     (r"\bdon'?t\b", r"\bdo\b"),
     (r"\bdoesn'?t\b", r"\bdoes\b"),
@@ -97,9 +96,9 @@ class Idea:
     """单个想法 (从 proposal 抽取)"""
     text: str                          # 原始 quote
     source_proposal_idx: int           # 来源 proposal
-    keywords: List[str] = field(default_factory=list)  # 归一化关键词
+    keywords: list[str] = field(default_factory=list)  # 归一化关键词
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -109,9 +108,9 @@ class Proposal:
     proposal_idx: int
     author: str
     text: str
-    ideas: List[Idea] = field(default_factory=list)
+    ideas: list[Idea] = field(default_factory=list)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         d = asdict(self)
         return d
 
@@ -120,11 +119,11 @@ class Proposal:
 class ConvergentIdea:
     """多 proposal 共同出现的想法 (CONVERGENT 信号)"""
     canonical_text: str                # 最长 quote 作为 canonical
-    supporting_proposals: List[int]    # 支持的 proposal_idx 列表
+    supporting_proposals: list[int]    # 支持的 proposal_idx 列表
     strength: float                    # 0-1, supporting_count / total
     exact_quote: str                   # 最长 quote
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -133,27 +132,27 @@ class ConflictPair:
     """冲突对 — 同一议题下互斥选择"""
     option_a: str
     option_b: str
-    supporting_a: List[int] = field(default_factory=list)  # 支持 A 的 proposal
-    supporting_b: List[int] = field(default_factory=list)  # 支持 B 的 proposal
+    supporting_a: list[int] = field(default_factory=list)  # 支持 A 的 proposal
+    supporting_b: list[int] = field(default_factory=list)  # 支持 B 的 proposal
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
 # ============ 辅助函数 ============
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     """分词: 英文 + 数字块 + 单个中文字符"""
     if not text:
         return []
     return [t.lower() for t in WORD_RE.findall(text)]
 
 
-def _keywords(text: str) -> List[str]:
+def _keywords(text: str) -> list[str]:
     """提取关键词: 停用词过滤 + lower"""
     tokens = _tokenize(text)
     # 去停用词,去短词 (< 2 字符英文或单字中文与停用词不冲突可保留)
-    kws: List[str] = []
+    kws: list[str] = []
     seen = set()
     for t in tokens:
         if t in STOPWORDS:
@@ -167,7 +166,7 @@ def _keywords(text: str) -> List[str]:
     return kws
 
 
-def _jaccard(a: List[str], b: List[str]) -> float:
+def _jaccard(a: list[str], b: list[str]) -> float:
     """Jaccard 相似度: |A∩B| / |A∪B|"""
     if not a and not b:
         return 1.0
@@ -179,7 +178,7 @@ def _jaccard(a: List[str], b: List[str]) -> float:
     return len(inter) / len(union)
 
 
-def _split_sentences(text: str) -> List[str]:
+def _split_sentences(text: str) -> list[str]:
     """按句号/分号/换行切句, 保留原始 quote"""
     if not text or not text.strip():
         return []
@@ -196,7 +195,7 @@ def _word_count(text: str) -> int:
 
 # ============ 核心 API: extract_ideas ============
 
-def extract_ideas(proposal_text: str, proposal_idx: int) -> List[Idea]:
+def extract_ideas(proposal_text: str, proposal_idx: int) -> list[Idea]:
     """启发式抽取想法
 
     流程:
@@ -211,7 +210,7 @@ def extract_ideas(proposal_text: str, proposal_idx: int) -> List[Idea]:
         return []
 
     sentences = _split_sentences(proposal_text)
-    ideas: List[Idea] = []
+    ideas: list[Idea] = []
     for sent in sentences:
         # 过滤过短句子
         if _word_count(sent) < MIN_IDEA_WORDS:
@@ -230,9 +229,9 @@ def extract_ideas(proposal_text: str, proposal_idx: int) -> List[Idea]:
 # ============ 核心 API: detect_convergent ============
 
 def detect_convergent(
-    proposals: List[Proposal],
+    proposals: list[Proposal],
     min_support: int = 3,
-) -> List[ConvergentIdea]:
+) -> list[ConvergentIdea]:
     """检测 CONVERGENT 想法
 
     逻辑:
@@ -257,7 +256,7 @@ def detect_convergent(
 
     # cluster: list of {proposal_indices: set, ideas: [Idea]}
     # 用 keywords 集合的第一个 idea 作为 cluster 代表
-    clusters: List[Dict] = []  # 每个 cluster 是 {"pidxs": set, "ideas": [Idea], "rep_kws": set}
+    clusters: list[dict] = []  # 每个 cluster 是 {"pidxs": set, "ideas": [Idea], "rep_kws": set}
 
     for prop in proposals:
         for idea in prop.ideas:
@@ -283,7 +282,7 @@ def detect_convergent(
                     "rep_kws": idea_kws_set,
                 })
 
-    results: List[ConvergentIdea] = []
+    results: list[ConvergentIdea] = []
     for cluster in clusters:
         if len(cluster["pidxs"]) >= min_support:
             # canonical_text = 最长 quote
@@ -319,13 +318,13 @@ _WEAK_VERBS = frozenset({
 })
 
 
-def _extract_should_target(text: str) -> List[Tuple[str, str]]:
+def _extract_should_target(text: str) -> list[tuple[str, str]]:
     """从文本中提取所有 should/should-not 模式
 
     Returns:
         List of (target_word_lower, polarity) where polarity is "positive" or "negative"
     """
-    out: List[Tuple[str, str]] = []
+    out: list[tuple[str, str]] = []
     if not text:
         return out
     # 先用 not-aware 的扫描
@@ -338,7 +337,7 @@ def _extract_should_target(text: str) -> List[Tuple[str, str]]:
     return out
 
 
-def detect_conflicting(proposals: List[Proposal]) -> List[ConflictPair]:
+def detect_conflicting(proposals: list[Proposal]) -> list[ConflictPair]:
     """检测 CONFLICTING 互斥选择
 
     启发式:
@@ -354,7 +353,7 @@ def detect_conflicting(proposals: List[Proposal]) -> List[ConflictPair]:
 
     # 收集每个 proposal 的 use/avoid/should/should-not 选项
     # 格式: (option_text, core_key, proposal_idx, polarity)
-    options: List[Tuple[str, str, int, str]] = []
+    options: list[tuple[str, str, int, str]] = []
 
     for prop in proposals:
         text = prop.text
@@ -377,14 +376,14 @@ def detect_conflicting(proposals: List[Proposal]) -> List[ConflictPair]:
                 options.append((f"should not {target}", target, prop.proposal_idx, "negative"))
 
     # 按 core_key 分组
-    groups: Dict[str, List[Tuple[str, int, str]]] = defaultdict(list)
+    groups: dict[str, list[tuple[str, int, str]]] = defaultdict(list)
     for opt, key, pidx, pol in options:
         if not key:
             continue
         groups[key].append((opt, pidx, pol))
 
-    conflicts: List[ConflictPair] = []
-    seen_pairs: Set[Tuple[str, str]] = set()
+    conflicts: list[ConflictPair] = []
+    seen_pairs: set[tuple[str, str]] = set()
 
     for key, items in groups.items():
         positives = [(o, p) for o, p, pol in items if pol == "positive"]
@@ -424,9 +423,9 @@ def detect_conflicting(proposals: List[Proposal]) -> List[ConflictPair]:
 # ============ 核心 API: arbitrate_conflicts ============
 
 def arbitrate_conflicts(
-    conflicts: List[ConflictPair],
-    viability_scores: Dict[int, float],
-) -> List[Tuple[ConflictPair, str, float]]:
+    conflicts: list[ConflictPair],
+    viability_scores: dict[int, float],
+) -> list[tuple[ConflictPair, str, float]]:
     """仲裁冲突
 
     逻辑:
@@ -443,13 +442,13 @@ def arbitrate_conflicts(
     Returns:
         List of (ConflictPair, winner_choice: "A"/"B", confidence: 0-1)
     """
-    results: List[Tuple[ConflictPair, str, float]] = []
+    results: list[tuple[ConflictPair, str, float]] = []
 
     for conflict in conflicts:
         # 计算 option_a / option_b 的 viability 加权
         # viability_A = mean(viability of supporting_a) * (1 + 0.1 * len(supporting_a))
         # 简化: 用 sum / max
-        def _score(proposal_indices: List[int]) -> float:
+        def _score(proposal_indices: list[int]) -> float:
             if not proposal_indices:
                 return 0.0
             scores = [viability_scores.get(p, 0.5) for p in proposal_indices]
@@ -482,9 +481,9 @@ def arbitrate_conflicts(
 # ============ 核心 API: convergent_summary ============
 
 def convergent_summary(
-    proposals: List[Proposal],
+    proposals: list[Proposal],
     min_support: int = 3,
-) -> Dict:
+) -> dict:
     """汇总报告: convergent / conflicts / total_ideas / diversity_score
 
     diversity_score = 1 - (convergent_count / total_unique_ideas)
@@ -497,7 +496,7 @@ def convergent_summary(
 
     # total_unique_ideas: 跨 proposal 想法的 cluster 数
     # 复用 detect_convergent 的 cluster 逻辑 (min_support=1 视为全 cluster)
-    clusters: List[Dict] = []
+    clusters: list[dict] = []
     for prop in proposals:
         for idea in prop.ideas:
             matched = False

@@ -11,10 +11,10 @@
     }
 """
 from __future__ import annotations
+
 import json
-from typing import Dict, Any
 from dataclasses import dataclass
-from pathlib import Path
+from typing import Any
 
 
 @dataclass
@@ -82,7 +82,7 @@ resp = client.chat.completions.create(
 print(resp.choices[0].message.content)
 """
 
-    def to_payload(self) -> Dict[str, Any]:
+    def to_payload(self) -> dict[str, Any]:
         return {
             "type": "generic_openai",
             "config": {
@@ -104,7 +104,7 @@ print(resp.choices[0].message.content)
         }
 
     # 兼容旧调用
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return self.to_payload()
 
 
@@ -114,7 +114,7 @@ class HermesAdapter:
     def __init__(self, ctx: AdapterContext):
         self.ctx = ctx
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         return {
             "model": {
                 "provider": "custom",
@@ -142,7 +142,7 @@ class HermesAdapter:
             }
         }
 
-    def to_payload(self) -> Dict[str, Any]:
+    def to_payload(self) -> dict[str, Any]:
         cfg = self.get_config()
         return {
             "type": "hermes",
@@ -170,7 +170,7 @@ class OpenClawAdapter:
     def __init__(self, ctx: AdapterContext):
         self.ctx = ctx
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         return {
             "models": {
                 "mode": "merge",
@@ -193,7 +193,7 @@ class OpenClawAdapter:
             }
         }
 
-    def to_payload(self) -> Dict[str, Any]:
+    def to_payload(self) -> dict[str, Any]:
         cfg = self.get_config()
         return {
             "type": "openclaw",
@@ -218,7 +218,7 @@ class QoderWorkAdapter:
     def __init__(self, ctx: AdapterContext):
         self.ctx = ctx
 
-    def to_payload(self) -> Dict[str, Any]:
+    def to_payload(self) -> dict[str, Any]:
         return {
             "type": "qoderwork",
             "config": {
@@ -252,7 +252,7 @@ class IDEAdapter:
         self.ctx = ctx
         self.name = name
 
-    def get_config(self) -> Dict[str, Any]:
+    def get_config(self) -> dict[str, Any]:
         return {
             "provider": "openai",
             "apiBase": self.ctx.openai_base,
@@ -260,7 +260,7 @@ class IDEAdapter:
             "model": "balanced"
         }
 
-    def to_payload(self) -> Dict[str, Any]:
+    def to_payload(self) -> dict[str, Any]:
         cfg = self.get_config()
         slug = self.name.lower().replace(" ", "_").replace(".", "")
         return {
@@ -278,7 +278,7 @@ class IDEAdapter:
         }
 
 
-def all_adapters(ctx: AdapterContext) -> Dict[str, Any]:
+def all_adapters(ctx: AdapterContext) -> dict[str, Any]:
     """汇总所有适配器配置 — 修21: 统一返回 dict 格式"""
     return {
         "generic_openai": GenericOpenAIAdapter(ctx).to_payload(),

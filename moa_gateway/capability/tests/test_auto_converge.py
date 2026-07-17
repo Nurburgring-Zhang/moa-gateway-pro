@@ -11,31 +11,27 @@
 from __future__ import annotations
 
 import json
-import math
-import pytest
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.auto_converge import (
-    ConvergenceState,
-    ConvergenceConfig,
-    TIER_THRESHOLDS,
-    TIER_LABELS,
-    CONFIDENCE_ZERO_SAMPLES,
-    CONFIDENCE_LOW_SAMPLES,
     CONFIDENCE_HIGH_SAMPLES,
-    LOW_SAMPLES_CUTOFF,
+    CONFIDENCE_LOW_SAMPLES,
+    CONFIDENCE_ZERO_SAMPLES,
+    TIER_LABELS,
+    TIER_THRESHOLDS,
+    ConvergenceConfig,
+    ConvergenceState,
+    calibrate_confidence,
     check_convergence,
     classify_tier,
-    detect_stagnation,
-    calibrate_confidence,
-    convergence_state_to_dict,
-    convergence_state_from_dict,
     convergence_config_to_dict,
+    convergence_state_from_dict,
+    convergence_state_to_dict,
+    detect_stagnation,
 )
-
 
 # ============ Dataclass 字段 ============
 

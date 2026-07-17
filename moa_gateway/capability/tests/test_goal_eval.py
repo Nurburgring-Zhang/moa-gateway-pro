@@ -3,27 +3,28 @@
 真实 assert, 严禁 mock。
 """
 from __future__ import annotations
+
 import json
-import pytest
 import sys
 from pathlib import Path
+
+import pytest
 
 # 允许直接 import
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.goal_eval import (
-    GoalTier,
+    CeilingReport,
     Goal,
     GoalResult,
-    CeilingReport,
-    evaluate_tier1,
-    evaluate_tier2,
-    generate_ceiling_report,
+    GoalTier,
     compute_completeness_score,
     evaluate_goal,
     evaluate_goals,
+    evaluate_tier1,
+    evaluate_tier2,
+    generate_ceiling_report,
 )
-
 
 # ============ GoalTier 测试 ============
 

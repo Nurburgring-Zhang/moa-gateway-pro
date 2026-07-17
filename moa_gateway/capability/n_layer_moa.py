@@ -17,12 +17,12 @@ Intelligence" — L1 → L2 → L3 真分层架构。
 proposal 文本中包含 "MOCK:" 标记 (来自 MockProvider 自动降级)。
 """
 from __future__ import annotations
+
 import asyncio
 import logging
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Optional, Callable, Any
+from dataclasses import dataclass, field
 
-from moa_gateway.providers import build_provider, Provider, ChatRequest, ChatResponse, ProviderError
+from moa_gateway.providers import ChatRequest, ChatResponse, Provider, ProviderError, build_provider
 
 logger = logging.getLogger(__name__)
 
@@ -54,16 +54,36 @@ class Aggregator:
     model_id: str
     synthesis_prompt: str = ""
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "Aggregator":
+        """Aggregator 接受 role/synthesis_prompt 别名,以及 proposer 的 system_prompt 别名"""
+        if not isinstance(d, dict):
+            raise TypeError(f"Aggregator payload must be dict, got {type(d).__name__}")
+        return cls(
+            name=str(d.get("name", "")),
+            model_id=str(d.get("model_id", "")),
+            synthesis_prompt=str(
+                d.get("synthesis_prompt", d.get("role", d.get("system_prompt", "")))
+            ),
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "model_id": self.model_id,
+            "synthesis_prompt": self.synthesis_prompt,
+        }
+
 
 @dataclass
 class LayerResult:
     """一层的结果"""
     layer_idx: int
-    proposals: List[str] = field(default_factory=list)
+    proposals: list[str] = field(default_factory=list)
     aggregated: str = ""
-    references: List[str] = field(default_factory=list)  # 该层喂进 aggregator 的 reference 文本(同 proposals + prev)
+    references: list[str] = field(default_factory=list)  # 该层喂进 aggregator 的 reference 文本(同 proposals + prev)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "layer_idx": self.layer_idx,
             "proposals": list(self.proposals),
@@ -72,7 +92,7 @@ class LayerResult:
         }
 
     @staticmethod
-    def from_dict(d: Dict) -> "LayerResult":
+    def from_dict(d: dict) -> LayerResult:
         return LayerResult(
             layer_idx=int(d.get("layer_idx", 0)),
             proposals=list(d.get("proposals", []) or []),
@@ -104,9 +124,9 @@ class MoAConfig:
 
 # ============ 内部工具 ============
 
-def _format_proposals_for_aggregator(proposals: List[str], prev_aggregated: Optional[str] = None) -> str:
+def _format_proposals_for_aggregator(proposals: list[str], prev_aggregated: str | None = None) -> str:
     """把 proposals 拼成给 aggregator 的 reference 文本"""
-    parts: List[str] = []
+    parts: list[str] = []
     if prev_aggregated:
         parts.append(f"【上一轮聚合输出】\n{prev_aggregated}\n")
     for i, p in enumerate(proposals, 1):
@@ -114,9 +134,9 @@ def _format_proposals_for_aggregator(proposals: List[str], prev_aggregated: Opti
     return "\n".join(parts).strip()
 
 
-def _build_proposer_messages(query: str, proposer: Proposer, prev_aggregated: Optional[str] = None) -> List[Dict]:
+def _build_proposer_messages(query: str, proposer: Proposer, prev_aggregated: str | None = None) -> list[dict]:
     """proposer 的 messages — L1 不带 prev; L2+ 带 prev_aggregated 作为参考"""
-    msgs: List[Dict] = []
+    msgs: list[dict] = []
     if proposer.system_prompt:
         msgs.append({"role": "system", "content": proposer.system_prompt})
     user = query
@@ -130,9 +150,9 @@ def _build_proposer_messages(query: str, proposer: Proposer, prev_aggregated: Op
     return msgs
 
 
-def _build_aggregator_messages(query: str, aggregator: Aggregator, references: str) -> List[Dict]:
+def _build_aggregator_messages(query: str, aggregator: Aggregator, references: str) -> list[dict]:
     """aggregator 的 messages — 把 proposals + (可选) prev 合成"""
-    msgs: List[Dict] = []
+    msgs: list[dict] = []
     if aggregator.synthesis_prompt:
         msgs.append({"role": "system", "content": aggregator.synthesis_prompt})
     user = (
@@ -149,7 +169,7 @@ def _build_aggregator_messages(query: str, aggregator: Aggregator, references: s
 async def _call_provider(
     provider: Provider,
     model_id: str,
-    messages: List[Dict],
+    messages: list[dict],
     temperature: float,
     max_tokens: int = 2048,
     prefer_stream: bool = True,
@@ -167,7 +187,7 @@ async def _call_provider(
     )
     if prefer_stream and hasattr(provider, "chat_stream"):
         try:
-            parts: List[str] = []
+            parts: list[str] = []
             async for chunk in provider.chat_stream(req):
                 if chunk:
                     parts.append(chunk)
@@ -202,7 +222,7 @@ async def _call_provider(
 async def _run_proposer(
     proposer: Proposer,
     query: str,
-    prev_aggregated: Optional[str],
+    prev_aggregated: str | None,
     provider: Provider,
     temperature: float,
     max_tokens: int,
@@ -226,15 +246,15 @@ async def _run_proposer(
 # ============ 核心: 合成一层 ============
 
 async def synthesize_layer(
-    proposers: List[Proposer],
+    proposers: list[Proposer],
     query: str,
     layer_idx: int,
-    prev_aggregated: Optional[str] = None,
-    aggregator: Optional[Aggregator] = None,
-    providers_registry: Optional[Dict[str, Provider]] = None,
+    prev_aggregated: str | None = None,
+    aggregator: Aggregator | None = None,
+    providers_registry: dict[str, Provider] | None = None,
     temperature: float = 0.6,
     max_tokens: int = 2048,
-    max_total_tokens: Optional[int] = None,
+    max_total_tokens: int | None = None,
     tokens_used: int = 0,
 ) -> LayerResult:
     """合成 1 层 MoA: 并行跑所有 proposers, 然后用 aggregator 合成 1 个 output
@@ -280,8 +300,8 @@ async def synthesize_layer(
     raw = await asyncio.gather(*tasks, return_exceptions=False)
 
     # 失败回退: 单个 fail 用 fallback 标记; 全 fail 抛 MoARunError
-    proposals: List[str] = []
-    for p, r in zip(proposers, raw):
+    proposals: list[str] = []
+    for p, r in zip(proposers, raw, strict=False):
         if isinstance(r, Exception):
             proposals.append(f"[fallback:{p.name}] {type(r).__name__}: {r}")
         else:
@@ -330,11 +350,11 @@ async def synthesize_layer(
 async def run_n_layer_moa(
     query: str,
     config: MoAConfig,
-    proposers: List[Proposer],
-    aggregator: Optional[Aggregator] = None,
-    providers_registry: Optional[Dict[str, Provider]] = None,
+    proposers: list[Proposer],
+    aggregator: Aggregator | None = None,
+    providers_registry: dict[str, Provider] | None = None,
     max_total_tokens: int = 0,
-) -> List[LayerResult]:
+) -> list[LayerResult]:
     """跑 N 层 MoA pipeline
 
     Args:
@@ -357,8 +377,8 @@ async def run_n_layer_moa(
 
     budget = max_total_tokens or config.max_total_tokens
     tokens_used = 0
-    results: List[LayerResult] = []
-    prev_agg: Optional[str] = None
+    results: list[LayerResult] = []
+    prev_agg: str | None = None
 
     for i in range(1, config.num_layers + 1):
         # 选该层用哪批 proposers (循环复用)
@@ -399,12 +419,12 @@ async def run_n_layer_moa(
 
 async def run_three_layer_moa(
     query: str,
-    proposers: List[Proposer],
-    aggregators: List[Aggregator],
-    providers_registry: Optional[Dict[str, Provider]] = None,
+    proposers: list[Proposer],
+    aggregators: list[Aggregator],
+    providers_registry: dict[str, Provider] | None = None,
     temperature: float = 0.6,
     max_total_tokens: int = 0,
-) -> Dict:
+) -> dict:
     """3 层 MoA (论文主架构):每层用不同 aggregator
 
     Args:
@@ -428,8 +448,8 @@ async def run_three_layer_moa(
     if not proposers:
         raise ValueError("proposers must be non-empty")
 
-    results: List[LayerResult] = []
-    prev_agg: Optional[str] = None
+    results: list[LayerResult] = []
+    prev_agg: str | None = None
     tokens_used = 0
     for i, agg in enumerate(aggregators, 1):
         try:

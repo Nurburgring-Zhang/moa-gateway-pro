@@ -16,10 +16,11 @@
   - validate_pattern 严格区分: 给定完整 G/W/T → 归 GEARS 之一;否则 EARS
 """
 from __future__ import annotations
+
 import re
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import List, Dict, Optional, Any, Tuple
+from typing import Any
 
 
 # ============ 模式枚举 ============
@@ -60,15 +61,15 @@ class AcceptanceCriterion:
     given: str
     when: str
     then: str
-    parent_id: Optional[str] = None
-    children_ids: List[str] = field(default_factory=list)
-    pattern: Optional[str] = None
+    parent_id: str | None = None
+    children_ids: list[str] = field(default_factory=list)
+    pattern: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "AcceptanceCriterion":
+    def from_dict(cls, d: dict[str, Any]) -> AcceptanceCriterion:
         return cls(**d)
 
 
@@ -82,7 +83,7 @@ class AcceptanceTree:
     """
 
     def __init__(self, root_id: str) -> None:
-        self._criteria: Dict[str, AcceptanceCriterion] = {}
+        self._criteria: dict[str, AcceptanceCriterion] = {}
         root = AcceptanceCriterion(
             id=root_id,
             given="(root)",
@@ -105,23 +106,23 @@ class AcceptanceTree:
             if criterion.id not in parent.children_ids:
                 parent.children_ids.append(criterion.id)
 
-    def get_criterion(self, ac_id: str) -> Optional[AcceptanceCriterion]:
+    def get_criterion(self, ac_id: str) -> AcceptanceCriterion | None:
         return self._criteria.get(ac_id)
 
-    def all_criteria(self) -> List[AcceptanceCriterion]:
+    def all_criteria(self) -> list[AcceptanceCriterion]:
         return list(self._criteria.values())
 
     # ---- 层级遍历 ----
-    def get_children(self, ac_id: str) -> List[AcceptanceCriterion]:
+    def get_children(self, ac_id: str) -> list[AcceptanceCriterion]:
         """直接子节点 (不含孙及以下)"""
         c = self._criteria.get(ac_id)
         if c is None:
             return []
         return [self._criteria[cid] for cid in c.children_ids if cid in self._criteria]
 
-    def get_descendants(self, ac_id: str) -> List[AcceptanceCriterion]:
+    def get_descendants(self, ac_id: str) -> list[AcceptanceCriterion]:
         """全部后代 (深度优先,不含自身)"""
-        out: List[AcceptanceCriterion] = []
+        out: list[AcceptanceCriterion] = []
 
         def dfs(cur_id: str) -> None:
             for cid in self._criteria[cur_id].children_ids:
@@ -134,16 +135,16 @@ class AcceptanceTree:
         return out
 
     # ---- ID 校验 ----
-    def validate_ids(self) -> List[str]:
+    def validate_ids(self) -> list[str]:
         """返回所有错误信息 (空 list = 全部合法)。
 
         检查项:
           1. id 非空 + 只能含字母/数字/_/-, 长度 1..64
           2. 不重复
         """
-        errors: List[str] = []
+        errors: list[str] = []
         pattern = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
-        seen: Dict[str, int] = {}
+        seen: dict[str, int] = {}
         for ac in self._criteria.values():
             if not ac.id:
                 errors.append("empty criterion id")
@@ -195,7 +196,7 @@ def validate_pattern(ac: AcceptanceCriterion) -> str:
 
 # ============ EARS 启发式解析 (纯函数) ============
 # 匹配顺序: STATE_DRIVEN (最具体) → TIMED → UNWANTED → OPTIONAL → EVENT_DRIVEN → UBIQUITOUS
-_EARS_PATTERNS: Tuple[Tuple[EARSPattern, re.Pattern[str]], ...] = (
+_EARS_PATTERNS: tuple[tuple[EARSPattern, re.Pattern[str]], ...] = (
     (EARSPattern.STATE_DRIVEN, re.compile(
         r"^\s*(?:while|when)\s+(?:in\s+)?(?:[A-Za-z_][\w\-]*\s+)?(?:state|mode|status|condition)\b[^\n,]*,\s*(.+)$",
         re.IGNORECASE,
@@ -223,7 +224,7 @@ _EARS_PATTERNS: Tuple[Tuple[EARSPattern, re.Pattern[str]], ...] = (
 )
 
 
-def _classify_line(line: str) -> Optional[Tuple[EARSPattern, str, str, str]]:
+def _classify_line(line: str) -> tuple[EARSPattern, str, str, str] | None:
     """对单行启发式分类。返回 (pattern, given, when, then) 或 None。"""
     s = line.strip()
     if not s:
@@ -232,7 +233,7 @@ def _classify_line(line: str) -> Optional[Tuple[EARSPattern, str, str, str]]:
         m = rx.match(s)
         if not m:
             continue
-        groups = [g for g in m.groups() if g is not None]
+        [g for g in m.groups() if g is not None]
         if pattern == EARSPattern.STATE_DRIVEN:
             action = m.group(1).strip()
             # 从匹配整体中提取 state 关键字前的 token
@@ -265,13 +266,13 @@ def _classify_line(line: str) -> Optional[Tuple[EARSPattern, str, str, str]]:
     return None
 
 
-def parse_ears(text: str) -> List[AcceptanceCriterion]:
+def parse_ears(text: str) -> list[AcceptanceCriterion]:
     """启发式从自然语言文本解析 EARS acceptance criteria。
 
     支持多行 (每行一个 criterion,空行跳过)。
     每条解析结果用行号作为 id (如 "ac-1", "ac-2" ...)。
     """
-    out: List[AcceptanceCriterion] = []
+    out: list[AcceptanceCriterion] = []
     lines = text.splitlines()
     counter = 0
     for line in lines:
@@ -291,12 +292,12 @@ def parse_ears(text: str) -> List[AcceptanceCriterion]:
 
 
 # ============ JSON 序列化 ============
-def tree_to_dict(tree: AcceptanceTree) -> Dict[str, Any]:
+def tree_to_dict(tree: AcceptanceTree) -> dict[str, Any]:
     """把整棵验收树序列化为 dict。"""
     return {"criteria": [c.to_dict() for c in tree.all_criteria()]}
 
 
-def tree_from_dict(d: Dict[str, Any]) -> AcceptanceTree:
+def tree_from_dict(d: dict[str, Any]) -> AcceptanceTree:
     """从 dict 反序列化出 AcceptanceTree。根 = parent_id 为 None 的那个。"""
     raw = d.get("criteria", [])
     items = [AcceptanceCriterion.from_dict(x) for x in raw]

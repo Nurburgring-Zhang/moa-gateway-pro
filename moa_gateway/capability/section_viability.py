@@ -18,11 +18,10 @@
 - 跨 proposal 比较:挑选 AP 最高的 proposal
 """
 from __future__ import annotations
-import re
-import json
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Optional
 
+import json
+import re
+from dataclasses import asdict, dataclass, field
 
 __all__ = [
     "Section",
@@ -86,7 +85,7 @@ class Section:
     text: str
     word_count: int
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -96,10 +95,10 @@ class SectionVerdict:
     section_idx: int
     viable: bool
     score: float            # 0-1
-    reasons: List[str] = field(default_factory=list)
-    blockers: List[str] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
+    blockers: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -109,11 +108,11 @@ class ProposalReport:
     proposal_idx: int
     total_sections: int
     viable_sections: int
-    failing_sections: List[int] = field(default_factory=list)
+    failing_sections: list[int] = field(default_factory=list)
     ap_score: int = 0
-    verdicts: List[SectionVerdict] = field(default_factory=list)
+    verdicts: list[SectionVerdict] = field(default_factory=list)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         d = asdict(self)
         d["verdicts"] = [v.to_dict() for v in self.verdicts]
         return d
@@ -150,9 +149,8 @@ def _has_imperative(text: str) -> bool:
         if re.match(r"[\u4e00-\u9fff]", verb):
             if verb in text:
                 return True
-        else:
-            if re.search(rf"\b{re.escape(verb)}\b", text_lower):
-                return True
+        elif re.search(rf"\b{re.escape(verb)}\b", text_lower):
+            return True
     return False
 
 
@@ -167,15 +165,12 @@ def _has_cite(text: str) -> bool:
     """是否含引用 / ref / URL"""
     if not text:
         return False
-    for pat in CITE_PATTERNS:
-        if pat.search(text):
-            return True
-    return False
+    return any(pat.search(text) for pat in CITE_PATTERNS)
 
 
 # ============ Proposal 切分 ============
 
-def split_into_sections(text: str) -> List[Section]:
+def split_into_sections(text: str) -> list[Section]:
     """把 proposal 文本切分为 sections。
 
     切分规则(优先级从高到低):
@@ -207,7 +202,7 @@ def split_into_sections(text: str) -> List[Section]:
     return _build_sections(fallback)
 
 
-def _split_by_md_headers(text: str) -> List[str]:
+def _split_by_md_headers(text: str) -> list[str]:
     """按 Markdown ## / # 标题切分(保留标题在前一段)"""
     if not text:
         return []
@@ -218,7 +213,7 @@ def _split_by_md_headers(text: str) -> List[str]:
 
     # 优先用 ## (更细)
     if h2_matches and len(h2_matches) >= 2:
-        splits: List[str] = []
+        splits: list[str] = []
         for i, m in enumerate(h2_matches):
             start = m.start()
             end = h2_matches[i + 1].start() if i + 1 < len(h2_matches) else len(text)
@@ -240,14 +235,14 @@ def _split_by_md_headers(text: str) -> List[str]:
     return []
 
 
-def _split_by_numbered(text: str) -> List[str]:
+def _split_by_numbered(text: str) -> list[str]:
     """按 numbered `1. ` `2. ` 切分"""
     if not text:
         return []
     matches = list(NUMBERED_RE.finditer(text))
     if len(matches) < 2:
         return []
-    splits: List[str] = []
+    splits: list[str] = []
     for i, m in enumerate(matches):
         start = m.start()
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
@@ -257,7 +252,7 @@ def _split_by_numbered(text: str) -> List[str]:
     return splits
 
 
-def _split_by_word_count(text: str, words_per_chunk: int) -> List[str]:
+def _split_by_word_count(text: str, words_per_chunk: int) -> list[str]:
     """按词数兜底切分。
 
     策略:先按句子边界(中英句号/换行)切,再按 word 数聚合。
@@ -271,8 +266,8 @@ def _split_by_word_count(text: str, words_per_chunk: int) -> List[str]:
     sentences = re.split(r"(?<=[。.!?！？\n])\s+", text)
     sentences = [s for s in sentences if s.strip()]
 
-    chunks: List[str] = []
-    cur: List[str] = []
+    chunks: list[str] = []
+    cur: list[str] = []
     cur_words = 0
     for sent in sentences:
         s = sent.strip()
@@ -317,9 +312,9 @@ def _extract_title(chunk: str) -> str:
     return first_line or "(untitled)"
 
 
-def _build_sections(chunks: List[str]) -> List[Section]:
+def _build_sections(chunks: list[str]) -> list[Section]:
     """把 chunk 列表组装为 Section 列表"""
-    out: List[Section] = []
+    out: list[Section] = []
     for i, chunk in enumerate(chunks):
         if not chunk.strip():
             continue
@@ -359,8 +354,8 @@ def evaluate_section(section: Section) -> SectionVerdict:
     Returns:
         SectionVerdict: 包含 viable 标志、0-1 score、reasons、blockers
     """
-    reasons: List[str] = []
-    blockers: List[str] = []
+    reasons: list[str] = []
+    blockers: list[str] = []
 
     wc = section.word_count
     text = section.text or ""
@@ -449,10 +444,8 @@ def compute_ap_score(report: ProposalReport) -> int:
         ratio = viable / total
         # 5 (ratio=0) .. 7 (ratio=1, exclusive)
         ap = int(5 + ratio * 2)
-        if ap > 7:
-            ap = 7
-        if ap < 5:
-            ap = 5
+        ap = min(ap, 7)
+        ap = max(ap, 5)
         return ap
 
     # viable == 0, total > 0
@@ -485,9 +478,9 @@ def validate_proposal(text: str, proposal_idx: int = 0) -> ProposalReport:
         )
 
     sections = split_into_sections(text)
-    verdicts: List[SectionVerdict] = []
+    verdicts: list[SectionVerdict] = []
     viable_count = 0
-    failing: List[int] = []
+    failing: list[int] = []
 
     for sec in sections:
         v = evaluate_section(sec)
@@ -511,7 +504,7 @@ def validate_proposal(text: str, proposal_idx: int = 0) -> ProposalReport:
 
 # ============ 多 proposal 比较 ============
 
-def compare_proposals(reports: List[ProposalReport]) -> Dict:
+def compare_proposals(reports: list[ProposalReport]) -> dict:
     """比较多篇 proposal 的 viability 报告。
 
     Args:
@@ -527,7 +520,7 @@ def compare_proposals(reports: List[ProposalReport]) -> Dict:
             "ranking": List[(idx, ap_score)],
         }
     """
-    empty_result: Dict = {
+    empty_result: dict = {
         "best_idx": None,
         "worst_idx": None,
         "avg_ap": 0.0,

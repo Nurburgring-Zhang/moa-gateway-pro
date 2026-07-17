@@ -3,26 +3,24 @@
 真实 assert, 严禁 mock。
 """
 from __future__ import annotations
-import pytest
-import sys
+
 import json
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.section_viability import (
+    MIN_WORDS,
+    ProposalReport,
     Section,
     SectionVerdict,
-    ProposalReport,
-    split_into_sections,
-    evaluate_section,
-    compute_ap_score,
-    validate_proposal,
     compare_proposals,
-    MIN_WORDS,
-    MAX_WORDS,
+    compute_ap_score,
+    evaluate_section,
+    split_into_sections,
+    validate_proposal,
 )
-
 
 # ============ split_into_sections 测试 ============
 

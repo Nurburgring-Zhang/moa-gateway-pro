@@ -25,10 +25,8 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Dict, List, Tuple
-
 
 __all__ = [
     "FlaskDimension",
@@ -96,7 +94,7 @@ class DimensionScore:
     score: int  # 1-5
     evidence: str = ""
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         d = asdict(self)
         d["dimension"] = self.dimension.value
         return d
@@ -106,12 +104,12 @@ class DimensionScore:
 class FlaskScore:
     """12 维评分汇总"""
     total_score: float  # 0-5
-    dimension_scores: Dict[FlaskDimension, int] = field(default_factory=dict)
-    weak_dimensions: List[FlaskDimension] = field(default_factory=list)
-    strong_dimensions: List[FlaskDimension] = field(default_factory=list)
-    details: List[DimensionScore] = field(default_factory=list)
+    dimension_scores: dict[FlaskDimension, int] = field(default_factory=dict)
+    weak_dimensions: list[FlaskDimension] = field(default_factory=list)
+    strong_dimensions: list[FlaskDimension] = field(default_factory=list)
+    details: list[DimensionScore] = field(default_factory=list)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "total_score": round(self.total_score, 3),
             "dimension_scores": {k.value: v for k, v in self.dimension_scores.items()},
@@ -127,11 +125,11 @@ def _clip_score(x: int, lo: int = 1, hi: int = 5) -> int:
     return max(lo, min(hi, int(x)))
 
 
-def _keyword_hits(text_lower: str, keywords) -> List[str]:
+def _keyword_hits(text_lower: str, keywords) -> list[str]:
     return [kw for kw in keywords if kw in text_lower]
 
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     """英文按空格 + 中文按字符"""
     if not text:
         return []
@@ -322,7 +320,7 @@ def score_flask(answer: str, query: str = "") -> FlaskScore:
     text_lower = text.lower()
     answer_lower = text_lower
 
-    details: List[DimensionScore] = [
+    details: list[DimensionScore] = [
         _score_robustness(text_lower),
         _score_correctness(text),
         _score_efficiency(text),
@@ -338,7 +336,7 @@ def score_flask(answer: str, query: str = "") -> FlaskScore:
     ]
 
     # 保证所有 12 维都进了 dict
-    dim_scores: Dict[FlaskDimension, int] = {d.dimension: _clip_score(d.score) for d in details}
+    dim_scores: dict[FlaskDimension, int] = {d.dimension: _clip_score(d.score) for d in details}
 
     # total = mean
     total = sum(dim_scores.values()) / len(dim_scores)
@@ -358,14 +356,14 @@ def score_flask(answer: str, query: str = "") -> FlaskScore:
 # ============ weak/strong 分析 ============
 
 def analyze_dimensions_from_dict(
-    dim_scores: Dict[FlaskDimension, int],
-) -> Tuple[List[FlaskDimension], List[FlaskDimension]]:
+    dim_scores: dict[FlaskDimension, int],
+) -> tuple[list[FlaskDimension], list[FlaskDimension]]:
     """< 3 → weak; >= 4 → strong; 3 → 都不进。
 
     返回两个按 enum 声明顺序排序的列表。
     """
-    weak: List[FlaskDimension] = []
-    strong: List[FlaskDimension] = []
+    weak: list[FlaskDimension] = []
+    strong: list[FlaskDimension] = []
     for d in FlaskDimension:
         s = dim_scores.get(d, 0)
         if s < 3:
@@ -375,7 +373,7 @@ def analyze_dimensions_from_dict(
     return weak, strong
 
 
-def analyze_dimensions(scores: FlaskScore) -> Tuple[List[FlaskDimension], List[FlaskDimension]]:
+def analyze_dimensions(scores: FlaskScore) -> tuple[list[FlaskDimension], list[FlaskDimension]]:
     """根据 FlaskScore 重新分类 weak/strong (按 enum 顺序)"""
     return analyze_dimensions_from_dict(scores.dimension_scores)
 
@@ -397,7 +395,7 @@ def summary_report(scores: FlaskScore) -> str:
     weak = [d.value for d in scores.weak_dimensions]
     strong = [d.value for d in scores.strong_dimensions]
 
-    parts: List[str] = []
+    parts: list[str] = []
     parts.append(f"FLASK total: {total:.2f}/5 ({verdict}).")
     if strong:
         parts.append(f"Strong: {', '.join(strong)}.")
@@ -421,10 +419,10 @@ def flask_to_json(scores: FlaskScore) -> str:
 class TaskNode:
     """任务树节点"""
     name: str
-    children: List["TaskNode"] = field(default_factory=list)
-    keywords: List[str] = field(default_factory=list)
+    children: list[TaskNode] = field(default_factory=list)
+    keywords: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "name": self.name,
             "keywords": list(self.keywords),
@@ -439,7 +437,7 @@ class TaskTree:
     cohesion: float = 0.0   # 0-1, 越高越好
     coupling: float = 0.0   # 0-1, 越低越好
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "root": self.root.to_dict(),
             "cohesion": round(self.cohesion, 3),
@@ -458,12 +456,12 @@ def _node_keyword_overlap(node: TaskNode) -> float:
     """单个节点内部关键词重合度 (聚合度) — 简化: 关键词去重比例"""
     if not node.keywords:
         return 0.0
-    unique = len(set(k.lower() for k in node.keywords))
+    unique = len({k.lower() for k in node.keywords})
     total = len(node.keywords)
     return unique / total if total else 0.0
 
 
-def _build_keywords(name: str) -> List[str]:
+def _build_keywords(name: str) -> list[str]:
     """从一个节点 name 中提取/生成关键词列表"""
     if not name:
         return []
@@ -471,7 +469,7 @@ def _build_keywords(name: str) -> List[str]:
     return [t for t in tokens if t not in STOPWORDS and len(t) >= 2]
 
 
-def build_task_tree(root_name: str, children: List[TaskNode]) -> TaskTree:
+def build_task_tree(root_name: str, children: list[TaskNode]) -> TaskTree:
     """构造一棵任务树, 自动计算 cohesion/coupling 指标
 
     Args:
@@ -484,7 +482,7 @@ def build_task_tree(root_name: str, children: List[TaskNode]) -> TaskTree:
     root = TaskNode(name=root_name, children=list(children), keywords=_build_keywords(root_name))
 
     # cohesion: 所有节点的关键词去重比例均值 (1.0 最优, 0.0 最差)
-    all_nodes: List[TaskNode] = [root]
+    all_nodes: list[TaskNode] = [root]
 
     def _walk(n: TaskNode) -> None:
         for c in n.children:
@@ -508,8 +506,8 @@ def build_task_tree(root_name: str, children: List[TaskNode]) -> TaskTree:
             for i in range(len(n.children)):
                 for j in range(i + 1, len(n.children)):
                     sibling_pairs += 1
-                    kws_i = set(k.lower() for k in n.children[i].keywords)
-                    kws_j = set(k.lower() for k in n.children[j].keywords)
+                    kws_i = {k.lower() for k in n.children[i].keywords}
+                    kws_j = {k.lower() for k in n.children[j].keywords}
                     if kws_i and kws_j and (kws_i & kws_j):
                         shared_count += 1
         for c in n.children:
@@ -521,6 +519,6 @@ def build_task_tree(root_name: str, children: List[TaskNode]) -> TaskTree:
     return TaskTree(root=root, cohesion=round(cohesion, 3), coupling=round(coupling, 3))
 
 
-def tree_cohesion_coupling(tree: TaskTree) -> Tuple[float, float]:
+def tree_cohesion_coupling(tree: TaskTree) -> tuple[float, float]:
     """直接返回 (cohesion, coupling)"""
     return tree.cohesion, tree.coupling

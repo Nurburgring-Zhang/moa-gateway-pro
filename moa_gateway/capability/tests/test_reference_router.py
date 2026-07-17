@@ -22,15 +22,14 @@ if str(ROOT) not in sys.path:
 from reference_router import (  # noqa: E402
     CalibrationItem,
     Decision,
-    RefStrategy,
     ReferenceConfig,
     ReferenceResult,
+    RefStrategy,
     compute_agreement,
     jaccard,
     register_mock_provider,
     route_with_reference,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

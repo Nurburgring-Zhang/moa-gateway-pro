@@ -14,13 +14,12 @@ Ceiling Report 5 section:
 - residual_risk: 残余风险
 """
 from __future__ import annotations
-import json
-import re
-from collections import Counter
-from dataclasses import dataclass, field, asdict
-from enum import Enum
-from typing import List, Dict, Optional, Any, Callable, Set
 
+import re
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
+from enum import Enum
+from typing import Any
 
 __all__ = [
     "GoalTier",
@@ -47,7 +46,7 @@ class GoalTier(str, Enum):
 # ============ 启发式常量 ============
 
 # 停用词 (用于关键词提取)
-STOPWORDS: Set[str] = frozenset({
+STOPWORDS: set[str] = frozenset({
     "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
     "have", "has", "had", "do", "does", "did", "will", "would", "could",
     "should", "may", "might", "must", "shall", "can", "need", "dare",
@@ -71,9 +70,9 @@ class Goal:
     description: str
     tier: GoalTier
     criteria: str                              # Tier 1: 机械命令 / Tier 2: 模型声明
-    evaluator_fn: Optional[Callable] = None    # 可选自定义求值函数
+    evaluator_fn: Callable | None = None    # 可选自定义求值函数
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         d = asdict(self)
         d["tier"] = self.tier.value
         return d
@@ -85,10 +84,10 @@ class GoalResult:
     goal_id: str
     achieved: bool
     score: float            # 0-1
-    evidence: List[str] = field(default_factory=list)
+    evidence: list[str] = field(default_factory=list)
     tier: GoalTier = GoalTier.MECHANICAL
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         d = asdict(self)
         d["tier"] = self.tier.value
         return d
@@ -98,12 +97,12 @@ class GoalResult:
 class CeilingReport:
     """5-section ceiling report"""
     claim: str
-    evidence: List[str] = field(default_factory=list)
+    evidence: list[str] = field(default_factory=list)
     baseline: str = ""
-    gaps: List[str] = field(default_factory=list)
+    gaps: list[str] = field(default_factory=list)
     residual_risk: str = ""
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -114,7 +113,7 @@ def _clip01(x: float) -> float:
     return max(0.0, min(1.0, x))
 
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     """分词:英文按词,中文按字符"""
     if not text:
         return []
@@ -123,11 +122,11 @@ def _tokenize(text: str) -> List[str]:
     return [t.lower() for t in en_tokens] + zh_chars
 
 
-def _extract_keywords(text: str, min_len: int = 2) -> List[str]:
+def _extract_keywords(text: str, min_len: int = 2) -> list[str]:
     """从文本中提取关键词(去停用词)"""
     tokens = _tokenize(text)
-    kws: List[str] = []
-    seen: Set[str] = set()
+    kws: list[str] = []
+    seen: set[str] = set()
     for t in tokens:
         if t in STOPWORDS:
             continue
@@ -157,7 +156,7 @@ def _normalize_output(output: Any) -> str:
 
 # ============ Tier 1 机械求值 ============
 
-def _parse_tier1_criteria(criteria: str) -> Dict[str, Any]:
+def _parse_tier1_criteria(criteria: str) -> dict[str, Any]:
     """解析 Tier 1 criteria 文本为规则 dict
 
     支持的语法(自由格式启发式):
@@ -173,7 +172,7 @@ def _parse_tier1_criteria(criteria: str) -> Dict[str, Any]:
     - 默认: 视为 "contains: <criteria>"
     """
     text = criteria.strip()
-    rule: Dict[str, Any] = {"type": "contains", "value": text, "raw": text}
+    rule: dict[str, Any] = {"type": "contains", "value": text, "raw": text}
 
     if not text:
         return rule
@@ -241,12 +240,12 @@ def _parse_tier1_criteria(criteria: str) -> Dict[str, Any]:
     return rule
 
 
-def _apply_tier1_rule(rule: Dict[str, Any], output: Any) -> tuple:
+def _apply_tier1_rule(rule: dict[str, Any], output: Any) -> tuple:
     """应用 Tier 1 规则,返回 (achieved, score, evidence_lines)"""
     out_str = _normalize_output(output)
     rule_type = rule["type"]
     val = rule["value"]
-    evidence: List[str] = []
+    evidence: list[str] = []
 
     if rule_type == "equals":
         achieved = out_str == val
@@ -278,7 +277,7 @@ def _apply_tier1_rule(rule: Dict[str, Any], output: Any) -> tuple:
         if not isinstance(val, list):
             achieved = False
             score = 0.0
-            evidence.append(f"in rule: invalid value list")
+            evidence.append("in rule: invalid value list")
         else:
             achieved = out_str in val
             score = 1.0 if achieved else 0.0
@@ -414,7 +413,7 @@ def _tier2_keyword_overlap(criteria: str, output: Any) -> tuple:
 def evaluate_tier2(
     goal: Goal,
     output: Any,
-    model_call: Optional[Callable] = None,
+    model_call: Callable | None = None,
 ) -> GoalResult:
     """Tier 2 模型声明求值
 
@@ -428,7 +427,7 @@ def evaluate_tier2(
             f"evaluate_tier2 requires MODEL_DECLARED goal, got {goal.tier}"
         )
 
-    evidence: List[str] = []
+    evidence: list[str] = []
     evidence.append(f"tier=2 criteria={goal.criteria!r}")
 
     # 自定义 evaluator 优先
@@ -524,9 +523,9 @@ def evaluate_tier2(
 
 def generate_ceiling_report(
     claim: str,
-    evidence: List[str],
+    evidence: list[str],
     baseline: str,
-    gaps: List[str],
+    gaps: list[str],
     residual_risk: str,
 ) -> CeilingReport:
     """生成 5-section ceiling report
@@ -585,7 +584,7 @@ def compute_completeness_score(report: CeilingReport) -> float:
 def evaluate_goal(
     goal: Goal,
     output: Any,
-    model_call: Optional[Callable] = None,
+    model_call: Callable | None = None,
 ) -> GoalResult:
     """主入口:按 tier 分派"""
     if goal.tier == GoalTier.MECHANICAL:
@@ -595,7 +594,7 @@ def evaluate_goal(
     raise ValueError(f"unknown tier: {goal.tier}")
 
 
-def evaluate_goals(goals: List[Goal], output: Any) -> List[GoalResult]:
+def evaluate_goals(goals: list[Goal], output: Any) -> list[GoalResult]:
     """批量求值:对同一 output 求所有 goals 的结果
 
     真实逻辑:
@@ -605,7 +604,7 @@ def evaluate_goals(goals: List[Goal], output: Any) -> List[GoalResult]:
     """
     if not goals:
         return []
-    results: List[GoalResult] = []
+    results: list[GoalResult] = []
     for g in goals:
         results.append(evaluate_goal(g, output, model_call=None))
     return results

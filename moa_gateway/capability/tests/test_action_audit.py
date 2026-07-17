@@ -12,25 +12,23 @@
 - JSON 序列化
 - 多次 audit 不同 audit_id
 """
-import sys
-import os
 import json
+import os
+import sys
 import tempfile
-import hashlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.action_audit import (
     AuditDecision,
-    AuditStep,
-    AuditLog,
     AuditGate,
+    AuditLog,
+    AuditStep,
+    _hash_action_data,
     default_policy,
     get_step_order,
-    _hash_action_data,
 )
-
 
 # ============ AuditDecision ============
 
@@ -269,7 +267,7 @@ def test_persist_writes_to_log_path_file():
         gate.audit("ax", {"action": "read", "path": "/file"})
         gate.audit("ay", {"action": "delete", "path": "/file2"})
         assert os.path.isfile(path)
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             lines = [ln for ln in f.read().splitlines() if ln.strip()]
         assert len(lines) == 2
         rec0 = json.loads(lines[0])

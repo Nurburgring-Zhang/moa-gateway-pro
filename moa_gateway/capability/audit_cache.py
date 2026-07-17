@@ -10,14 +10,14 @@
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import threading
 import time
 import uuid
 from collections import OrderedDict
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional, Any
-
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 # ============ Constants ============
 
@@ -48,7 +48,7 @@ class AuditEvent:
     outcome: str = "allow"
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: float = field(default_factory=time.time)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not isinstance(self.outcome, str) or self.outcome not in VALID_OUTCOMES:
@@ -65,12 +65,12 @@ class AuditEvent:
 
     # ----- 序列化 -----
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """序列化为 JSON-safe 字典。"""
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AuditEvent":
+    def from_dict(cls, data: dict[str, Any]) -> AuditEvent:
         """从 dict 反序列化。缺失字段使用 dataclass 默认值。"""
         if not isinstance(data, dict):
             raise TypeError(f"需要 dict,收到 {type(data).__name__}")
@@ -104,7 +104,7 @@ class AuditCache:
         self,
         max_size: int = 10000,
         ttl_seconds: int = 86400,
-        time_func: Optional[Any] = None,
+        time_func: Any | None = None,
     ) -> None:
         if max_size <= 0:
             raise ValueError(f"max_size 必须 > 0,收到 {max_size}")
@@ -117,7 +117,7 @@ class AuditCache:
         self._lock = threading.RLock()
         # OrderedDict: key=event_id, value=AuditEvent
         # 顺序语义: 最近访问(写入或命中)在末尾,最久未访问在头部
-        self._store: "OrderedDict[str, AuditEvent]" = OrderedDict()
+        self._store: OrderedDict[str, AuditEvent] = OrderedDict()
 
     # ----- 内部辅助 -----
 
@@ -126,10 +126,8 @@ class AuditCache:
 
     def _touch(self, key: str) -> None:
         """把 key 移到末尾(标记最近使用)。要求持锁。"""
-        try:
+        with contextlib.suppress(KeyError):
             self._store.move_to_end(key)
-        except KeyError:
-            pass
 
     def _evict_lru(self) -> None:
         """淘汰头部(最久未访问)。要求持锁。"""
@@ -159,7 +157,7 @@ class AuditCache:
 
     # ----- 读取 -----
 
-    def get(self, event_id: str) -> Optional[AuditEvent]:
+    def get(self, event_id: str) -> AuditEvent | None:
         """按 id 取出事件。
 
         - 命中且未过期:返回事件并刷新 LRU 顺序。
@@ -171,21 +169,19 @@ class AuditCache:
             if ev is None:
                 return None
             if self._is_expired(ev):
-                try:
+                with contextlib.suppress(KeyError):
                     del self._store[event_id]
-                except KeyError:
-                    pass
                 return None
             self._store.move_to_end(event_id)
             return ev
 
     def query(
         self,
-        event_type: Optional[str] = None,
-        actor: Optional[str] = None,
-        since: Optional[float] = None,
+        event_type: str | None = None,
+        actor: str | None = None,
+        since: float | None = None,
         limit: int = 100,
-    ) -> List[AuditEvent]:
+    ) -> list[AuditEvent]:
         """按过滤条件查询事件(按 timestamp 升序,稳定顺序)。
 
         - ``event_type`` / ``actor`` 精确匹配;为 ``None`` 表示不过滤。
@@ -196,8 +192,8 @@ class AuditCache:
         if limit <= 0:
             return []
         with self._lock:
-            expired_keys: List[str] = []
-            matched: List[AuditEvent] = []
+            expired_keys: list[str] = []
+            matched: list[AuditEvent] = []
             now = self._time()
             # 遍历时不立刻改 dict(改 key 列表稍后处理)
             for key, ev in self._store.items():
@@ -212,10 +208,8 @@ class AuditCache:
                     continue
                 matched.append(ev)
             for k in expired_keys:
-                try:
+                with contextlib.suppress(KeyError):
                     del self._store[k]
-                except KeyError:
-                    pass
             matched.sort(key=lambda e: e.timestamp)
             return matched[:limit]
 
@@ -232,13 +226,11 @@ class AuditCache:
             now = self._time()
             expired = [k for k, ev in self._store.items() if (now - ev.timestamp) > self._ttl]
             for k in expired:
-                try:
+                with contextlib.suppress(KeyError):
                     del self._store[k]
-                except KeyError:
-                    pass
             return len(expired)
 
-    def stats(self) -> Dict[str, int]:
+    def stats(self) -> dict[str, int]:
         """按 ``event_type`` 统计未过期事件数。
 
         Returns:
@@ -246,7 +238,7 @@ class AuditCache:
         """
         with self._lock:
             now = self._time()
-            out: Dict[str, int] = {}
+            out: dict[str, int] = {}
             for ev in self._store.values():
                 if (now - ev.timestamp) > self._ttl:
                     continue
@@ -260,7 +252,7 @@ class AuditCache:
 
     # ----- 序列化 -----
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """导出为可 JSON 序列化的字典(仅含未过期事件)。"""
         with self._lock:
             now = self._time()
@@ -279,9 +271,9 @@ class AuditCache:
     @classmethod
     def from_dict(
         cls,
-        data: Dict[str, Any],
-        time_func: Optional[Any] = None,
-    ) -> "AuditCache":
+        data: dict[str, Any],
+        time_func: Any | None = None,
+    ) -> AuditCache:
         """从 ``to_dict`` 产物重建缓存。
 
         过期事件不会进入新实例(避免导入即脏数据)。
@@ -310,6 +302,6 @@ class AuditCache:
     def from_json(
         cls,
         payload: str,
-        time_func: Optional[Any] = None,
-    ) -> "AuditCache":
+        time_func: Any | None = None,
+    ) -> AuditCache:
         return cls.from_dict(json.loads(payload), time_func=time_func)

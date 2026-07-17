@@ -18,12 +18,11 @@
   - frequency 跨 proposal 累加, 同一 normalized 句视为同 idea
 """
 from __future__ import annotations
+
 import json
 import re
-from collections import defaultdict
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Set, Any
-
+from dataclasses import asdict, dataclass, field
+from typing import Any
 
 __all__ = [
     "DistilledIdea",
@@ -58,7 +57,7 @@ SENTENCE_SPLIT_RE = re.compile(r"[。.!?！？;；\n]+")
 WORD_RE = re.compile(r"[a-zA-Z][a-zA-Z\-]*|[\u4e00-\u9fff]|\d+")
 
 # 停用词 (英文 + 中文, 精简版)
-STOPWORDS: Set[str] = frozenset({
+STOPWORDS: set[str] = frozenset({
     "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
     "have", "has", "had", "do", "does", "did", "will", "would", "could",
     "should", "may", "might", "must", "shall", "can", "need",
@@ -78,39 +77,39 @@ STOPWORDS: Set[str] = frozenset({
 class DistilledIdea:
     """单个蒸馏 idea"""
     text: str
-    source_proposals: List[int] = field(default_factory=list)
+    source_proposals: list[int] = field(default_factory=list)
     frequency: int = 0
     importance_score: float = 0.0
     kept: bool = False
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
 @dataclass
 class DistillationResult:
     """蒸馏结果"""
-    kept_ideas: List[DistilledIdea] = field(default_factory=list)
-    dropped_ideas: List[DistilledIdea] = field(default_factory=list)
+    kept_ideas: list[DistilledIdea] = field(default_factory=list)
+    dropped_ideas: list[DistilledIdea] = field(default_factory=list)
     original_count: int = 0
     distilled_count: int = 0
     distillation_ratio: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
 # ============ 辅助函数 ============
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     """分词: 英文 + 数字块 + 单个中文字符"""
     if not text:
         return []
     return [t.lower() for t in WORD_RE.findall(text)]
 
 
-def _split_sentences(text: str) -> List[str]:
+def _split_sentences(text: str) -> list[str]:
     """按句号/分号/换行切句"""
     if not text or not text.strip():
         return []
@@ -125,13 +124,13 @@ def _word_count(text: str) -> int:
     return len(_tokenize(text))
 
 
-def _normalize_keywords(text: str) -> List[str]:
+def _normalize_keywords(text: str) -> list[str]:
     """提取归一化的关键词 (去停用词, 小写)"""
     tokens = _tokenize(text)
     return [t for t in tokens if t not in STOPWORDS and len(t) >= 2]
 
 
-def _jaccard_keywords(a: List[str], b: List[str]) -> float:
+def _jaccard_keywords(a: list[str], b: list[str]) -> float:
     """两个关键词集合的 Jaccard 相似度"""
     if not a and not b:
         return 1.0
@@ -170,7 +169,7 @@ def _compute_importance(text: str) -> float:
 
 # ============ 1. extract_ideas ============
 
-def extract_ideas(proposal_text: str, proposal_idx: int) -> List[DistilledIdea]:
+def extract_ideas(proposal_text: str, proposal_idx: int) -> list[DistilledIdea]:
     """从单 proposal 抽取 idea 列表
 
     启发式:
@@ -192,8 +191,8 @@ def extract_ideas(proposal_text: str, proposal_idx: int) -> List[DistilledIdea]:
         return []
 
     sents = _split_sentences(proposal_text)
-    ideas: List[DistilledIdea] = []
-    seen: Set[str] = set()
+    ideas: list[DistilledIdea] = []
+    seen: set[str] = set()
 
     for sent in sents:
         if _word_count(sent) < MIN_WORDS_PER_IDEA:
@@ -221,8 +220,8 @@ def extract_ideas(proposal_text: str, proposal_idx: int) -> List[DistilledIdea]:
 # ============ 2. curate_ideas ============
 
 def _merge_ideas_across_proposals(
-    ideas_per_proposal: List[List[DistilledIdea]],
-) -> List[DistilledIdea]:
+    ideas_per_proposal: list[list[DistilledIdea]],
+) -> list[DistilledIdea]:
     """跨 proposal 合并同 idea (按 Jaccard 关键词相似度 ≥ MERGE_JACCARD_THRESHOLD)
 
     流程:
@@ -238,14 +237,14 @@ def _merge_ideas_across_proposals(
         return []
 
     # 展平 + 按 (proposal_idx, idea) 排序保证稳定性
-    flat: List[DistilledIdea] = []
+    flat: list[DistilledIdea] = []
     for ideas in ideas_per_proposal:
         flat.extend(ideas)
 
     if not flat:
         return []
 
-    clusters: List[Dict[str, Any]] = []
+    clusters: list[dict[str, Any]] = []
 
     for idea in flat:
         idea_kws = set(_normalize_keywords(idea.text))
@@ -271,14 +270,14 @@ def _merge_ideas_across_proposals(
             })
 
     # 组装结果
-    result: List[DistilledIdea] = []
+    result: list[DistilledIdea] = []
     for cluster in clusters:
         ideas_in = cluster["ideas"]
         if not ideas_in:
             continue
         canonical = ideas_in[0].text
         total_freq = sum(i.frequency for i in ideas_in)
-        all_sources: List[int] = []
+        all_sources: list[int] = []
         for i in ideas_in:
             for sp in i.source_proposals:
                 if sp not in all_sources:
@@ -299,7 +298,7 @@ def _merge_ideas_across_proposals(
 
 
 def curate_ideas(
-    ideas_per_proposal: List[List[DistilledIdea]],
+    ideas_per_proposal: list[list[DistilledIdea]],
     keep_ratio: float = 0.5,
 ) -> DistillationResult:
     """curation: 按 frequency × importance 排序, 保留 top keep_ratio
@@ -367,7 +366,7 @@ def curate_ideas(
 # ============ 3. distill_proposals ============
 
 def distill_proposals(
-    proposals: List[str],
+    proposals: list[str],
     keep_ratio: float = 0.5,
 ) -> DistillationResult:
     """一站式: extract + curate
@@ -389,7 +388,7 @@ def distill_proposals(
             metadata={"keep_ratio": keep_ratio, "n_proposals": 0},
         )
 
-    ideas_per_proposal: List[List[DistilledIdea]] = []
+    ideas_per_proposal: list[list[DistilledIdea]] = []
     for idx, text in enumerate(proposals):
         ideas_per_proposal.append(extract_ideas(text, idx))
 
@@ -402,8 +401,8 @@ def distill_proposals(
 # ============ 4. multi_eval_average ============
 
 def multi_eval_average(
-    evaluations: List[Dict[str, float]],
-) -> Dict[str, float]:
+    evaluations: list[dict[str, float]],
+) -> dict[str, float]:
     """多评分器共识平均
 
     多个 evaluator 的多维评分 → 每个维度求平均 + 偏差 (bias)
@@ -429,7 +428,7 @@ def multi_eval_average(
         }
 
     # 收集所有维度
-    all_dims: Set[str] = set()
+    all_dims: set[str] = set()
     for ev in evaluations:
         all_dims.update(ev.keys())
 
@@ -441,21 +440,21 @@ def multi_eval_average(
         }
 
     # 计算每个维度的平均
-    dim_avg: Dict[str, float] = {}
+    dim_avg: dict[str, float] = {}
     for dim in all_dims:
         vals = [float(ev[dim]) for ev in evaluations if dim in ev]
         if vals:
             dim_avg[dim] = round(sum(vals) / len(vals), 4)
 
     # 总体平均 (所有 evaluator 所有维度的平均)
-    all_vals: List[float] = []
+    all_vals: list[float] = []
     for ev in evaluations:
         for v in ev.values():
             all_vals.append(float(v))
     overall_mean = sum(all_vals) / len(all_vals) if all_vals else 0.0
 
     # 每个 evaluator 的偏差 = 该 evaluator 平均 - 总体平均
-    biases: Dict[str, float] = {}
+    biases: dict[str, float] = {}
     for i, ev in enumerate(evaluations):
         ev_vals = [float(v) for v in ev.values()]
         if ev_vals:
@@ -464,7 +463,7 @@ def multi_eval_average(
         else:
             biases[str(i)] = 0.0
 
-    result: Dict[str, Any] = {
+    result: dict[str, Any] = {
         "evaluator_count": len(evaluations),
         "biases": biases,
         "dimensions": sorted(all_dims),
@@ -480,9 +479,9 @@ def multi_eval_average(
 # ============ 5. apply_bias_correction ============
 
 def apply_bias_correction(
-    scores: Dict[str, float],
-    biases: Dict[str, float],
-) -> Dict[str, float]:
+    scores: dict[str, float],
+    biases: dict[str, float],
+) -> dict[str, float]:
     """偏差修正: score - bias
 
     Args:
@@ -502,7 +501,7 @@ def apply_bias_correction(
     bias_vals = [float(b) for b in biases.values()]
     avg_bias = sum(bias_vals) / len(bias_vals) if bias_vals else 0.0
 
-    corrected: Dict[str, float] = {}
+    corrected: dict[str, float] = {}
     for k, v in scores.items():
         corrected[k] = round(float(v) - avg_bias, 4)
 

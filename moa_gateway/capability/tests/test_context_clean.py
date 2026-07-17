@@ -1,17 +1,20 @@
 """context_clean 真实测试 — 端到端验证(非 mock)"""
-import sys
 import copy
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.context_clean import (
-    Message, CleanStats,
-    clean_messages, merge_consecutive_role, strip_orphan_tool,
-    prepend_user_if_first_assistant, truncate_to_chars,
-    to_openai_format, from_openai_format,
+    Message,
+    clean_messages,
+    from_openai_format,
+    merge_consecutive_role,
+    prepend_user_if_first_assistant,
+    strip_orphan_tool,
+    to_openai_format,
+    truncate_to_chars,
 )
-
 
 # ============ Stage 1 ============
 

@@ -7,32 +7,36 @@
 - 全程无 assert 返回 True, 失败即 raise
 """
 from __future__ import annotations
-import sys
+
 import asyncio
 import json
+import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Any
-from dataclasses import dataclass, field
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from moa_gateway.providers.base import (
-    ChatRequest, ChatResponse, Provider, ProviderError
-)
 from moa_gateway.capability.n_layer_moa import (
-    Proposer, Aggregator, LayerResult, MoAConfig,
-    MoARunError, BudgetExceededError,
-    synthesize_layer, run_n_layer_moa, run_three_layer_moa,
+    Aggregator,
+    BudgetExceededError,
+    LayerResult,
+    MoAConfig,
+    MoARunError,
+    Proposer,
+    run_n_layer_moa,
+    run_three_layer_moa,
+    synthesize_layer,
 )
-
+from moa_gateway.providers.base import ChatRequest, ChatResponse, Provider, ProviderError
 
 # ============ FakeProvider: 可控响应,记录调用历史 ============
 
 @dataclass
 class CallRecord:
     model_id: str
-    messages: List[Dict[str, Any]]
+    messages: list[dict[str, Any]]
     temperature: float = 0.6
     stream: bool = False
 
@@ -40,12 +44,12 @@ class CallRecord:
 class FakeProvider(Provider):
     """测试用 Provider — 不发网络,按 model_id 返回预置响应"""
 
-    def __init__(self, responses: Dict[str, str], fail_on: Dict[str, Exception] = None,
+    def __init__(self, responses: dict[str, str], fail_on: dict[str, Exception] = None,
                  echo_prev: bool = False, delay: float = 0.0):
         super().__init__(api_base="fake://", api_key="fake", timeout=10)
         self.responses = dict(responses)
         self.fail_on = dict(fail_on or {})
-        self.calls: List[CallRecord] = []
+        self.calls: list[CallRecord] = []
         self.echo_prev = echo_prev
         self.delay = delay
 
@@ -113,9 +117,9 @@ class FakeProvider(Provider):
         )
 
 
-def _make_registry(providers: List[FakeProvider]) -> Dict[str, Provider]:
+def _make_registry(providers: list[FakeProvider]) -> dict[str, Provider]:
     """合并多个 FakeProvider 的 responses,生成 model_id -> Provider map"""
-    reg: Dict[str, Provider] = {}
+    reg: dict[str, Provider] = {}
     for fp in providers:
         for m in list(fp.responses.keys()) + list(fp.fail_on.keys()):
             if m not in reg:
@@ -163,7 +167,7 @@ def test_synthesize_layer_single_proposer():
 def test_run_n_layer_3_layers():
     async def main():
         prov = FakeProvider({
-            "p-m": f"proposal text",
+            "p-m": "proposal text",
             "a-m": "aggregated",
         })
         reg = {"p-m": prov, "a-m": prov}
@@ -194,7 +198,7 @@ def test_prev_aggregated_passed_down():
         proposers = [Proposer("p1", "p-m"), Proposer("p2", "p-m")]
         agg = Aggregator("a1", "a-m")
         cfg = MoAConfig(num_layers=3, proposers_per_layer=2, temperature=0.6)
-        results = await run_n_layer_moa(
+        await run_n_layer_moa(
             query="hello", config=cfg,
             proposers=proposers, aggregator=agg, providers_registry=reg,
         )
@@ -213,10 +217,10 @@ def test_prev_aggregated_passed_down():
         )
         assert saw_prev, "prev_aggregated not found in L2+ proposer user content"
         # L2+ proposer 响应 (echo_prev) 应包含 "MOCK: ref=..."
-        mock_responses = [c.messages[-1].get("content", "") for c in prov.calls
+        [c.messages[-1].get("content", "") for c in prov.calls
                           if c.model_id == "p-m" and "上一轮" in c.messages[-1].get("content", "")]
         # 实际响应是 FakeProvider 处理后返回的内容, 我们从 call history 反推: L2+ 之后 aggregator 收到的 user content 包含 "MOCK: ref=..."(因为 proposer 返回了它)
-        l2_agg_calls = prov.calls[3 + 1:]  # rough, but at least one L2+ aggregator call should see MOCK: ref
+        prov.calls[3 + 1:]  # rough, but at least one L2+ aggregator call should see MOCK: ref
         saw_mock_ref = any(
             "MOCK:" in c.messages[-1].get("content", "")
             for c in prov.calls if c.model_id == "a-m"
@@ -373,7 +377,7 @@ def test_budget_exceeded_raises():
                 aggregator=agg, providers_registry=reg,
                 max_total_tokens=10, tokens_used=100,
             )
-            assert False, "should have raised BudgetExceededError"
+            raise AssertionError("should have raised BudgetExceededError")
         except BudgetExceededError as e:
             assert "budget exhausted" in str(e).lower()
             print(f"  ✓ test_budget_exceeded_raises ({e})")
@@ -385,17 +389,17 @@ def test_budget_exceeded_raises():
 def test_invalid_config_raises_value_error():
     try:
         MoAConfig(num_layers=0, proposers_per_layer=2)
-        assert False, "num_layers=0 should raise"
+        raise AssertionError("num_layers=0 should raise")
     except ValueError as e:
         assert "num_layers" in str(e)
     try:
         MoAConfig(num_layers=2, proposers_per_layer=0)
-        assert False, "proposers_per_layer=0 should raise"
+        raise AssertionError("proposers_per_layer=0 should raise")
     except ValueError as e:
         assert "proposers_per_layer" in str(e)
     try:
         MoAConfig(num_layers=2, proposers_per_layer=2, temperature=3.0)
-        assert False, "temperature out of range should raise"
+        raise AssertionError("temperature out of range should raise")
     except ValueError as e:
         assert "temperature" in str(e)
     # valid config 不抛
@@ -456,10 +460,10 @@ def test_all_proposers_fail_raises_moarunerror():
                 proposers=proposers, query="Q", layer_idx=1,
                 aggregator=agg, providers_registry=reg,
             )
-            assert False, "should have raised MoARunError"
+            raise AssertionError("should have raised MoARunError")
         except MoARunError as e:
             assert "all" in str(e).lower()
-            print(f"  ✓ test_all_proposers_fail_raises_moarunerror")
+            print("  ✓ test_all_proposers_fail_raises_moarunerror")
     asyncio.run(main())
 
 
@@ -476,10 +480,10 @@ def test_three_layer_wrong_aggregator_count():
                 aggregators=[Aggregator("a", "a")],  # 只 1 个
                 providers_registry=reg,
             )
-            assert False, "should raise ValueError"
+            raise AssertionError("should raise ValueError")
         except ValueError as e:
             assert "3" in str(e)
-            print(f"  ✓ test_three_layer_wrong_aggregator_count")
+            print("  ✓ test_three_layer_wrong_aggregator_count")
 
 
 # ============ Bonus 测试 14: 1 层 default (无 explicit aggregator) ============

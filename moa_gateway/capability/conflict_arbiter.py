@@ -15,11 +15,9 @@
   - fuse_decision 在评分基础上做"内部一致性"修正
 """
 from __future__ import annotations
-import re
-from collections import defaultdict
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Tuple, Set, Optional
 
+import re
+from dataclasses import asdict, dataclass, field
 
 __all__ = [
     "ConflictOption",
@@ -56,7 +54,7 @@ COMPILABLE_NEUTRAL: float = 0.5
 COMPILABLE_FALSE: float = 0.0
 
 # 停用词 (沿用 convergent_detector 风格)
-STOPWORDS: Set[str] = frozenset({
+STOPWORDS: set[str] = frozenset({
     "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
     "have", "has", "had", "do", "does", "did", "will", "would", "could",
     "should", "may", "might", "must", "shall", "can", "need", "dare",
@@ -67,7 +65,7 @@ STOPWORDS: Set[str] = frozenset({
     "we", "they", "what", "which", "who", "whom", "how", "why",
     "的", "了", "是", "在", "和", "与", "或", "但", "如果", "那么",
     "我", "你", "他", "她", "它", "我们", "他们", "这", "那", "什么",
-    "怎么", "为什么", "哪个", "哪些", "一个", "一些", "我们", "认为",
+    "怎么", "为什么", "哪个", "哪些", "一个", "一些", "认为",
     "可以", "可能", "应该", "需要", "进行", "使用", "通过", "得到",
 })
 
@@ -85,12 +83,12 @@ class ConflictOption:
     """冲突中的一个选项"""
     option_id: str
     description: str
-    supporting_proposals: List[int] = field(default_factory=list)
-    viability_scores: Dict[int, float] = field(default_factory=dict)
-    command_compilable: Optional[bool] = None
+    supporting_proposals: list[int] = field(default_factory=list)
+    viability_scores: dict[int, float] = field(default_factory=dict)
+    command_compilable: bool | None = None
     empirical_evidence_count: int = 0
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -98,29 +96,29 @@ class ConflictOption:
 class ConflictVerdict:
     """冲突仲裁结果"""
     winner_option_id: str
-    runner_up_id: Optional[str] = None
+    runner_up_id: str | None = None
     confidence: float = 0.0
     rationale: str = ""
-    voting_breakdown: Dict[str, float] = field(default_factory=dict)
+    voting_breakdown: dict[str, float] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
 # ============ 辅助函数 ============
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     """分词: 英文 + 数字块 + 单个中文字符"""
     if not text:
         return []
     return [t.lower() for t in WORD_RE.findall(text)]
 
 
-def _keywords(text: str) -> List[str]:
+def _keywords(text: str) -> list[str]:
     """提取关键词: 停用词过滤 + lower"""
     tokens = _tokenize(text)
-    kws: List[str] = []
-    seen: Set[str] = set()
+    kws: list[str] = []
+    seen: set[str] = set()
     for t in tokens:
         if t in STOPWORDS:
             continue
@@ -133,7 +131,7 @@ def _keywords(text: str) -> List[str]:
     return kws
 
 
-def _jaccard(a: List[str], b: List[str]) -> float:
+def _jaccard(a: list[str], b: list[str]) -> float:
     """Jaccard 相似度: |A∩B| / |A∪B|"""
     if not a and not b:
         return 1.0
@@ -153,7 +151,7 @@ def _viability_score(option: ConflictOption) -> float:
     """
     if not option.supporting_proposals:
         return 0.0
-    scores: List[float] = []
+    scores: list[float] = []
     for pidx in option.supporting_proposals:
         if pidx in option.viability_scores:
             v = option.viability_scores[pidx]
@@ -188,7 +186,7 @@ def _compilable_score(option: ConflictOption) -> float:
 
 # ============ 核心 API: score_option ============
 
-def score_option(option: ConflictOption, total_proposals: int = 0) -> Dict[str, float]:
+def score_option(option: ConflictOption, total_proposals: int = 0) -> dict[str, float]:
     """对一个 option 做 4 维评分
 
     Args:
@@ -222,17 +220,17 @@ def score_option(option: ConflictOption, total_proposals: int = 0) -> Dict[str, 
 # ============ 核心 API: build_conflict_from_proposals ============
 
 def build_conflict_from_proposals(
-    proposals: List[str],
-    option_a_keywords: List[str],
-    option_b_keywords: List[str],
+    proposals: list[str],
+    option_a_keywords: list[str],
+    option_b_keywords: list[str],
     option_a_label: str,
     option_b_label: str,
-    viability_scores: Optional[Dict[int, float]] = None,
-    command_compilable_a: Optional[bool] = None,
-    command_compilable_b: Optional[bool] = None,
+    viability_scores: dict[int, float] | None = None,
+    command_compilable_a: bool | None = None,
+    command_compilable_b: bool | None = None,
     empirical_a: int = 0,
     empirical_b: int = 0,
-) -> Tuple[ConflictOption, ConflictOption]:
+) -> tuple[ConflictOption, ConflictOption]:
     """从 proposals 构造冲突的 A/B 两 option
 
     流程:
@@ -258,8 +256,8 @@ def build_conflict_from_proposals(
     b_kws = {k.lower() for k in option_b_keywords}
 
     # 同一 proposal 不应同时归入 A 和 B: 用 set 保留到第一个匹配的侧
-    a_pidxs: Set[int] = set()
-    b_pidxs: Set[int] = set()
+    a_pidxs: set[int] = set()
+    b_pidxs: set[int] = set()
 
     for pidx, text in enumerate(proposals):
         if not text:
@@ -322,12 +320,12 @@ def _confidence(winner: float, runner: float) -> float:
 def _rationale(
     winner_id: str,
     winner_desc: str,
-    winner_scores: Dict[str, float],
-    runner_id: Optional[str],
-    runner_scores: Optional[Dict[str, float]],
+    winner_scores: dict[str, float],
+    runner_id: str | None,
+    runner_scores: dict[str, float] | None,
 ) -> str:
     """自动生成 rationale — 简短中文解释"""
-    parts: List[str] = []
+    parts: list[str] = []
     parts.append(
         f"选项 {winner_id} ({winner_desc}) 以总分 {winner_scores['total']:.3f} 胜出"
     )
@@ -356,7 +354,7 @@ def _rationale(
 
 
 def arbitrate(
-    options: List[ConflictOption],
+    options: list[ConflictOption],
     total_proposals: int = 0,
 ) -> ConflictVerdict:
     """仲裁 — 选总分最高 option
@@ -385,7 +383,7 @@ def arbitrate(
         max_sup = max((len(o.supporting_proposals) for o in options), default=0)
         total_proposals = max_sup if max_sup > 0 else 1
 
-    scored: List[Tuple[ConflictOption, Dict[str, float]]] = []
+    scored: list[tuple[ConflictOption, dict[str, float]]] = []
     for opt in options:
         sc = score_option(opt, total_proposals)
         scored.append((opt, sc))
@@ -399,8 +397,8 @@ def arbitrate(
 
     # 边界: 全 viability=0 时, 选 support 多的 (已经由 sort 兼顾)
     # 若 winner 总分 == runner 总分, 也已由 sort 决定
-    runner_opt: Optional[ConflictOption] = None
-    runner_scores: Optional[Dict[str, float]] = None
+    runner_opt: ConflictOption | None = None
+    runner_scores: dict[str, float] | None = None
     if len(scored) >= 2:
         runner_opt, runner_scores = scored[1]
 
@@ -441,11 +439,11 @@ def arbitrate(
 
 # ============ 核心 API: fuse_decision ============
 
-def _strongest_proposal(option: ConflictOption) -> Optional[int]:
+def _strongest_proposal(option: ConflictOption) -> int | None:
     """提取 viability 最高的 supporting proposal idx"""
     if not option.supporting_proposals:
         return None
-    best_pidx: Optional[int] = None
+    best_pidx: int | None = None
     best_v: float = -1.0
     for pidx in option.supporting_proposals:
         v = option.viability_scores.get(pidx, 0.0)
@@ -457,7 +455,7 @@ def _strongest_proposal(option: ConflictOption) -> Optional[int]:
 
 def _logical_coherence(
     option: ConflictOption,
-    proposals: List[str],
+    proposals: list[str],
 ) -> float:
     """option 内 supporting proposal 之间的关键词 Jaccard 平均重叠度
 
@@ -470,7 +468,7 @@ def _logical_coherence(
     if len(sup) < 2:
         return 1.0
 
-    kwsets: List[Set[str]] = []
+    kwsets: list[set[str]] = []
     for pidx in sup:
         if 0 <= pidx < len(proposals):
             text = proposals[pidx] or ""
@@ -501,7 +499,7 @@ def _logical_coherence(
 
 
 def fuse_decision(
-    options: List[ConflictOption],
+    options: list[ConflictOption],
     query: str,
     total_proposals: int = 0,
 ) -> ConflictVerdict:
@@ -535,7 +533,7 @@ def fuse_decision(
     # 真正需要时, 调用方应通过 supporting_proposals 索引传入 proposals
     # 此处沿用 logical_coherence 的"无 proposals 上下文"模式: 1.0
     # 但为让函数签名一致, 允许外部传 proposals; 我们尝试从 option 取 (扩展接口)
-    proposals: List[str] = []  # 占位 — 实际靠 supporting_proposals 索引不到原文
+    proposals: list[str] = []  # 占位 — 实际靠 supporting_proposals 索引不到原文
     # 改: 内部从 option 的 viability_scores keys 推断 proposal 索引, 但缺原文
     # 解决: 增强 option 让 logical_coherence 退化使用 viability 序列做"coherence"
     # 这里采用更稳健的方式: logical_coherence = mean(viability) 的标准化
@@ -543,7 +541,7 @@ def fuse_decision(
     # 但题目要求 Jaccard — 我们保留 Jaccard 但用空 proposals → 1.0 fallback
     # 真实使用中, 调用方可以扩展 option 加 proposals 字段 (此处保持兼容)
 
-    scored: List[Tuple[ConflictOption, Dict[str, float], float, Optional[int]]] = []
+    scored: list[tuple[ConflictOption, dict[str, float], float, int | None]] = []
     for opt in options:
         sc = score_option(opt, total_proposals)
         coh = _logical_coherence(opt, proposals)
@@ -560,9 +558,9 @@ def fuse_decision(
     scored.sort(key=lambda x: (-x[2], -x[1]["viability"], x[0].option_id))
 
     winner_opt, winner_scores, _, winner_strongest = scored[0]
-    runner_opt: Optional[ConflictOption] = None
-    runner_scores: Optional[Dict[str, float]] = None
-    runner_strongest: Optional[int] = None
+    runner_opt: ConflictOption | None = None
+    runner_scores: dict[str, float] | None = None
+    runner_strongest: int | None = None
     if len(scored) >= 2:
         runner_opt, runner_scores, _, runner_strongest = scored[1]
 
@@ -573,7 +571,7 @@ def fuse_decision(
     conf = max(0.0, min(1.0, conf))
 
     # rationale 描述"虚拟辩论"
-    parts: List[str] = []
+    parts: list[str] = []
     parts.append(
         f"针对 query「{query[:60]}」做熔铸辩论: "
         f"选项 {winner_opt.option_id} ({winner_opt.description}) "
@@ -620,11 +618,11 @@ def fuse_decision(
 
 # ============ 序列化 ============
 
-def option_to_dict(option: ConflictOption) -> Dict:
+def option_to_dict(option: ConflictOption) -> dict:
     """ConflictOption → dict"""
     return option.to_dict()
 
 
-def verdict_to_dict(verdict: ConflictVerdict) -> Dict:
+def verdict_to_dict(verdict: ConflictVerdict) -> dict:
     """ConflictVerdict → dict"""
     return verdict.to_dict()

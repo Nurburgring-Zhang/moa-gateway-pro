@@ -14,7 +14,6 @@ import re
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -107,15 +106,15 @@ class ReferenceResult:
     ref_answer: str = ""
     similarity: float = 0.0
     agreement: float = 0.0
-    calibration: List[CalibrationItem] = field(default_factory=list)
+    calibration: list[CalibrationItem] = field(default_factory=list)
     decision: Decision = Decision.ACCEPT
     latency_ms: int = 0
     main_cost: float = 0.0
     ref_cost: float = 0.0
     strategy_used: RefStrategy = RefStrategy.NONE
-    error: Optional[str] = None
+    error: str | None = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "main_answer": self.main_answer,
             "ref_answer": self.ref_answer,
@@ -139,7 +138,7 @@ class ReferenceResult:
 # ---------------------------------------------------------------------------
 
 # Provider registry: maps model id -> (latency_ms, base_cost, behaviour).
-_MOCK_PROVIDERS: Dict[str, Dict[str, float]] = {
+_MOCK_PROVIDERS: dict[str, dict[str, float]] = {
     "main-large": {"latency_ms": 120.0, "cost": 0.010, "quality": 0.95},
     "main-medium": {"latency_ms": 80.0, "cost": 0.006, "quality": 0.85},
     "ref-small": {"latency_ms": 60.0, "cost": 0.001, "quality": 0.80, "agreement_bias": 0.90},
@@ -150,7 +149,7 @@ _MOCK_PROVIDERS: Dict[str, Dict[str, float]] = {
 }
 
 # Allow tests to inject custom providers.
-_PROVIDER_OVERRIDES: Dict[str, Dict[str, float]] = {}
+_PROVIDER_OVERRIDES: dict[str, dict[str, float]] = {}
 
 
 def register_mock_provider(model_id: str, **kwargs: float) -> None:
@@ -158,7 +157,7 @@ def register_mock_provider(model_id: str, **kwargs: float) -> None:
     _PROVIDER_OVERRIDES[model_id] = dict(kwargs)
 
 
-def _lookup_provider(model_id: str) -> Dict[str, float]:
+def _lookup_provider(model_id: str) -> dict[str, float]:
     if model_id in _PROVIDER_OVERRIDES:
         return _PROVIDER_OVERRIDES[model_id]
     if model_id in _MOCK_PROVIDERS:
@@ -167,7 +166,7 @@ def _lookup_provider(model_id: str) -> Dict[str, float]:
     return {"latency_ms": 50.0, "cost": 0.001, "quality": 0.8, "agreement_bias": 0.85}
 
 
-def _generate_text_sync(model_id: str, query: str) -> Tuple[str, float, float]:
+def _generate_text_sync(model_id: str, query: str) -> tuple[str, float, float]:
     """Synchronous mock generation.
 
     Returns ``(text, latency_ms, cost)``. Runs in a thread when invoked
@@ -224,7 +223,7 @@ def _synthesise_answer(query: str, quality: float, bias: float) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     if not text:
         return []
     return [t.lower() for t in _TOKEN_RE.findall(text)]
@@ -240,7 +239,7 @@ def jaccard(a: str, b: str) -> float:
     return len(sa & sb) / len(sa | sb)
 
 
-def _split_sentences(text: str) -> List[str]:
+def _split_sentences(text: str) -> list[str]:
     if not text:
         return []
     # Split on . ! ? and CJK full stops.
@@ -269,13 +268,12 @@ def _key_sentence_similarity(a: str, b: str) -> float:
             if union == 0:
                 continue
             score = inter / union
-            if score > best:
-                best = score
+            best = max(best, score)
         total += best
     return total / max(len(sa), 1)
 
 
-def compute_agreement(main: str, ref: str) -> Tuple[float, float]:
+def compute_agreement(main: str, ref: str) -> tuple[float, float]:
     """Compute (similarity, agreement) for two answers.
 
     ``similarity`` is the Jaccard token overlap. ``agreement`` blends
@@ -299,8 +297,8 @@ def _build_calibration(
     decision: Decision,
     cost_ratio: float,
     cost_ratio_cap: float,
-) -> List[CalibrationItem]:
-    items: List[CalibrationItem] = []
+) -> list[CalibrationItem]:
+    items: list[CalibrationItem] = []
     if not main:
         items.append(CalibrationItem("empty_main", "high", "Primary model returned empty output."))
     if ref and not main:
@@ -367,7 +365,7 @@ def _build_calibration(
 # ---------------------------------------------------------------------------
 
 
-async def _call_model(model_id: str, query: str, timeout_ms: Optional[int] = None) -> Tuple[str, float, float]:
+async def _call_model(model_id: str, query: str, timeout_ms: int | None = None) -> tuple[str, float, float]:
     """Call a mock model and return ``(text, latency_ms, cost)``.
 
     Honours ``timeout_ms`` via :func:`asyncio.wait_for`. The synchronous

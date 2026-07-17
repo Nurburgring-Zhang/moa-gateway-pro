@@ -17,9 +17,10 @@ import json
 import math
 import random
 import threading
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
-from dataclasses import dataclass, field, asdict
-from typing import Callable, Dict, List, Literal, Optional, Tuple
+from dataclasses import asdict, dataclass
+from typing import Literal
 
 
 # ============ 数据模型 ============
@@ -38,7 +39,7 @@ class EloRating:
     rating: float = 1500.0
     matches_played: int = 0
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -82,7 +83,7 @@ class EloLeaderboard:
         if k_factor <= 0:
             raise ValueError(f"k_factor must be > 0, got {k_factor}")
         self.k_factor = float(k_factor)
-        self._ratings: Dict[str, EloRating] = {}
+        self._ratings: dict[str, EloRating] = {}
 
     def add_model(self, model_id: str, initial_rating: float = 1500.0) -> None:
         """添加模型。重复添加则重置 rating 和 matches_played"""
@@ -103,7 +104,7 @@ class EloLeaderboard:
         self,
         winner_id: str,
         loser_id: str,
-        timestamp: Optional[float] = None,
+        timestamp: float | None = None,
     ) -> MatchResult:
         """记录一场比赛并更新 Elo
 
@@ -139,11 +140,11 @@ class EloLeaderboard:
             return 0.0
         return self._ratings[model_id].rating
 
-    def get_stats(self, model_id: str) -> Optional[EloRating]:
+    def get_stats(self, model_id: str) -> EloRating | None:
         """获取模型完整 EloRating;不存在 → None"""
         return self._ratings.get(model_id)
 
-    def ranked(self) -> List[EloRating]:
+    def ranked(self) -> list[EloRating]:
         """按 rating 降序返回所有模型"""
         return sorted(
             self._ratings.values(), key=lambda r: r.rating, reverse=True
@@ -155,7 +156,7 @@ class EloLeaderboard:
     def __contains__(self, model_id: str) -> bool:
         return model_id in self._ratings
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "k_factor": self.k_factor,
             "ratings": {mid: r.to_dict() for mid, r in self._ratings.items()},
@@ -164,13 +165,13 @@ class EloLeaderboard:
 
 # ============ Bootstrap 置信区间 ============
 def bootstrap_ci(
-    ratings_before: List[EloRating],
-    matches: List[MatchResult],
+    ratings_before: list[EloRating],
+    matches: list[MatchResult],
     n_resamples: int = 1000,
     ci: float = 0.95,
     k_factor: float = 4.0,
-    seed: Optional[int] = None,
-) -> Dict[str, Tuple[float, float]]:
+    seed: int | None = None,
+) -> dict[str, tuple[float, float]]:
     """Bootstrap CI — 对 match 序列有放回重采样 n_resamples 次,
     对每个 model_id 收集 final rating 分布,取 ci 对应的分位数
 
@@ -191,7 +192,7 @@ def bootstrap_ci(
         raise ValueError(f"n_resamples must be > 0, got {n_resamples}")
 
     # 初始化基线 rating
-    base: Dict[str, float] = {r.model_id: r.rating for r in ratings_before}
+    base: dict[str, float] = {r.model_id: r.rating for r in ratings_before}
     all_model_ids = set(base.keys())
     for m in matches:
         all_model_ids.add(m.winner_id)
@@ -207,14 +208,14 @@ def bootstrap_ci(
     rng = random.Random(seed)
 
     # 收集每模型的所有 final rating
-    distribution: Dict[str, List[float]] = {mid: [] for mid in all_model_ids}
+    distribution: dict[str, list[float]] = {mid: [] for mid in all_model_ids}
 
     for _ in range(n_resamples):
         # 有放回重采样
         sample = [rng.choice(matches) for _ in range(len(matches))]
         # 从 base 开始跑 Elo
-        cur: Dict[str, float] = dict(base)
-        played: Dict[str, int] = {mid: 0 for mid in all_model_ids}
+        cur: dict[str, float] = dict(base)
+        played: dict[str, int] = dict.fromkeys(all_model_ids, 0)
         for m in sample:
             w, l = m.winner_id, m.loser_id
             if w == l:
@@ -233,7 +234,7 @@ def bootstrap_ci(
 
     # 计算分位数
     alpha = (1.0 - ci) / 2.0
-    result: Dict[str, Tuple[float, float]] = {}
+    result: dict[str, tuple[float, float]] = {}
     for mid in all_model_ids:
         samples = distribution[mid]
         samples.sort()
@@ -266,29 +267,29 @@ class WorkerPool:
     job 在独立 ThreadPoolExecutor 中执行(每 worker 自己的池子)。
     """
 
-    def __init__(self, workers: List[str], max_jobs_per_worker: int = 4):
+    def __init__(self, workers: list[str], max_jobs_per_worker: int = 4):
         if not workers:
             raise ValueError("workers must be non-empty")
         # 去重保序
         seen = set()
-        uniq: List[str] = []
+        uniq: list[str] = []
         for w in workers:
             if w not in seen:
                 seen.add(w)
                 uniq.append(w)
         if not uniq:
             raise ValueError("workers must be non-empty after dedup")
-        self._workers: List[str] = uniq
+        self._workers: list[str] = uniq
         self._max_per_worker = max(1, int(max_jobs_per_worker))
         self._strategy: Strategy = "lottery"
         self._rng = random.Random()
         self._lock = threading.Lock()
         # 每 worker 一个 ThreadPoolExecutor
-        self._executors: Dict[str, ThreadPoolExecutor] = {
+        self._executors: dict[str, ThreadPoolExecutor] = {
             w: ThreadPoolExecutor(max_workers=self._max_per_worker) for w in uniq
         }
         # 跟踪当前活跃 job 数
-        self._loads: Dict[str, int] = {w: 0 for w in uniq}
+        self._loads: dict[str, int] = dict.fromkeys(uniq, 0)
 
     def set_strategy(self, strategy: Strategy) -> None:
         s = (strategy or "").strip().lower()
@@ -330,19 +331,19 @@ class WorkerPool:
 
         return executor.submit(_wrapped)
 
-    def worker_loads(self) -> Dict[str, int]:
+    def worker_loads(self) -> dict[str, int]:
         """当前每 worker 活跃 job 数(快照)"""
         with self._lock:
             return dict(self._loads)
 
-    def workers(self) -> List[str]:
+    def workers(self) -> list[str]:
         return list(self._workers)
 
     def shutdown(self, wait: bool = True) -> None:
         for ex in self._executors.values():
             ex.shutdown(wait=wait)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "strategy": self._strategy,
             "workers": list(self._workers),
@@ -352,7 +353,7 @@ class WorkerPool:
 
 
 # ============ JSON 序列化 ============
-def to_json(obj, indent: Optional[int] = 2) -> str:
+def to_json(obj, indent: int | None = 2) -> str:
     """统一 JSON 序列化:支持 dataclass, EloRating, MatchResult, Leaderboard, WorkerPool"""
     if isinstance(obj, EloRating):
         return json.dumps(obj.to_dict(), indent=indent, ensure_ascii=False)

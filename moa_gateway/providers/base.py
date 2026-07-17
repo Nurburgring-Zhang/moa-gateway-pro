@@ -1,10 +1,12 @@
 """moa_gateway.providers.base — Provider 抽象基类"""
 from __future__ import annotations
-import time
+
 import logging
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any, AsyncIterator
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
+from typing import Any
+
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -22,24 +24,24 @@ class ProviderError(Exception):
 class ChatRequest:
     """统一的 chat 请求"""
     model: str
-    messages: List[Dict[str, Any]]
+    messages: list[dict[str, Any]]
     temperature: float = 0.6
     max_tokens: int = 4096
     top_p: float = 1.0
-    stop: Optional[List[str]] = None
-    tools: Optional[List[Dict[str, Any]]] = None
-    tool_choice: Optional[Any] = None
+    stop: list[str] | None = None
+    tools: list[dict[str, Any]] | None = None
+    tool_choice: Any | None = None
     stream: bool = False
     timeout: int = 120
     # 一些 provider 特定的额外字段
-    extra: Dict[str, Any] = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class ChatResponse:
     """统一的 chat 响应"""
     content: str = ""
-    tool_calls: Optional[List[Dict[str, Any]]] = None
+    tool_calls: list[dict[str, Any]] | None = None
     finish_reason: str = "stop"
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -48,14 +50,14 @@ class ChatResponse:
     provider: str = ""
     latency_ms: float = 0.0
     cost: float = 0.0
-    raw: Dict[str, Any] = field(default_factory=dict)
+    raw: dict[str, Any] = field(default_factory=dict)
 
 
 class Provider(ABC):
     """所有 provider 必须实现的抽象接口"""
 
     def __init__(self, api_base: str, api_key: str, timeout: int = 120,
-                 client: Optional[httpx.AsyncClient] = None):
+                 client: httpx.AsyncClient | None = None):
         self.api_base = api_base.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
@@ -89,7 +91,7 @@ class Provider(ABC):
         return bool(self.api_key)
 
     @staticmethod
-    def estimate_cost(usage: Dict[str, int], cost_in: float, cost_out: float) -> float:
+    def estimate_cost(usage: dict[str, int], cost_in: float, cost_out: float) -> float:
         """根据 token 用量估算成本"""
         pt = usage.get("prompt_tokens", 0) or 0
         ct = usage.get("completion_tokens", 0) or 0

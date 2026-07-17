@@ -17,12 +17,13 @@
   - 独立模块,不依赖 self_heal
 """
 from __future__ import annotations
-import math
-import json
+
 import itertools
+import json
+import math
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from enum import Enum
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Optional, Callable
 
 
 # ============ Tier 枚举 ============
@@ -35,14 +36,14 @@ class TierLabel(str, Enum):
     FLAGSHIP = "flagship"
 
 
-_TIER_ORDER: List[TierLabel] = [
+_TIER_ORDER: list[TierLabel] = [
     TierLabel.FREE,
     TierLabel.LITE,
     TierLabel.STANDARD,
     TierLabel.PREMIUM,
     TierLabel.FLAGSHIP,
 ]
-_TIER_INDEX: Dict[TierLabel, int] = {t: i for i, t in enumerate(_TIER_ORDER)}
+_TIER_INDEX: dict[TierLabel, int] = {t: i for i, t in enumerate(_TIER_ORDER)}
 
 
 # ============ 数据模型 ============
@@ -57,7 +58,7 @@ class TierMetrics:
     cost_per_1k_output: float
     daily_call_volume: int = 0
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         d = asdict(self)
         d["tier"] = self.tier.value
         return d
@@ -72,7 +73,7 @@ class RecalibrationPlan:
     score_change: float  # old_score - new_score
     expected_improvement: str  # "demote" / "promote" / "keep"
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "old_tier": self.old_tier.value,
             "new_tier": self.new_tier.value,
@@ -116,7 +117,7 @@ def _cost_score(metrics: TierMetrics) -> float:
 
 def score_tier(
     metrics: TierMetrics,
-    weights: Optional[Dict[str, float]] = None,
+    weights: dict[str, float] | None = None,
 ) -> float:
     """综合评分 — 0.4 latency + 0.4 success + 0.2 cost(默认权重)
     返回 [0, 1] 之间的分数,越高越好
@@ -141,9 +142,9 @@ def score_tier(
 
 # ============ 网格搜索 ============
 def _candidate_thresholds(
-    metrics_list: List[TierMetrics],
+    metrics_list: list[TierMetrics],
     dim: str,
-) -> List[float]:
+) -> list[float]:
     """为单个维度生成 5 个候选阈值 — 基于现有数据自适应生成
     策略:取该维度所有 metrics 的 [min, max],均匀 5 等分
     """
@@ -171,9 +172,9 @@ def _candidate_thresholds(
 
 
 def grid_search_thresholds(
-    metrics_list: List[TierMetrics],
-    score_fn: Optional[Callable[[TierMetrics, Dict[str, float]], float]] = None,
-) -> List[float]:
+    metrics_list: list[TierMetrics],
+    score_fn: Callable[[TierMetrics, dict[str, float]], float] | None = None,
+) -> list[float]:
     """5 维网格搜索 — 在 (p50, p95, success, cost_in, cost_out) 上每维搜 5 候选
     返回最优阈值组合 [t_p50, t_p95, t_success, t_cost_in, t_cost_out]
 
@@ -196,7 +197,7 @@ def grid_search_thresholds(
         )
     )
 
-    best_combo: Optional[List[float]] = None
+    best_combo: list[float] | None = None
     best_value: float = -math.inf
 
     for combo in itertools.product(*candidates_per_dim):
@@ -220,7 +221,7 @@ def grid_search_thresholds(
 
 
 # ============ 重校准 ============
-def _median(values: List[float]) -> float:
+def _median(values: list[float]) -> float:
     """中位数"""
     if not values:
         return 0.0
@@ -232,9 +233,9 @@ def _median(values: List[float]) -> float:
 
 
 def recalibrate(
-    metrics_list: List[TierMetrics],
-    score_fn: Optional[Callable[[TierMetrics], float]] = None,
-) -> List[RecalibrationPlan]:
+    metrics_list: list[TierMetrics],
+    score_fn: Callable[[TierMetrics], float] | None = None,
+) -> list[RecalibrationPlan]:
     """重校准 tier 边界 — 对每个 tier 比较 score 与"标准"(中位数)
 
     真实逻辑:
@@ -249,7 +250,7 @@ def recalibrate(
         return []
 
     fn = score_fn or score_tier
-    scores: List[float] = [fn(m) for m in metrics_list]
+    scores: list[float] = [fn(m) for m in metrics_list]
     median_score = _median(scores)
     # 用一个相对阈值避免微小差异导致误判
     delta = 0.02  # score 差小于 0.02 视为持平
@@ -257,8 +258,8 @@ def recalibrate(
     high_tiers = {TierLabel.PREMIUM, TierLabel.FLAGSHIP}
     low_tiers = {TierLabel.FREE, TierLabel.LITE}
 
-    plans: List[RecalibrationPlan] = []
-    for m, s in zip(metrics_list, scores):
+    plans: list[RecalibrationPlan] = []
+    for m, s in zip(metrics_list, scores, strict=False):
         idx = _TIER_INDEX[m.tier]
         if m.tier in high_tiers and s < median_score - delta:
             # 下沉一档
@@ -311,7 +312,7 @@ def _synth_metrics(target_tier: TierLabel, ref: TierMetrics) -> TierMetrics:
 
 # ============ 触发 retrain ============
 def should_retrain(
-    plans: List[RecalibrationPlan],
+    plans: list[RecalibrationPlan],
     threshold: int = 2,
 ) -> bool:
     """是否触发自动 retrain — 至少 threshold 个 plan 涉及 tier 变化时返回 True
@@ -325,17 +326,17 @@ def should_retrain(
 
 
 # ============ JSON 序列化 ============
-def plans_to_json(plans: List[RecalibrationPlan]) -> str:
+def plans_to_json(plans: list[RecalibrationPlan]) -> str:
     """RecalibrationPlan 列表 → JSON 字符串"""
     return json.dumps([p.to_dict() for p in plans], ensure_ascii=False, indent=2)
 
 
-def metrics_to_json(metrics_list: List[TierMetrics]) -> str:
+def metrics_to_json(metrics_list: list[TierMetrics]) -> str:
     """TierMetrics 列表 → JSON 字符串"""
     return json.dumps([m.to_dict() for m in metrics_list], ensure_ascii=False, indent=2)
 
 
-def plans_from_json(text: str) -> List[RecalibrationPlan]:
+def plans_from_json(text: str) -> list[RecalibrationPlan]:
     """JSON 字符串 → RecalibrationPlan 列表(反序列化)"""
     data = json.loads(text)
     return [

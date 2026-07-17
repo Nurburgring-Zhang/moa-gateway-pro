@@ -42,18 +42,17 @@ from moa_gateway.capability.anthropic_compat import (
     DEFAULT_MAX_TOKENS,
     DEFAULT_TEMPERATURE,
     MAX_TEXT_CHARS,
-    parse_anthropic_request,
-    format_anthropic_response,
-    format_anthropic_sse_chunk,
-    format_anthropic_message_start,
     format_anthropic_content_block_start,
     format_anthropic_content_block_stop,
-    format_anthropic_tool_use,
-    format_anthropic_tool_result,
     format_anthropic_error,
+    format_anthropic_message_start,
+    format_anthropic_response,
+    format_anthropic_sse_chunk,
+    format_anthropic_tool_result,
+    format_anthropic_tool_use,
     normalize_tool_choice,
+    parse_anthropic_request,
 )
-
 
 # ============================================================
 # 1) parse_anthropic_request — 基础

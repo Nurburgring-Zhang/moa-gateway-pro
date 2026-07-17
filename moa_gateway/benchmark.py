@@ -6,17 +6,17 @@
 - run_pareto: 论文 §3.4 Figure 5 风格的多 preset cost-quality tradeoff
 """
 from __future__ import annotations
-import asyncio
-import time
+
 import logging
-from typing import Dict, List, Any
+import time
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
 # ========== 内置 Benchmark Prompts ==========
 # 模拟 AlpacaEval 2.0 + MT-Bench + FLASK 风格,4 个类别
-BENCHMARK_PROMPTS: List[Dict[str, Any]] = [
+BENCHMARK_PROMPTS: list[dict[str, Any]] = [
     # --- reasoning (逻辑推理) ---
     {
         "id": "reasoning_001",
@@ -108,8 +108,8 @@ BENCHMARK_PROMPTS: List[Dict[str, Any]] = [
 
 # ========== 跑单个 preset 的 benchmark ==========
 async def run_benchmark(preset_name: str,
-                         prompts: List[Dict[str, Any]],
-                         use_flask: bool = True) -> Dict[str, Any]:
+                         prompts: list[dict[str, Any]],
+                         use_flask: bool = True) -> dict[str, Any]:
     """对一组 prompt 跑指定 preset,记录每题的结果 + FLASK 评分"""
     from .moa import get_moa
 
@@ -118,7 +118,7 @@ async def run_benchmark(preset_name: str,
     total_cost = 0.0
     for p in prompts:
         start = time.time()
-        item: Dict[str, Any] = {
+        item: dict[str, Any] = {
             "prompt_id": p["id"],
             "category": p["category"],
             "difficulty": p.get("difficulty", ""),
@@ -161,8 +161,8 @@ async def run_benchmark(preset_name: str,
 
 
 # ========== Cost Pareto Analysis(论文 3.4 Figure 5) ==========
-async def run_pareto(prompts: List[str],
-                      presets: List[str]) -> Dict[str, Any]:
+async def run_pareto(prompts: list[str],
+                      presets: list[str]) -> dict[str, Any]:
     """对一组 prompt 跑多个 preset,输出 cost vs quality 的 Pareto 前沿。
     每个 preset 的得分 = FLASK average(0-100),cost = 平均 cost。
     Pareto frontier = 在 cost 上没有任何其他 preset 既更便宜又更高分。

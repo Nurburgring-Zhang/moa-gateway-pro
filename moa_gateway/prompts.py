@@ -1,3 +1,4 @@
+
 """moa_gateway.prompts — Prompt 模板管理器
 
 允许用户:
@@ -8,13 +9,10 @@
 优先级:文件系统 prompts/{name}.md > moa_gateway/prompts/{name}.md > 内置默认
 """
 from __future__ import annotations
-import os
-import json
-import re
-import asyncio
+from typing import Any
+
 import logging
 from pathlib import Path
-from typing import Dict, Optional, List
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +22,7 @@ DEFAULT_DIR = Path(__file__).resolve().parent / "prompts"
 USER_DIR = Path.home() / ".moa-gateway" / "prompts"
 
 
-def _search_dirs() -> List[Path]:
+def _search_dirs() -> list[Path]:
     """用户目录 > 项目默认目录(避免重复,用户优先)"""
     out = []
     if USER_DIR.exists():
@@ -35,7 +33,7 @@ def _search_dirs() -> List[Path]:
 
 
 # 内置 fallback(当文件找不到时用)
-BUILTIN: Dict[str, str] = {
+BUILTIN: dict[str, str] = {
     "aggregator": """你是一个多模型答案的聚合器(aggregator)。综合多个独立模型的回答,给出一份最优的最终答案。
 
 原则:
@@ -116,7 +114,7 @@ def _load_template(name: str) -> str:
     return BUILTIN.get(name, f"# {name}\n\n请基于上下文回答用户问题。")
 
 
-def list_templates() -> List[Dict[str, Any]]:
+def list_templates() -> list[dict[str, Any]]:
     """列出所有可用模板(merged 用户 + 默认)"""
     seen = set()
     out = []

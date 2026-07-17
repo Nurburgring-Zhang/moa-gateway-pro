@@ -1,18 +1,22 @@
 """routing 真实测试 — 启发式判定 + JSON 序列化(非 mock)"""
-import sys
 import json
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.routing import (
-    HarnessTier, Priority,
-    RoutingDecision, HarnessConfig,
-    route_request, auto_detect_tier, priority_from_severity,
+    HarnessConfig,
+    HarnessTier,
+    Priority,
+    RoutingDecision,
+    auto_detect_tier,
+    config_from_json,
+    config_to_json,
+    priority_from_severity,
+    route_request,
     tools_for_tier,
-    config_to_json, config_from_json,
 )
-
 
 # ============ 枚举完整性 ============
 

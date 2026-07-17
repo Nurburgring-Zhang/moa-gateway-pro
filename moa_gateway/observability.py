@@ -1,14 +1,15 @@
 """moa_gateway.observability — 可观测性(日志 + 简单 metrics)"""
 from __future__ import annotations
+
+import json
 import logging
 import logging.handlers
-import json
 import time
-from pathlib import Path
-from typing import Dict, Any
 from collections import defaultdict, deque
+from pathlib import Path
+from typing import Any
 
-from .config import get_settings, DATA_DIR
+from .config import DATA_DIR
 
 
 class JsonFormatter(logging.Formatter):
@@ -67,15 +68,15 @@ def setup_logging(level: str = "INFO", log_dir: str = "data/logs",
 # ========== 简易 in-memory metrics ==========
 class Metrics:
     """进程内指标(够用即可,生产可换 Prometheus)"""
-    _instance: "Metrics" = None
+    _instance: Metrics = None
 
     def __init__(self):
-        self.counters: Dict[str, int] = defaultdict(int)
-        self.timings: Dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
-        self.errors: Dict[str, int] = defaultdict(int)
+        self.counters: dict[str, int] = defaultdict(int)
+        self.timings: dict[str, deque] = defaultdict(lambda: deque(maxlen=200))
+        self.errors: dict[str, int] = defaultdict(int)
 
     @classmethod
-    def instance(cls) -> "Metrics":
+    def instance(cls) -> Metrics:
         if cls._instance is None:
             cls._instance = Metrics()
         return cls._instance
@@ -89,8 +90,8 @@ class Metrics:
     def error(self, name: str):
         self.errors[name] += 1
 
-    def snapshot(self) -> Dict[str, Any]:
-        out: Dict[str, Any] = {
+    def snapshot(self) -> dict[str, Any]:
+        out: dict[str, Any] = {
             "counters": dict(self.counters),
             "errors": dict(self.errors),
             "timings": {},

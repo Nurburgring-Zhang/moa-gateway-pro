@@ -16,16 +16,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.action_policy import (
+    ActionPolicy,
+    BypassDetection,
     PolicyRule,
     PolicyVerdict,
-    BypassDetection,
-    ActionPolicy,
+    default_safe_policy,
     detect_bypass,
     normalize_command,
     pre_action_check,
-    default_safe_policy,
 )
-
 
 # ============ evaluate 单规则 ============
 
@@ -197,7 +196,7 @@ def test_detect_bypass_clean_command_returns_empty():
 def test_normalize_command_expands_ifs():
     """normalize_command 把 ${IFS} 展开为单空格"""
     out = normalize_command("cat${IFS}/etc/passwd")
-    assert "cat /etc/passwd" == out, f"got {out!r}"
+    assert out == "cat /etc/passwd", f"got {out!r}"
     # 也折叠多余空白
     out2 = normalize_command("ls   -la   /tmp")
     assert out2 == "ls -la /tmp", f"got {out2!r}"

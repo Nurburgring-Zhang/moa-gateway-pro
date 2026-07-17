@@ -15,10 +15,10 @@
   - 防御性:state 不可变 dataclass 拷贝,内部 list 防御性拷贝
 """
 from __future__ import annotations
-import time as _time
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Optional, Literal
 
+import time as _time
+from dataclasses import asdict, dataclass, field
+from typing import Literal
 
 # ============ Constants ============
 
@@ -46,10 +46,10 @@ class EndpointState:
     tier: str = "primary"
     enabled: bool = True
     in_cooldown: bool = False
-    cooldown_until: Optional[float] = None
+    cooldown_until: float | None = None
     consecutive_failures: int = 0
-    last_success_at: Optional[float] = None
-    last_failure_at: Optional[float] = None
+    last_success_at: float | None = None
+    last_failure_at: float | None = None
     total_calls: int = 0
     total_failures: int = 0
     # 初始 tier(用于 recover 后 promote 回这里)
@@ -77,7 +77,7 @@ class EndpointState:
                 f"cooldown_until must be >= 0 if set, got {self.cooldown_until}"
             )
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -89,14 +89,14 @@ class HealAction:
     reason: str
     at: float
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
 @dataclass
 class HealLog:
     """action 历史记录"""
-    actions: List[HealAction] = field(default_factory=list)
+    actions: list[HealAction] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         # 防御性拷贝
@@ -105,16 +105,16 @@ class HealLog:
     def append(self, action: HealAction) -> None:
         self.actions.append(action)
 
-    def extend(self, actions: List[HealAction]) -> None:
+    def extend(self, actions: list[HealAction]) -> None:
         self.actions.extend(actions)
 
-    def for_endpoint(self, endpoint_id: str) -> List[HealAction]:
+    def for_endpoint(self, endpoint_id: str) -> list[HealAction]:
         return [a for a in self.actions if a.endpoint_id == endpoint_id]
 
     def count_by_action(self, action: ActionType) -> int:
         return sum(1 for a in self.actions if a.action == action)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {"actions": [a.to_dict() for a in self.actions]}
 
 
@@ -123,11 +123,11 @@ class HealLog:
 @dataclass
 class HealState:
     """整个自愈系统的运行时状态"""
-    endpoints: Dict[str, EndpointState] = field(default_factory=dict)
+    endpoints: dict[str, EndpointState] = field(default_factory=dict)
     log: HealLog = field(default_factory=HealLog)
     failure_threshold: int = DEFAULT_FAILURE_THRESHOLD
     cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS
-    last_auto_balance_at: Optional[float] = None
+    last_auto_balance_at: float | None = None
 
     def __post_init__(self) -> None:
         if self.failure_threshold <= 0:
@@ -167,7 +167,7 @@ class HealState:
 
 # ============ Helpers ============
 
-def _now(at: Optional[float]) -> float:
+def _now(at: float | None) -> float:
     """解析 'now': None 表示 wall-clock(epoch);否则用给定的 at"""
     return _time.time() if at is None else float(at)
 
@@ -191,7 +191,7 @@ def _next_tier_higher(tier: str) -> str:
 def record_success(
     state: HealState,
     endpoint_id: str,
-    at: Optional[float] = None,
+    at: float | None = None,
 ) -> HealAction:
     """记录一次成功调用。
 
@@ -233,7 +233,7 @@ def record_success(
 def record_failure(
     state: HealState,
     endpoint_id: str,
-    at: Optional[float] = None,
+    at: float | None = None,
 ) -> HealAction:
     """记录一次失败调用。
 
@@ -268,7 +268,7 @@ def record_failure(
             reason=f"consecutive_failures={ep.consecutive_failures} >= threshold={state.failure_threshold}",
         )
         # enter cooldown
-        cooldown_action = _do_enter_cooldown(
+        _do_enter_cooldown(
             state, ep, now, state.cooldown_seconds,
             reason=f"cooldown after {ep.consecutive_failures} consecutive failures",
         )
@@ -290,7 +290,7 @@ def record_failure(
 def check_recovery(
     state: HealState,
     endpoint_id: str,
-    at: Optional[float] = None,
+    at: float | None = None,
 ) -> HealAction:
     """周期性检查:若 cooldown 到期且距 last_success_at 已 ≥ recovery window
     或无 last_success_at(只取决于 cooldown_until),则 recover。
@@ -333,7 +333,7 @@ def promote(
     state: HealState,
     endpoint_id: str,
     reason: str = "",
-    at: Optional[float] = None,
+    at: float | None = None,
 ) -> HealAction:
     """手动 promote:fallback → secondary → primary。
 
@@ -348,7 +348,7 @@ def demote(
     state: HealState,
     endpoint_id: str,
     reason: str = "",
-    at: Optional[float] = None,
+    at: float | None = None,
 ) -> HealAction:
     """手动 demote:primary → secondary → fallback。
 
@@ -364,7 +364,7 @@ def enter_cooldown(
     endpoint_id: str,
     duration_seconds: float = DEFAULT_COOLDOWN_SECONDS,
     reason: str = "",
-    at: Optional[float] = None,
+    at: float | None = None,
 ) -> HealAction:
     """手动 enter_cooldown。
 
@@ -380,9 +380,9 @@ def enter_cooldown(
     )
 
 
-def get_available_endpoints(state: HealState) -> List[str]:
+def get_available_endpoints(state: HealState) -> list[str]:
     """返回所有 enabled 且不在 cooldown 的 endpoint_ids(按 tier 排序:primary 优先)。"""
-    out: List[str] = []
+    out: list[str] = []
     for ep in state.endpoints.values():
         if not ep.enabled:
             continue
@@ -394,7 +394,7 @@ def get_available_endpoints(state: HealState) -> List[str]:
     return out
 
 
-def auto_balance(state: HealState, at: Optional[float] = None) -> List[HealAction]:
+def auto_balance(state: HealState, at: float | None = None) -> list[HealAction]:
     """周期性自愈扫描:对所有 endpoint 跑 check_recovery。
 
     真实逻辑:
@@ -403,7 +403,7 @@ def auto_balance(state: HealState, at: Optional[float] = None) -> List[HealActio
       - 末尾更新 state.last_auto_balance_at = now
     """
     now = _now(at)
-    actions: List[HealAction] = []
+    actions: list[HealAction] = []
     # 拷贝 keys,避免迭代过程中修改
     for eid in list(state.endpoints.keys()):
         action = check_recovery(state, eid, at=now)
@@ -516,7 +516,7 @@ def _do_recover(
 
 # ============ Serialization ============
 
-def state_to_dict(state: HealState) -> Dict:
+def state_to_dict(state: HealState) -> dict:
     """序列化整个 HealState(含 log / endpoints / 配置)"""
     return {
         "endpoints": {eid: ep.to_dict() for eid, ep in state.endpoints.items()},
@@ -527,12 +527,12 @@ def state_to_dict(state: HealState) -> Dict:
     }
 
 
-def state_from_dict(data: Dict) -> HealState:
+def state_from_dict(data: dict) -> HealState:
     """反序列化(返回 HealState)"""
     if not isinstance(data, dict):
         raise ValueError(f"data must be dict, got {type(data).__name__}")
     endpoints_data = data.get("endpoints", {})
-    endpoints: Dict[str, EndpointState] = {}
+    endpoints: dict[str, EndpointState] = {}
     for eid, ep_dict in endpoints_data.items():
         if not isinstance(ep_dict, dict):
             raise ValueError(f"endpoint data for {eid!r} must be dict")
@@ -555,7 +555,7 @@ def state_from_dict(data: Dict) -> HealState:
 # ============ Convenience constructor ============
 
 def make_default_state(
-    endpoint_ids: Optional[List[str]] = None,
+    endpoint_ids: list[str] | None = None,
     failure_threshold: int = DEFAULT_FAILURE_THRESHOLD,
     cooldown_seconds: float = DEFAULT_COOLDOWN_SECONDS,
 ) -> HealState:

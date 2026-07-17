@@ -16,10 +16,9 @@ import json
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Any
-
+from typing import Any
 
 # ============ A-06 Bubble Mode ============
 
@@ -40,15 +39,15 @@ class EscalationRequest:
     """一次升级请求(子 agent → 父 agent)"""
     request_id: str
     agent_id: str
-    parent_id: Optional[str]
+    parent_id: str | None
     action: str
     reason: str
     created_at: float
     status: BubbleStatus = BubbleStatus.ESCALATED
-    resolved_at: Optional[float] = None
+    resolved_at: float | None = None
     resolver_note: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["status"] = self.status.value
         return d
@@ -69,8 +68,8 @@ class BubbleManager:
 
     def __init__(self, parent_id: str) -> None:
         self.parent_id: str = parent_id
-        self._requests: Dict[str, EscalationRequest] = {}
-        self._events: Dict[str, threading.Event] = {}
+        self._requests: dict[str, EscalationRequest] = {}
+        self._events: dict[str, threading.Event] = {}
         self._lock: threading.Lock = threading.Lock()
         self._escalate_count: int = 0
         self._resolve_count: int = 0
@@ -119,17 +118,17 @@ class BubbleManager:
             ev.set()
         return True
 
-    def get_request(self, request_id: str) -> Optional[EscalationRequest]:
+    def get_request(self, request_id: str) -> EscalationRequest | None:
         with self._lock:
             r = self._requests.get(request_id)
             return r
 
-    def get_pending(self) -> List[EscalationRequest]:
+    def get_pending(self) -> list[EscalationRequest]:
         """所有未裁决的升级请求"""
         with self._lock:
             return [r for r in self._requests.values() if r.status == BubbleStatus.ESCALATED]
 
-    def get_resolved(self) -> List[EscalationRequest]:
+    def get_resolved(self) -> list[EscalationRequest]:
         """所有已裁决的升级请求"""
         with self._lock:
             return [r for r in self._requests.values() if r.status != BubbleStatus.ESCALATED]
@@ -158,7 +157,7 @@ class BubbleManager:
     def resolve_count(self) -> int:
         return self._resolve_count
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         with self._lock:
             return {
                 "parent_id": self.parent_id,
@@ -190,10 +189,10 @@ class Event:
     event_id: str
     event_type: EventType
     agent_id: str
-    payload: Dict[str, Any] = field(default_factory=dict)
+    payload: dict[str, Any] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["event_type"] = self.event_type.value
         return d
@@ -217,7 +216,7 @@ class EventScheduler:
     """
 
     def __init__(self) -> None:
-        self._streams: Dict[str, List[Event]] = {}
+        self._streams: dict[str, list[Event]] = {}
         self._lock: threading.Lock = threading.Lock()
         self._schedule_count: int = 0
 
@@ -244,7 +243,7 @@ class EventScheduler:
         last = stream[-1]
         return last.event_type != EventType.TERMINAL
 
-    def recent_events(self, agent_id: str, n: int = 10) -> List[Event]:
+    def recent_events(self, agent_id: str, n: int = 10) -> list[Event]:
         """最近 n 条事件(按时间顺序,最新在末尾)"""
         if n <= 0:
             return []
@@ -267,7 +266,7 @@ class EventScheduler:
     def schedule_count(self) -> int:
         return self._schedule_count
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         with self._lock:
             return {
                 "agents": list(self._streams.keys()),

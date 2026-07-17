@@ -8,26 +8,21 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
 # 允许直接 import
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.flask_score import (
     FlaskDimension,
-    DimensionScore,
     FlaskScore,
     TaskNode,
     TaskTree,
-    score_flask,
     analyze_dimensions,
-    analyze_dimensions_from_dict,
-    summary_report,
-    flask_to_json,
     build_task_tree,
+    flask_to_json,
+    score_flask,
+    summary_report,
     tree_cohesion_coupling,
 )
-
 
 # ============ 1. 12 FlaskDimension 枚举 ============
 
@@ -247,7 +242,7 @@ def test_weak_dimensions_sorted_by_enum_order():
     assert FlaskDimension.HARMLESSNESS in result.weak_dimensions
     # 检查是 enum 顺序
     enum_order = {d: i for i, d in enumerate(FlaskDimension)}
-    for a, b in zip(result.weak_dimensions, result.weak_dimensions[1:]):
+    for a, b in zip(result.weak_dimensions, result.weak_dimensions[1:], strict=False):
         assert enum_order[a] < enum_order[b]
 
 
@@ -261,7 +256,7 @@ def test_strong_dimensions_sorted_by_enum_order():
     )
     result = score_flask(text)
     enum_order = {d: i for i, d in enumerate(FlaskDimension)}
-    for a, b in zip(result.strong_dimensions, result.strong_dimensions[1:]):
+    for a, b in zip(result.strong_dimensions, result.strong_dimensions[1:], strict=False):
         assert enum_order[a] < enum_order[b]
 
 
@@ -289,7 +284,7 @@ def test_flask_to_json_serializable():
     assert "dimension_scores" in parsed
     assert len(parsed["dimension_scores"]) == 12
     # 枚举键 → 字符串
-    for v in parsed["dimension_scores"].keys():
+    for v in parsed["dimension_scores"]:
         assert isinstance(v, str)
 
 

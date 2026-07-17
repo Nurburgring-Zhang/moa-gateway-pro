@@ -15,18 +15,16 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import List
 from unittest.mock import patch
 
 import pytest
 
 from moa_gateway.capability.token_bucket import (
-    TokenBucket,
-    MultiKeyTokenBucket,
     DEFAULT_MULTIKEY_CAPACITY,
     DEFAULT_MULTIKEY_IDLE_SECONDS,
+    MultiKeyTokenBucket,
+    TokenBucket,
 )
-
 
 # ============================================================
 # 1. 单 bucket 基本行为
@@ -486,7 +484,7 @@ def test_cleanup_inactive_no_op_when_all_fresh():
 def test_concurrent_consume_exactly_one_succeeds():
     """100 线程并发抢 1 token,只有 1 个能成功"""
     tb = TokenBucket(capacity=1, refill_rate=0.0)
-    results: List[bool] = []
+    results: list[bool] = []
     lock = threading.Lock()
     barrier = threading.Barrier(100)
 

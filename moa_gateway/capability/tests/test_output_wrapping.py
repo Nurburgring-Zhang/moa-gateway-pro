@@ -1,20 +1,19 @@
 """output_wrapping 端到端测试 — 真实实现,非 mock"""
-import sys
 import re
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.output_wrapping import (
+    INJECTION_PATTERNS,
     TrustLevel,
-    wrap_output,
-    unwrap_output,
-    sanitize_for_prompt,
     needs_wrapping,
     safe_wrap,
-    INJECTION_PATTERNS,
+    sanitize_for_prompt,
+    unwrap_output,
+    wrap_output,
 )
-
 
 # ============ wrap_output tests ============
 

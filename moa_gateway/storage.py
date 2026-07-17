@@ -8,22 +8,28 @@
 - 限流计数器
 """
 from __future__ import annotations
-import json
-import os  # 修 P0-3: _get_or_create_fernet 用 os.open/os.chmod/os.stat
-import time
-import sqlite3
-import logging
-import hashlib
-import secrets
+
 import asyncio
+import hashlib
+import json
+import logging
+import os  # 修 P0-3: _get_or_create_fernet 用 os.open/os.chmod/os.stat
+import secrets
+import sqlite3
 import threading
-from contextlib import contextmanager
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Iterator
+from typing import Any
 
 import bcrypt
+import logging
 from cryptography.fernet import Fernet
-from .config import get_settings, DATA_DIR, Settings
+
+from .config import DATA_DIR, Settings, get_settings
+
+logger = logging.getLogger(__name__)  # 修 P0-10: logger 必须在 _get_or_create_fernet 之前定义
 
 
 def _bcrypt_hash(password: str) -> str:
@@ -52,25 +58,10 @@ async def async_bcrypt_verify(password: str, hashed: str) -> bool:
     return await loop.run_in_executor(None, _bcrypt_verify, password, hashed)
 
 
-def _bcrypt_hash(password: str) -> str:
-    """bcrypt 原生 API,避免 passlib 兼容问题"""
-    pwd = password.encode("utf-8")[:72]   # bcrypt 硬上限 72 字节
-    return bcrypt.hashpw(pwd, bcrypt.gensalt(rounds=12)).decode("utf-8")
-
-
-def _bcrypt_verify(password: str, hashed: str) -> bool:
-    pwd = password.encode("utf-8")[:72]
-    try:
-        return bcrypt.checkpw(pwd, hashed.encode("utf-8"))
-    except Exception:
-        return False
-
-logger = logging.getLogger(__name__)
-
 # 加密用 key(在 data/.fernet_key 里)
 _FERNET_PATH = DATA_DIR / ".fernet_key"
 _FERNET_SINGLEFLIGHT = threading.Lock()
-_FERNET_INSTANCE: Optional[Fernet] = None
+_FERNET_INSTANCE: Fernet | None = None
 
 
 def _get_or_create_fernet() -> Fernet:
@@ -117,10 +108,8 @@ def _get_or_create_fernet() -> Fernet:
                 key = _FERNET_PATH.read_bytes()
             else:
                 # 收紧权限(P2-2 加固,Windows 上 best-effort)
-                try:
+                with suppress(Exception):
                     os.chmod(_FERNET_PATH, 0o600)
-                except Exception:
-                    pass
         _FERNET_INSTANCE = Fernet(key)
         return _FERNET_INSTANCE
 
@@ -134,6 +123,12 @@ CREATE TABLE IF NOT EXISTS admin_users (
     role TEXT NOT NULL DEFAULT 'admin',
     created_at REAL NOT NULL,
     last_login REAL
+);
+
+CREATE TABLE IF NOT EXISTS login_attempts (
+    ip TEXT PRIMARY KEY,
+    count INTEGER DEFAULT 0,
+    window_start REAL NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -222,10 +217,10 @@ CREATE TABLE IF NOT EXISTS ratelimit_tokens (
 
 class Storage:
     """SQLite 存储管理器(单实例,内部用连接池)"""
-    _instance: Optional["Storage"] = None
+    _instance: Storage | None = None
     _lock = threading.Lock()
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         settings = get_settings()
         self.db_path = Path(db_path or (DATA_DIR / settings.storage.db_path))
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -235,7 +230,7 @@ class Storage:
         self._bootstrap_admin(settings)
 
     @classmethod
-    def instance(cls) -> "Storage":
+    def instance(cls) -> Storage:
         with cls._lock:
             if cls._instance is None:
                 cls._instance = Storage()
@@ -259,6 +254,27 @@ class Storage:
                 c.commit()
             finally:
                 c.close()
+
+    def get_conn(self) -> sqlite3.Connection:
+        """修 P0-6: 返回持久连接,避免每次 open+close 1ms 浪费。
+        使用方法:
+            conn = storage.get_conn()
+            try:
+                cur = conn.execute(...)
+                ...
+            finally:
+                pass  # conn 由 storage 持有
+        """
+        if self._persistent_conn is None:
+            self._persistent_conn = sqlite3.connect(str(self.db_path), timeout=30)
+            self._persistent_conn.row_factory = sqlite3.Row
+            try:
+                self._persistent_conn.execute("PRAGMA journal_mode=WAL")
+                self._persistent_conn.execute("PRAGMA synchronous=NORMAL")
+                self._persistent_conn.execute("PRAGMA busy_timeout=5000")
+            except Exception:
+                pass
+        return self._persistent_conn
 
     def _init_schema(self) -> None:
         with self.conn() as c:
@@ -289,7 +305,7 @@ class Storage:
                 )
                 logger.info("Bootstrap admin user: %s", settings.auth.admin_username)
 
-    def verify_admin(self, username: str, password: str) -> Optional[Dict[str, Any]]:
+    def verify_admin(self, username: str, password: str) -> dict[str, Any] | None:
         """修17: 检测默认 admin/admin 是否在用,返回 must_change_password 标记
         WebUI 拿到这个标记后强制弹改密窗口。"""
         with self.conn() as c:
@@ -333,13 +349,13 @@ class Storage:
     def _hash_key(k: str) -> str:
         return hashlib.sha256(k.encode("utf-8")).hexdigest()
 
-    def list_api_keys(self) -> List[Dict[str, Any]]:
+    def list_api_keys(self) -> list[dict[str, Any]]:
         with self.conn() as c:
             rows = c.execute("SELECT * FROM api_keys ORDER BY created_at DESC").fetchall()
             return [dict(r) for r in rows]
 
     def create_api_key(self, name: str, quota_rpm: int = 60,
-                       quota_daily_tokens: int = 5_000_000) -> Dict[str, Any]:
+                       quota_daily_tokens: int = 5_000_000) -> dict[str, Any]:
         """创建 API Key,返回明文 key(只此一次)"""
         raw = "mgw-" + secrets.token_urlsafe(24)
         key_id = "key_" + secrets.token_hex(6)
@@ -373,7 +389,7 @@ class Storage:
             cur = c.execute(f"UPDATE api_keys SET {cols} WHERE key_id = ?", args)
             return cur.rowcount > 0
 
-    def find_api_key(self, raw: str) -> Optional[Dict[str, Any]]:
+    def find_api_key(self, raw: str) -> dict[str, Any] | None:
         h = self._hash_key(raw)
         with self.conn() as c:
             row = c.execute("SELECT * FROM api_keys WHERE key_hash = ? AND enabled = 1",
@@ -386,12 +402,12 @@ class Storage:
             return d
 
     # ========== Model Endpoints ==========
-    def _encrypt(self, plain: str) -> Optional[bytes]:
+    def _encrypt(self, plain: str) -> bytes | None:
         if not plain:
             return None
         return _get_or_create_fernet().encrypt(plain.encode("utf-8"))
 
-    def _decrypt(self, blob: Optional[bytes]) -> str:
+    def _decrypt(self, blob: bytes | None) -> str:
         if not blob:
             return ""
         try:
@@ -400,7 +416,7 @@ class Storage:
             logger.warning("decrypt failed: %s", e)
             return ""
 
-    def upsert_endpoint(self, ep: Dict[str, Any]) -> Dict[str, Any]:
+    def upsert_endpoint(self, ep: dict[str, Any]) -> dict[str, Any]:
         """插入/更新模型端点。ep 必须含 endpoint_id。api_key 明文可选。"""
         eid = ep["endpoint_id"]
         api_key_plain = ep.pop("api_key_plain", None)
@@ -454,7 +470,7 @@ class Storage:
                 )
         return self.get_endpoint(eid) or {}
 
-    def get_endpoint(self, eid: str) -> Optional[Dict[str, Any]]:
+    def get_endpoint(self, eid: str) -> dict[str, Any] | None:
         with self.conn() as c:
             row = c.execute("SELECT * FROM model_endpoints WHERE endpoint_id = ?",
                             (eid,)).fetchone()
@@ -464,14 +480,12 @@ class Storage:
             d["api_key"] = self._decrypt(d.pop("api_key_encrypted"))
             for f in ("tags", "extra"):
                 if d.get(f):
-                    try:
+                    with suppress(Exception):
                         d[f] = json.loads(d[f])
-                    except Exception:
-                        pass
             d["enabled"] = bool(d.get("enabled"))
             return d
 
-    def list_endpoints(self) -> List[Dict[str, Any]]:
+    def list_endpoints(self) -> list[dict[str, Any]]:
         with self.conn() as c:
             rows = c.execute("SELECT * FROM model_endpoints ORDER BY endpoint_id").fetchall()
             result = []
@@ -481,10 +495,8 @@ class Storage:
                 d.pop("api_key_encrypted", None)
                 for f in ("tags", "extra"):
                     if d.get(f):
-                        try:
+                        with suppress(Exception):
                             d[f] = json.loads(d[f])
-                        except Exception:
-                            pass
                 d["enabled"] = bool(d.get("enabled"))
                 result.append(d)
             return result
@@ -495,7 +507,7 @@ class Storage:
             return cur.rowcount > 0
 
     # ========== Request Logs ==========
-    def log_request(self, log: Dict[str, Any]) -> None:
+    def log_request(self, log: dict[str, Any]) -> None:
         with self.conn() as c:
             c.execute(
                 "INSERT INTO request_logs "
@@ -516,7 +528,7 @@ class Storage:
                  json.dumps(log.get("metadata", {}), ensure_ascii=False))
             )
 
-    def list_logs(self, limit: int = 100, api_key_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_logs(self, limit: int = 100, api_key_id: str | None = None) -> list[dict[str, Any]]:
         with self.conn() as c:
             if api_key_id:
                 rows = c.execute("SELECT * FROM request_logs WHERE api_key_id = ? "
@@ -527,7 +539,7 @@ class Storage:
                                  (limit,)).fetchall()
             return [dict(r) for r in rows]
 
-    def aggregate_stats(self, since_ts: float = 0) -> Dict[str, Any]:
+    def aggregate_stats(self, since_ts: float = 0) -> dict[str, Any]:
         with self.conn() as c:
             row = c.execute(
                 "SELECT COUNT(*) as n, "
@@ -564,7 +576,7 @@ class Storage:
             return cur.rowcount
 
     # ========== Config overrides ==========
-    def get_config_overrides(self) -> Dict[str, Any]:
+    def get_config_overrides(self) -> dict[str, Any]:
         with self.conn() as c:
             rows = c.execute("SELECT key, value FROM config_overrides").fetchall()
             result = {}

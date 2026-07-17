@@ -1,27 +1,25 @@
 """rate_quota 真实测试(非 mock,全部 assert)"""
 import sys
-import math
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.rate_quota import (
-    WINDOW_5H_SECONDS,
-    WINDOW_WEEKLY_SECONDS,
-    WINDOW_MONTHLY_SECONDS,
-    WINDOW_DURATIONS,
     VALID_WINDOW_NAMES,
-    QuotaWindow,
+    WINDOW_5H_SECONDS,
+    WINDOW_DURATIONS,
+    WINDOW_MONTHLY_SECONDS,
+    WINDOW_WEEKLY_SECONDS,
     QuotaState,
-    record_usage,
+    QuotaWindow,
     check_available,
     eta_exhaustion,
-    would_exceed_within,
-    rolling_remaining,
-    prune_all,
     make_default_state,
+    prune_all,
+    record_usage,
+    rolling_remaining,
+    would_exceed_within,
 )
-
 
 # ============ Tests ============
 
@@ -260,7 +258,7 @@ def test_boundary_equal_to_limit_ok():
     ok2, reason2 = check_available(state, requested=1)
     assert ok2 is False
     assert "insufficient" in reason2
-    print(f"  ✓ test_boundary_equal_to_limit_ok (0→ok, 1→fail)")
+    print("  ✓ test_boundary_equal_to_limit_ok (0→ok, 1→fail)")
 
 
 def test_boundary_exceed_by_one_token():
@@ -294,31 +292,31 @@ def test_quota_window_validation():
     # 非法 name
     try:
         QuotaWindow(name="hourly", limit_tokens=1000)
-        assert False, "should have raised"
+        raise AssertionError("should have raised")
     except ValueError:
         pass
     # 非法 limit
     try:
         QuotaWindow(name="5h", limit_tokens=0)
-        assert False, "should have raised"
+        raise AssertionError("should have raised")
     except ValueError:
         pass
     # 负 used
     try:
         QuotaWindow(name="5h", limit_tokens=1000, used_tokens=-1)
-        assert False, "should have raised"
+        raise AssertionError("should have raised")
     except ValueError:
         pass
     # 负 history tokens
     try:
         QuotaWindow(name="5h", limit_tokens=1000, used_history=[(100.0, -1)])
-        assert False, "should have raised"
+        raise AssertionError("should have raised")
     except ValueError:
         pass
     # 负 timestamp
     try:
         QuotaWindow(name="5h", limit_tokens=1000, used_history=[(-1.0, 100)])
-        assert False, "should have raised"
+        raise AssertionError("should have raised")
     except ValueError:
         pass
     print("  ✓ test_quota_window_validation (5 invalid inputs rejected)")
@@ -329,7 +327,7 @@ def test_quota_state_validation():
     # 空 windows
     try:
         QuotaState(windows={}, last_updated=0.0)
-        assert False, "should have raised"
+        raise AssertionError("should have raised")
     except ValueError:
         pass
     # 未知 name
@@ -338,14 +336,14 @@ def test_quota_state_validation():
             windows={"badname": QuotaWindow(name="5h", limit_tokens=1000)},
             last_updated=0.0,
         )
-        assert False, "should have raised"
+        raise AssertionError("should have raised")
     except ValueError:
         pass
     # 负 last_updated
     try:
         state_test = make_default_state()
         QuotaState(windows=state_test.windows, last_updated=-1.0)
-        assert False, "should have raised"
+        raise AssertionError("should have raised")
     except ValueError:
         pass
     print("  ✓ test_quota_state_validation (3 invalid inputs rejected)")
@@ -356,12 +354,12 @@ def test_record_usage_negative_tokens_rejected():
     state = make_default_state(at=100.0)
     try:
         record_usage(state, tokens=-1, at=100.0)
-        assert False, "should have raised"
+        raise AssertionError("should have raised")
     except ValueError:
         pass
     try:
         record_usage(state, tokens=100, at=-1.0)
-        assert False, "should have raised"
+        raise AssertionError("should have raised")
     except ValueError:
         pass
     print("  ✓ test_record_usage_negative_tokens_rejected")

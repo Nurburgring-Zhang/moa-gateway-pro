@@ -26,13 +26,12 @@
 """
 from __future__ import annotations
 
-import json
 import logging
-import math
 import re
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +54,7 @@ __all__ = [
 _TOKEN_RE = re.compile(r"[A-Za-z0-9]+")
 
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     """小写 + 切分非字母数字
 
     与 BERT/SentencePiece 等真实 tokenizer 完全不同,
@@ -109,11 +108,11 @@ class RerankResult:
     """
 
     query: str
-    candidates: List[RerankCandidate] = field(default_factory=list)
+    candidates: list[RerankCandidate] = field(default_factory=list)
     latency_ms: float = 0.0
     truncated: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """JSON 友好 dict(用于 API 响应 / 日志)"""
         return {
             "query": self.query,
@@ -225,8 +224,7 @@ class MockRerankProvider:
         Returns:
             RerankResult
         """
-        if top_n < 1:
-            top_n = 1
+        top_n = max(top_n, 1)
         if latency_budget_ms < 0:
             latency_budget_ms = 0.0
 
@@ -236,7 +234,7 @@ class MockRerankProvider:
         # 真实计时的处理:每个 doc 算分并按"是否超 budget"决定截断
         # 注:heuristic 极快,正常情况下不会超 budget,所以截断路径用 budget
         # 极小(如 0)来强制触发
-        scored: List[Tuple[int, float, str]] = []
+        scored: list[tuple[int, float, str]] = []
         truncated = False
         budget_s = latency_budget_ms / 1000.0
         for i, doc in enumerate(documents):
@@ -254,7 +252,7 @@ class MockRerankProvider:
         top_scored = scored[:top_n]
 
         # 构造 RerankCandidate,带 rank(1-based)
-        candidates: List[RerankCandidate] = []
+        candidates: list[RerankCandidate] = []
         for new_pos, (orig_idx, score, doc) in enumerate(top_scored, start=1):
             candidates.append(
                 RerankCandidate(
@@ -284,7 +282,7 @@ class MockRerankProvider:
 # =============================================================================
 
 
-_DEFAULT_PROVIDER: Optional[MockRerankProvider] = None
+_DEFAULT_PROVIDER: MockRerankProvider | None = None
 
 
 def _get_default_provider() -> MockRerankProvider:
@@ -324,7 +322,7 @@ def rerank_with_budget(
 # =============================================================================
 
 
-def stream_delta_proxy(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def stream_delta_proxy(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """工具调用流代理:拼接 args_delta,保留 index / id
 
     输入 chunks 格式(类似 OpenAI 流式响应 delta):
@@ -357,13 +355,13 @@ def stream_delta_proxy(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     if not chunks:
         return []
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     # 已建立的工具调用:index -> 累计状态
     # 状态字段: id, type, name, arguments(累加)
-    seen: Dict[int, Dict[str, Any]] = {}
+    seen: dict[int, dict[str, Any]] = {}
 
     for chunk in chunks:
-        new_chunk: Dict[str, Any] = {}
+        new_chunk: dict[str, Any] = {}
         # 透传其他字段(role / content / finish_reason 等)
         for k, v in chunk.items():
             if k == "tool_calls":
@@ -375,7 +373,7 @@ def stream_delta_proxy(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             out.append(new_chunk)
             continue
 
-        new_tc: List[Dict[str, Any]] = []
+        new_tc: list[dict[str, Any]] = []
         for call in tc_in:
             idx = call.get("index", 0)
             state = seen.setdefault(
@@ -383,7 +381,7 @@ def stream_delta_proxy(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 {"id": None, "type": None, "name": None, "arguments": ""},
             )
 
-            entry: Dict[str, Any] = {"index": idx}
+            entry: dict[str, Any] = {"index": idx}
 
             # id / type / function.name:仅在首次出现时写入 delta
             cid = call.get("id")
@@ -400,7 +398,7 @@ def stream_delta_proxy(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             cname = fn.get("name")
             cargs = fn.get("arguments")
 
-            fn_out: Dict[str, Any] = {}
+            fn_out: dict[str, Any] = {}
             if cname is not None:
                 state["name"] = cname
                 fn_out["name"] = cname
@@ -421,7 +419,7 @@ def stream_delta_proxy(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
-def format_for_openai(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def format_for_openai(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """把内部 chunk 转 OpenAI delta 格式
 
     输入(内部格式):
@@ -439,9 +437,9 @@ def format_for_openai(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     Returns:
         OpenAI 兼容的 chunk 列表
     """
-    out: List[Dict[str, Any]] = []
-    for i, chunk in enumerate(chunks):
-        delta: Dict[str, Any] = {}
+    out: list[dict[str, Any]] = []
+    for _i, chunk in enumerate(chunks):
+        delta: dict[str, Any] = {}
         for k, v in chunk.items():
             delta[k] = v
         out.append({"choices": [{"delta": delta, "index": 0}]})

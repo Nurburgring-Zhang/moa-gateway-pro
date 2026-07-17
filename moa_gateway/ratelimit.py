@@ -1,12 +1,14 @@
 """moa_gateway.ratelimit — 限流(滑动窗口 + 每日 token 限额)"""
 from __future__ import annotations
-import time
-import logging
-from typing import Dict, Any, Tuple, Optional
-from fastapi import HTTPException, status, Request
 
-from .storage import get_storage
+import logging
+import time
+from typing import Any
+
+from fastapi import HTTPException, status
+
 from .config import get_settings
+from .storage import get_storage
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,7 @@ class RateLimiter:
         self.settings = get_settings().ratelimit
         self.storage = get_storage()
 
-    def check_and_incr(self, key_info: Dict[str, Any]) -> Tuple[int, int, int, int]:
+    def check_and_incr(self, key_info: dict[str, Any]) -> tuple[int, int, int, int]:
         """检查并增加计数。返回 (rpm_used, rpm_limit, daily_tokens, daily_token_limit)
         修 36: 优先用 per-key quota_rpm (从 key_info 读),fallback 到全局 per_key_rpm。
         修 37: admin JWT 没 key_id,跳过 RPM 限流(quota 999_999 已基本无限)
@@ -57,7 +59,7 @@ class RateLimiter:
             )
         return used_rpm, rpm_limit, 0, daily_limit
 
-    def incr_tokens(self, key_info: Dict[str, Any], tokens: int):
+    def incr_tokens(self, key_info: dict[str, Any], tokens: int):
         """修 P1-1: 先检查再 incr,避免超额后 counter 永远卡在 limit+1
         原: 累加 → 判定 → 超 429,但 counter 已被加,用户永久锁死到下一天
         """
@@ -80,7 +82,7 @@ class RateLimiter:
         # 修 P1-1: 检查通过,再累加
         self.storage.incr_daily_tokens(key_id, day, tokens)
 
-    def get_quota(self, key_info: Dict[str, Any]) -> Dict[str, int]:
+    def get_quota(self, key_info: dict[str, Any]) -> dict[str, int]:
         # 修 37: admin_jwt/yaml-config 没 key_id,返回全局视图
         if not key_info.get("key_id"):
             return {
@@ -100,7 +102,7 @@ class RateLimiter:
         }
 
 
-_limiter: Optional[RateLimiter] = None
+_limiter: RateLimiter | None = None
 
 
 def get_limiter() -> RateLimiter:

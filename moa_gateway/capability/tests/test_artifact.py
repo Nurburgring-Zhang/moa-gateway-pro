@@ -12,10 +12,9 @@ from moa_gateway.capability.artifact import (
     Artifact,
     ArtifactType,
     SchemaRegistry,
-    TmuxPane,
     TmuxOrchestrator,
+    TmuxPane,
 )
-
 
 # ============ A-21: ArtifactType 枚举 (5 个) ============
 

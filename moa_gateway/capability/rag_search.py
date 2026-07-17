@@ -20,7 +20,7 @@ import sqlite3
 import string
 import threading
 import time
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 __all__ = ["rag_search", "clear_cache", "set_cache_db_path"]
 
@@ -82,7 +82,7 @@ def _get_conn() -> sqlite3.Connection:
     return conn
 
 
-def _tokenize(text: str) -> List[str]:
+def _tokenize(text: str) -> list[str]:
     """Lowercase, strip punctuation, drop stop-words, and return tokens."""
     if not text:
         return []
@@ -91,9 +91,9 @@ def _tokenize(text: str) -> List[str]:
     return [t for t in raw_tokens if t and t not in _STOP_WORDS]
 
 
-def _term_freqs(tokens: List[str]) -> Dict[str, int]:
+def _term_freqs(tokens: list[str]) -> dict[str, int]:
     """Build a term-frequency map from a token list."""
-    freq: Dict[str, int] = {}
+    freq: dict[str, int] = {}
     for tok in tokens:
         freq[tok] = freq.get(tok, 0) + 1
     return freq
@@ -107,8 +107,8 @@ def _hash_query(query: str, max_results: int) -> str:
     return h.hexdigest()
 
 
-def _score(query_tokens: List[str], query_freq: Dict[str, int],
-           doc_tokens: List[str], doc_freq: Dict[str, int]) -> float:
+def _score(query_tokens: list[str], query_freq: dict[str, int],
+           doc_tokens: list[str], doc_freq: dict[str, int]) -> float:
     """Combine Jaccard overlap with a term-frequency-weighted overlap score."""
     if not query_tokens or not doc_tokens:
         return 0.0
@@ -134,10 +134,10 @@ def _score(query_tokens: List[str], query_freq: Dict[str, int],
     return 0.5 * jaccard + 0.5 * weighted
 
 
-def _rank(corpus: List[Dict[str, str]], query_tokens: List[str],
-          max_results: int) -> List[Dict[str, Any]]:
+def _rank(corpus: list[dict[str, str]], query_tokens: list[str],
+          max_results: int) -> list[dict[str, Any]]:
     query_freq = _term_freqs(query_tokens)
-    scored: List[Tuple[float, Dict[str, str]]] = []
+    scored: list[tuple[float, dict[str, str]]] = []
     for item in corpus:
         try:
             text = item.get("text", "") or ""
@@ -151,7 +151,7 @@ def _rank(corpus: List[Dict[str, str]], query_tokens: List[str],
 
     scored.sort(key=lambda pair: (-pair[0], pair[1].get("id", "")))
 
-    results: List[Dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
     for score_val, item in scored[:max_results]:
         tags = item.get("tags", [])
         if not isinstance(tags, list):
@@ -170,7 +170,7 @@ def _rank(corpus: List[Dict[str, str]], query_tokens: List[str],
     return results
 
 
-def _cache_get(query_hash: str, ttl_hours: int) -> List[Dict[str, Any]]:
+def _cache_get(query_hash: str, ttl_hours: int) -> list[dict[str, Any]]:
     try:
         ttl_seconds = max(int(ttl_hours), 0) * 3600
         with _db_lock:
@@ -196,7 +196,7 @@ def _cache_get(query_hash: str, ttl_hours: int) -> List[Dict[str, Any]]:
         return []
 
 
-def _cache_put(query_hash: str, results: List[Dict[str, Any]]) -> None:
+def _cache_put(query_hash: str, results: list[dict[str, Any]]) -> None:
     try:
         payload = json.dumps(results, ensure_ascii=False)
         with _db_lock:
@@ -215,10 +215,10 @@ def _cache_put(query_hash: str, results: List[Dict[str, Any]]) -> None:
 
 def rag_search(
     query: str,
-    corpus: List[Dict[str, str]],
+    corpus: list[dict[str, str]],
     max_results: int = 3,
     ttl_hours: int = 24,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Keyword-based RAG retrieval over a local corpus.
 
     For each item in ``corpus`` (which must be dicts containing ``id``,

@@ -1,23 +1,22 @@
 """tier_recalibrate 真实测试(非 mock)"""
-import sys
-import math
 import json
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.tier_recalibrate import (
+    DEFAULT_WEIGHTS,
+    RecalibrationPlan,
     TierLabel,
     TierMetrics,
-    RecalibrationPlan,
-    DEFAULT_WEIGHTS,
-    score_tier,
     grid_search_thresholds,
-    recalibrate,
-    should_retrain,
-    plans_to_json,
     metrics_to_json,
     plans_from_json,
+    plans_to_json,
+    recalibrate,
+    score_tier,
+    should_retrain,
 )
 
 
@@ -218,7 +217,7 @@ def test_should_retrain_zero_or_one_change_false():
     changed = sum(1 for p in plans2 if p.expected_improvement != "keep")
     assert changed == 1, f"got {changed} changes"
     assert should_retrain(plans2, threshold=2) is False
-    print(f"  ✓ test_should_retrain_zero_or_one_change_false")
+    print("  ✓ test_should_retrain_zero_or_one_change_false")
 
 
 # ============ 12. 边界:单 tier 不重校准 ============
@@ -232,7 +231,7 @@ def test_recalibrate_single_tier_no_recalibration():
     assert plans[0].new_tier == plans[0].old_tier
     # 边界:空列表
     assert recalibrate([]) == []
-    print(f"  ✓ test_recalibrate_single_tier_no_recalibration")
+    print("  ✓ test_recalibrate_single_tier_no_recalibration")
 
 
 # ============ 13. JSON 序列化往返 ============
@@ -267,7 +266,7 @@ def test_json_serialization_roundtrip():
     assert len(parsed) == 3
     restored = plans_from_json(text)
     assert len(restored) == 3
-    for orig, back in zip(plans, restored):
+    for orig, back in zip(plans, restored, strict=False):
         assert orig.old_tier == back.old_tier
         assert orig.new_tier == back.new_tier
         assert orig.reason == back.reason
@@ -293,7 +292,8 @@ def test_custom_score_fn_recalibrate():
         _mk(TierLabel.FLAGSHIP, p50=2000.0, p95=3000.0, sr=0.1, ci=20.0, co=40.0),
     ]
     # 自定义:只看 success_rate
-    custom_score = lambda m: m.success_rate
+    def custom_score(m):
+        return m.success_rate
     plans = recalibrate(metrics, score_fn=custom_score)
     by_old = {p.old_tier: p for p in plans}
     # FREE(0.99) > median → promote
@@ -326,7 +326,7 @@ def test_recalibrate_boundary_clamp():
     flag_plan = by_old[TierLabel.FLAGSHIP]
     if flag_plan.expected_improvement == "demote":
         assert flag_plan.new_tier == TierLabel.PREMIUM
-    print(f"  ✓ test_recalibrate_boundary_clamp")
+    print("  ✓ test_recalibrate_boundary_clamp")
 
 
 if __name__ == "__main__":

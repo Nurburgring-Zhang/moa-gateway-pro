@@ -22,10 +22,8 @@ from __future__ import annotations
 import re
 import secrets
 import string
-from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, FrozenSet, List, Tuple
-
+from typing import Any
 
 __all__ = [
     "CanaryStrategy",
@@ -43,7 +41,7 @@ CANARY_PREFIX: str = "moa_canary_"
 """金丝雀 token 前缀,便于在 LLM 输出中识别"""
 
 # 零宽字符 (用于 INVISIBLE 策略编码)
-INVISIBLE_CHARS: Tuple[str, ...] = ("\u200B", "\u200C", "\u200D", "\uFEFF")
+INVISIBLE_CHARS: tuple[str, ...] = ("\u200B", "\u200C", "\u200D", "\uFEFF")
 """4 种零宽字符作为编码基 (类似 base-4): U+200B / U+200C / U+200D / U+FEFF"""
 
 # token 字符集: 大小写字母 + 数字 (排除易混淆字符 0/O/1/l/I)
@@ -73,7 +71,7 @@ class CanaryStrategy(str, Enum):
 # 来源: 公开 prompt injection / jailbreak 攻防研究汇总
 # 全部 case-insensitive,使用 frozenset 加速查找
 
-INJECTION_PATTERNS: FrozenSet[str] = frozenset({
+INJECTION_PATTERNS: frozenset[str] = frozenset({
     # 1. 忽略之前的指令 (经典模式)
     r"ignore (all )?(?:previous|prior|above) instructions?",
     # 2. 角色重定义
@@ -115,7 +113,7 @@ INJECTION_PATTERNS: FrozenSet[str] = frozenset({
 
 
 # 预编译正则 (性能优化: 避免每次 check 重复编译)
-_COMPILED_INJECTION_PATTERNS: List[re.Pattern[str]] = [
+_COMPILED_INJECTION_PATTERNS: list[re.Pattern[str]] = [
     re.compile(p, re.IGNORECASE | re.MULTILINE) for p in INJECTION_PATTERNS
 ]
 
@@ -168,7 +166,7 @@ def _encode_invisible(token: str) -> str:
     每个 ASCII 字符编码为 4 个零宽字符 (因为 0xFF > 0x7F,
     取 7 位有效位,需要 ceil(7/2) = 4 个 base-4 数字)
     """
-    encoded_parts: List[str] = []
+    encoded_parts: list[str] = []
     for ch in token:
         code = ord(ch)
         # 4 个零宽字符,每字符 2 bit,共 8 bit
@@ -187,9 +185,9 @@ def _decode_invisible(encoded: str) -> str:
         return ""
 
     # 构建反向映射
-    char_to_idx: Dict[str, int] = {c: i for i, c in enumerate(INVISIBLE_CHARS)}
+    char_to_idx: dict[str, int] = {c: i for i, c in enumerate(INVISIBLE_CHARS)}
 
-    decoded_chars: List[str] = []
+    decoded_chars: list[str] = []
     for i in range(0, len(encoded), 4):
         code = 0
         for j in range(4):
@@ -255,7 +253,7 @@ class CanaryDetector:
         self.strategy = strategy
         self.canary_length = canary_length
 
-    def inject(self, prompt: str) -> Tuple[str, str]:
+    def inject(self, prompt: str) -> tuple[str, str]:
         """注入 canary token 到 prompt 中
 
         Args:
@@ -293,7 +291,7 @@ class CanaryDetector:
             fallback = f"{CANARY_PREFIX}{'x' * self.canary_length}"
             return f"{prompt}\n\n[ref: {fallback}]", fallback
 
-    def check(self, response: str, expected_canary: str) -> Dict[str, Any]:
+    def check(self, response: str, expected_canary: str) -> dict[str, Any]:
         """检测 response 是否泄露 canary / 包含 injection 模式
 
         Args:
@@ -358,7 +356,7 @@ class CanaryDetector:
             similarity = _jaccard_similarity(tokens_response, tokens_canary)
 
             # 4. Injection 模式检测
-            indicators: List[str] = []
+            indicators: list[str] = []
             for pattern in _COMPILED_INJECTION_PATTERNS:
                 if pattern.search(response_str):
                     indicators.append(pattern.pattern)

@@ -3,35 +3,31 @@
 真实 assert, 严禁 mock; 用 tmp_path 隔离文件 IO。
 """
 from __future__ import annotations
-import math
-import pytest
+
 import sys
 import time
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.feedback_loop import (
-    IterationRecord,
-    Feedback,
-    STRENGTH_THRESHOLD,
-    WEAKNESS_THRESHOLD,
-    CONSENSUS_STD,
     CONVERGENCE_STD,
     JACCARD_CONVERGENCE_THRESHOLD,
-    ADOPTION_RATIO,
-    save_feedback,
-    load_feedback,
-    append_iteration,
-    load_history,
+    Feedback,
+    IterationRecord,
     analyze_iteration,
-    format_next_iter_prompt,
-    detect_convergence,
+    append_iteration,
     cross_iter_synthesize,
-    record_to_dict,
+    detect_convergence,
     feedback_to_dict,
+    format_next_iter_prompt,
+    load_feedback,
+    load_history,
+    record_to_dict,
+    save_feedback,
 )
-
 
 # ============ 辅助: 构造 IterationRecord ============
 

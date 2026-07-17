@@ -3,17 +3,17 @@
 真实实现,非 mock。所有 9 个检测器基于正则,实际可用。
 """
 from __future__ import annotations
-import re
-import json
-import time
-from pathlib import Path
-from typing import List, Dict, Tuple, Optional, Iterable
-from dataclasses import dataclass, field, asdict
 
+import json
+import re
+import time
+from collections.abc import Iterable
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 # ============ 9 类密钥检测正则 (来自 05 moa-skill + 07 moat) ============
 
-SECRET_PATTERNS: List[Tuple[str, str, int]] = [
+SECRET_PATTERNS: list[tuple[str, str, int]] = [
     # (pattern_id, regex, severity 0-3)
     ("AWS_ACCESS_KEY", r"AKIA[0-9A-Z]{16}", 3),
     ("AWS_SECRET_KEY", r"(?i)aws.{0,20}(?:secret|private).{0,20}[A-Za-z0-9/+=]{40}", 3),
@@ -72,10 +72,10 @@ class Finding:
     redacted: str            # 脱敏版本
     context: str             # 前后 1-2 行
     exempt: bool = False
-    exempt_reason: Optional[str] = None
-    exempt_source: Optional[str] = None  # "inline" / "file_frontmatter" / "config"
+    exempt_reason: str | None = None
+    exempt_source: str | None = None  # "inline" / "file_frontmatter" / "config"
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -85,13 +85,13 @@ class ScanResult:
     scanned_files: int = 0
     scanned_lines: int = 0
     scanned_at: float = field(default_factory=time.time)
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     exempt_count: int = 0
     real_count: int = 0
-    by_pattern: Dict[str, int] = field(default_factory=dict)
-    by_severity: Dict[int, int] = field(default_factory=lambda: {0: 0, 1: 0, 2: 0, 3: 0})
+    by_pattern: dict[str, int] = field(default_factory=dict)
+    by_severity: dict[int, int] = field(default_factory=lambda: {0: 0, 1: 0, 2: 0, 3: 0})
     blocked: bool = False
-    block_reasons: List[str] = field(default_factory=list)
+    block_reasons: list[str] = field(default_factory=list)
 
     def add(self, finding: Finding) -> None:
         self.findings.append(finding)
@@ -102,7 +102,7 @@ class ScanResult:
         self.by_pattern[finding.pattern_id] = self.by_pattern.get(finding.pattern_id, 0) + 1
         self.by_severity[finding.severity] = self.by_severity.get(finding.severity, 0) + 1
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "scanned_files": self.scanned_files,
             "scanned_lines": self.scanned_lines,
@@ -141,13 +141,13 @@ EXEMPT_FILE_RE = re.compile(
 GLOBAL_EXEMPT_KEYS_PATH = ".moat/exempt.yaml"
 
 
-def _load_global_exempts(root: Path) -> Dict[str, List[str]]:
+def _load_global_exempts(root: Path) -> dict[str, list[str]]:
     """从 .moat/exempt.yaml 加载全局豁免配置"""
     path = root / GLOBAL_EXEMPT_KEYS_PATH
     if not path.exists():
         return {}
     try:
-        data: Dict = {}
+        data: dict = {}
         for line in path.read_text(encoding="utf-8", errors="ignore").splitlines():
             line = line.strip()
             if not line or line.startswith("#"):
@@ -160,8 +160,8 @@ def _load_global_exempts(root: Path) -> Dict[str, List[str]]:
         return {}
 
 
-def is_exempt(file: str, line: int, line_text: str, all_lines: List[str],
-              global_exempts: Dict[str, List[str]]) -> Tuple[bool, Optional[str], Optional[str]]:
+def is_exempt(file: str, line: int, line_text: str, all_lines: list[str],
+              global_exempts: dict[str, list[str]]) -> tuple[bool, str | None, str | None]:
     """返回 (是否豁免, 原因, 来源)"""
     # 1. inline: `# moat:ignore=PATTERN_ID reason="..."`
     m = EXEMPT_INLINE_RE.search(line_text)
@@ -219,16 +219,14 @@ def _is_text_file(p: Path) -> bool:
         # 检查可打印字符比例(>= 85% 视为文本)
         printable = sum(1 for b in chunk
                         if 32 <= b < 127 or b in (9, 10, 13) or b >= 128)
-        if chunk and printable / len(chunk) < 0.85:
-            return False
-        return True
+        return not (chunk and printable / len(chunk) < 0.85)
     except Exception:
         return False
 
 
-def scan_text(text: str, file: str, root: Optional[Path] = None) -> List[Finding]:
+def scan_text(text: str, file: str, root: Path | None = None) -> list[Finding]:
     """扫描一段文本,返回 Finding 列表"""
-    findings: List[Finding] = []
+    findings: list[Finding] = []
     lines = text.splitlines()
     for i, line in enumerate(lines, 1):
         for pid, pat, sev in SECRET_PATTERNS:
@@ -260,9 +258,9 @@ def scan_text(text: str, file: str, root: Optional[Path] = None) -> List[Finding
 
 def scan_path(
     root: Path,
-    patterns: Optional[List[str]] = None,
-    skip_dirs: Optional[Iterable[str]] = None,
-    skip_files: Optional[Iterable[str]] = None,
+    patterns: list[str] | None = None,
+    skip_dirs: Iterable[str] | None = None,
+    skip_files: Iterable[str] | None = None,
     max_file_bytes: int = 2 * 1024 * 1024,  # 2MB
 ) -> ScanResult:
     """扫描一个目录,返回 ScanResult"""
@@ -273,7 +271,7 @@ def scan_path(
     skip_dirs = set(skip_dirs or DEFAULT_SKIP_DIRS)
     skip_files = set(skip_files or DEFAULT_SKIP_FILES)
     result = ScanResult()
-    global_exempts = _load_global_exempts(root)
+    _load_global_exempts(root)
     for pat in patterns:
         for p in root.glob(pat):
             if not p.is_file():
@@ -328,7 +326,7 @@ def should_block(result: ScanResult, fail_on: int = 3) -> bool:
 
 # ============ CLI 入口 ============
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     import argparse
     parser = argparse.ArgumentParser(description="MoA Gateway Pro 密钥扫描器")
     parser.add_argument("path", nargs="?", default=".", help="扫描路径(默认 .)")

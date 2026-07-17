@@ -8,11 +8,11 @@
 真实实现,非 mock。所有检测基于真实正则与字面量,实际可用。
 """
 from __future__ import annotations
-import re
-import fnmatch
-from typing import List, Optional, Literal, Dict
-from dataclasses import dataclass, field, asdict
 
+import fnmatch
+import re
+from dataclasses import asdict, dataclass, field
+from typing import Literal
 
 # ============ Dataclasses ============
 
@@ -25,18 +25,34 @@ class PolicyRule:
     match_type: Literal["glob", "regex", "exact"] = "glob"
     reason: str = ""
 
+    @classmethod
+    def from_dict(cls, d: dict) -> 'PolicyRule':
+        """接受字段别名,自动映射到正确字段。空 dict 走 defaults。"""
+        kwargs = {}
+        if "name" in d: kwargs["name"] = d["name"]
+        if "name" not in kwargs and "pattern" in d: kwargs["name"] = d["pattern"]
+        if "action" in d: kwargs["action"] = d["action"]
+        if "action" not in kwargs and "action" in d: kwargs["action"] = d["action"]
+        if "pattern" in d: kwargs["pattern"] = d["pattern"]
+        if "pattern" not in kwargs and "name" in d: kwargs["pattern"] = d["name"]
+        if "match_type" in d: kwargs["match_type"] = d["match_type"]
+        if "match_type" not in kwargs and "priority" in d: kwargs["match_type"] = d["priority"]
+        if "reason" in d: kwargs["reason"] = d["reason"]
+        if "reason" not in kwargs and "priority" in d: kwargs["reason"] = d["priority"]
+        return cls(**kwargs)
+
 
 @dataclass
 class PolicyVerdict:
     """一次 evaluate 的裁决结果"""
     command: str
     decision: Literal["allow", "deny", "admin_review"]
-    matched_rule: Optional[str] = None
+    matched_rule: str | None = None
     reason: str = ""
     bypass_detected: bool = False
-    bypass_techniques: List[str] = field(default_factory=list)
+    bypass_techniques: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -77,8 +93,8 @@ def _rule_matches(rule: PolicyRule, command: str) -> bool:
 class ActionPolicy:
     """策略引擎: 装载规则、评估命令、增删查"""
 
-    def __init__(self, rules: Optional[List[PolicyRule]] = None) -> None:
-        self._rules: List[PolicyRule] = list(rules or [])
+    def __init__(self, rules: list[PolicyRule] | None = None) -> None:
+        self._rules: list[PolicyRule] = list(rules or [])
 
     def add_rule(self, rule: PolicyRule) -> None:
         """添加规则(同名覆盖)"""
@@ -91,14 +107,14 @@ class ActionPolicy:
         self._rules = [r for r in self._rules if r.name != name]
         return len(self._rules) < before
 
-    def list_rules(self) -> List[PolicyRule]:
+    def list_rules(self) -> list[PolicyRule]:
         """列出当前所有规则(拷贝)"""
         return list(self._rules)
 
     def evaluate(self, command: str) -> PolicyVerdict:
         """按 deny > admin_review > allow 优先级,返回第一条匹配规则的裁决;
         无任何规则匹配时,默认 allow(显式 deny 优先 + default allow)。"""
-        matched: List[PolicyRule] = []
+        matched: list[PolicyRule] = []
         for r in self._rules:
             if _rule_matches(r, command):
                 matched.append(r)
@@ -136,11 +152,11 @@ _PIPE_INTERP_RE = re.compile(
 _IFS_SUBST_RE = re.compile(r"\$\{?IFS\}?")
 
 
-def detect_bypass(command: str) -> List[BypassDetection]:
+def detect_bypass(command: str) -> list[BypassDetection]:
     """检测 shell 注入/绕过技术,返回 BypassDetection 列表。"""
     if not isinstance(command, str):
         return []
-    out: List[BypassDetection] = []
+    out: list[BypassDetection] = []
 
     # 1. line continuation: 反斜杠接换行
     for m in _LINE_CONT_RE.finditer(command):
@@ -251,7 +267,7 @@ def pre_action_check(command: str, policy: ActionPolicy) -> PolicyVerdict:
 
 def default_safe_policy() -> ActionPolicy:
     """返回一个带 8 条高危命令 deny 规则的默认安全策略。"""
-    rules: List[PolicyRule] = [
+    rules: list[PolicyRule] = [
         PolicyRule(
             name="deny_rm_rf_root",
             action="deny",

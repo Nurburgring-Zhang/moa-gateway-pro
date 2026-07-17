@@ -17,11 +17,8 @@
 """
 from __future__ import annotations
 
-import json
 import math
-from dataclasses import dataclass, field, asdict, replace
-from typing import List, Optional
-
+from dataclasses import asdict, dataclass, field
 
 __all__ = [
     "ConvergenceState",
@@ -50,8 +47,8 @@ __all__ = [
 # tier 3: >= 5 events
 # tier 4: >= 10 events
 # < 1 event → tier 0
-TIER_THRESHOLDS: List[int] = [1, 3, 5, 10]
-TIER_LABELS: List[int] = [1, 2, 3, 4]
+TIER_THRESHOLDS: list[int] = [1, 3, 5, 10]
+TIER_LABELS: list[int] = [1, 2, 3, 4]
 
 # 置信度校准阶梯
 CONFIDENCE_ZERO_SAMPLES: float = 0.5   # 无样本: 瞎猜
@@ -74,7 +71,7 @@ class ConvergenceConfig:
 class ConvergenceState:
     """收敛检测的状态 (每轮迭代后更新)"""
     iteration: int = 0
-    best_score_history: List[float] = field(default_factory=list)
+    best_score_history: list[float] = field(default_factory=list)
     stagnation_count: int = 0
     converged: bool = False
 
@@ -157,7 +154,7 @@ def classify_tier(events_count: int) -> int:
 # ============ Stagnation 检测 (滑窗) ============
 
 def detect_stagnation(
-    history: List[float],
+    history: list[float],
     threshold: int = 3,
     epsilon: float = 0.001,
 ) -> bool:

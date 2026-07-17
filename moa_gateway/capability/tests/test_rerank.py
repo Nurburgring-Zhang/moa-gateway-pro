@@ -1,21 +1,18 @@
 """moa_gateway.capability.rerank 真实测试(非 mock)"""
 import json
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.rerank import (
     MockRerankProvider,
-    RerankCandidate,
     RerankResult,
     format_for_openai,
     relevance_score,
     rerank_with_budget,
     stream_delta_proxy,
 )
-
 
 # =============================================================================
 # relevance_score
@@ -178,7 +175,7 @@ def test_rerank_with_budget_top_n_truncation():
     # rank 必须是 1, 2
     assert result.candidates[0].rank == 1
     assert result.candidates[1].rank == 2
-    print(f"  ✓ test_rerank_with_budget_top_n_truncation (n_candidates=2 of 10)")
+    print("  ✓ test_rerank_with_budget_top_n_truncation (n_candidates=2 of 10)")
     return True
 
 

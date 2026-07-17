@@ -14,9 +14,8 @@
   - breaker_open 视为绝对死状态:score = 0, tier = "dead"
 """
 from __future__ import annotations
-import math
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Optional, Tuple
+
+from dataclasses import dataclass, field
 
 
 # ============ 数据模型 ============
@@ -32,10 +31,42 @@ class HealthMetrics:
     consecutive_failures: int = 0   # 当前连续失败(含非 429)
     avg_latency_ms: float = 0.0
     p95_latency_ms: float = 0.0
-    last_error_type: Optional[str] = None
-    last_success_at: Optional[float] = None
-    last_failure_at: Optional[float] = None
+    last_error_type: str | None = None
+    last_success_at: float | None = None
+    last_failure_at: float | None = None
     breaker_open: bool = False
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'HealthMetrics':
+        """接受字段别名,自动映射到正确字段。空 dict 走 defaults。"""
+        kwargs = {}
+        if "provider" in d: kwargs["provider"] = d["provider"]
+        if "provider" not in kwargs and "provider" in d: kwargs["provider"] = d["provider"]
+        if "total_calls" in d: kwargs["total_calls"] = d["total_calls"]
+        if "total_calls" not in kwargs and "total_calls" in d: kwargs["total_calls"] = d["total_calls"]
+        if "success_count" in d: kwargs["success_count"] = d["success_count"]
+        if "success_count" not in kwargs and "success_calls" in d: kwargs["success_count"] = d["success_calls"]
+        if "failure_count" in d: kwargs["failure_count"] = d["failure_count"]
+        if "failure_count" not in kwargs and "fail_calls" in d: kwargs["failure_count"] = d["fail_calls"]
+        if "rate_limit_hits" in d: kwargs["rate_limit_hits"] = d["rate_limit_hits"]
+        if "rate_limit_hits" not in kwargs and "rate_limit_hits" in d: kwargs["rate_limit_hits"] = d["rate_limit_hits"]
+        if "consecutive_429s" in d: kwargs["consecutive_429s"] = d["consecutive_429s"]
+        if "consecutive_429s" not in kwargs and "consecutive_429s" in d: kwargs["consecutive_429s"] = d["consecutive_429s"]
+        if "consecutive_failures" in d: kwargs["consecutive_failures"] = d["consecutive_failures"]
+        if "consecutive_failures" not in kwargs and "consecutive_failures" in d: kwargs["consecutive_failures"] = d["consecutive_failures"]
+        if "avg_latency_ms" in d: kwargs["avg_latency_ms"] = d["avg_latency_ms"]
+        if "avg_latency_ms" not in kwargs and "avg_latency_ms" in d: kwargs["avg_latency_ms"] = d["avg_latency_ms"]
+        if "p95_latency_ms" in d: kwargs["p95_latency_ms"] = d["p95_latency_ms"]
+        if "p95_latency_ms" not in kwargs and "p99_latency_ms" in d: kwargs["p95_latency_ms"] = d["p99_latency_ms"]
+        if "last_error_type" in d: kwargs["last_error_type"] = d["last_error_type"]
+        if "last_error_type" not in kwargs and "last_error_type" in d: kwargs["last_error_type"] = d["last_error_type"]
+        if "last_success_at" in d: kwargs["last_success_at"] = d["last_success_at"]
+        if "last_success_at" not in kwargs and "last_success_at" in d: kwargs["last_success_at"] = d["last_success_at"]
+        if "last_failure_at" in d: kwargs["last_failure_at"] = d["last_failure_at"]
+        if "last_failure_at" not in kwargs and "last_failure_at" in d: kwargs["last_failure_at"] = d["last_failure_at"]
+        if "breaker_open" in d: kwargs["breaker_open"] = d["breaker_open"]
+        if "breaker_open" not in kwargs and "circuit_open" in d: kwargs["breaker_open"] = d["circuit_open"]
+        return cls(**kwargs)
 
     @property
     def failure_rate(self) -> float:
@@ -61,7 +92,7 @@ class HealthMetrics:
         non_streak_successes = max(0, self.success_count - self.failure_count)
         return max(0, non_streak_successes)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "provider": self.provider,
             "total_calls": self.total_calls,
@@ -88,9 +119,9 @@ class HealthScore:
     provider: str
     score: int  # 0-100
     tier: str   # excellent / good / fair / poor / dead
-    reasons: List[str] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return {
             "provider": self.provider,
             "score": self.score,
@@ -114,7 +145,7 @@ _BONUS_LOW_LATENCY = 5              # avg < 1000ms
 _BONUS_LONG_STREAK = 3              # consecutive_successes > 100
 
 # Tier 阈值(score → tier)
-_TIER_THRESHOLDS: List[Tuple[int, str]] = [
+_TIER_THRESHOLDS: list[tuple[int, str]] = [
     (90, "excellent"),
     (75, "good"),
     (50, "fair"),
@@ -151,7 +182,7 @@ def compute_score(metrics: HealthMetrics) -> HealthScore:
         - consecutive_successes > 100 → +3
       最终 clamp 到 [0, 100]
     """
-    reasons: List[str] = []
+    reasons: list[str] = []
 
     # 熔断:绝对死状态
     if metrics.breaker_open:
@@ -225,12 +256,12 @@ def compute_score(metrics: HealthMetrics) -> HealthScore:
 
 
 # ============ 聚合/排序/推荐 ============
-def aggregate_scores(scores: List[HealthScore]) -> Dict[str, HealthScore]:
+def aggregate_scores(scores: list[HealthScore]) -> dict[str, HealthScore]:
     """多 provider 评分聚合(provider -> HealthScore)"""
     return {s.provider: s for s in scores}
 
 
-def rank_providers(scores: Dict[str, HealthScore]) -> List[Tuple[str, int]]:
+def rank_providers(scores: dict[str, HealthScore]) -> list[tuple[str, int]]:
     """按 score 降序排列,同分按 provider 名字母序。返回 [(provider, score), ...]"""
     return sorted(
         ((name, s.score) for name, s in scores.items()),
@@ -246,9 +277,9 @@ def should_circuit_break(metrics: HealthMetrics, threshold: int = 3) -> bool:
 
 
 def recommend(
-    scores: Dict[str, HealthScore],
-    prefer_tier: Optional[str] = None,
-) -> Optional[str]:
+    scores: dict[str, HealthScore],
+    prefer_tier: str | None = None,
+) -> str | None:
     """从聚合结果中选最优 provider。
 
     - prefer_tier 过滤:只在指定 tier 内选
@@ -270,11 +301,11 @@ def recommend(
 
 
 # ============ 序列化 ============
-def score_to_dict(score: HealthScore) -> Dict:
+def score_to_dict(score: HealthScore) -> dict:
     return score.to_dict()
 
 
-def metrics_to_dict(metrics: HealthMetrics) -> Dict:
+def metrics_to_dict(metrics: HealthMetrics) -> dict:
     return metrics.to_dict()
 
 

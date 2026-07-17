@@ -26,11 +26,10 @@ Public API
 from __future__ import annotations
 
 import re
-import time
-from dataclasses import dataclass, field, asdict
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass
 from enum import Enum
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
-
+from typing import Any
 
 __all__ = [
     "RiskLevel",
@@ -60,7 +59,7 @@ class RiskLevel(str, Enum):
     BLOCKED = "blocked"
 
     @classmethod
-    def order(cls) -> Dict["RiskLevel", int]:
+    def order(cls) -> dict[RiskLevel, int]:
         return {
             cls.SAFE: 0,
             cls.LOW: 1,
@@ -69,20 +68,20 @@ class RiskLevel(str, Enum):
             cls.BLOCKED: 4,
         }
 
-    def __ge__(self, other: "RiskLevel") -> bool:  # type: ignore[override]
+    def __ge__(self, other: RiskLevel) -> bool:  # type: ignore[override]
         return self.order()[self] >= self.order()[other]
 
-    def __gt__(self, other: "RiskLevel") -> bool:  # type: ignore[override]
+    def __gt__(self, other: RiskLevel) -> bool:  # type: ignore[override]
         return self.order()[self] > self.order()[other]
 
-    def __le__(self, other: "RiskLevel") -> bool:  # type: ignore[override]
+    def __le__(self, other: RiskLevel) -> bool:  # type: ignore[override]
         return self.order()[self] <= self.order()[other]
 
-    def __lt__(self, other: "RiskLevel") -> bool:  # type: ignore[override]
+    def __lt__(self, other: RiskLevel) -> bool:  # type: ignore[override]
         return self.order()[self] < self.order()[other]
 
 
-CATEGORY_NAMES: Dict[int, str] = {
+CATEGORY_NAMES: dict[int, str] = {
     1: "sql_injection",
     2: "shell_command",
     3: "path_traversal",
@@ -104,7 +103,7 @@ CATEGORY_NAMES: Dict[int, str] = {
 #  Every category ships with >= 5 patterns; regexes are frozen at import.
 # --------------------------------------------------------------------------- #
 
-_RAW_PATTERNS: Tuple[Tuple[int, str, str, RiskLevel], ...] = (
+_RAW_PATTERNS: tuple[tuple[int, str, str, RiskLevel], ...] = (
     # ---- 1) SQL injection ----------------------------------------------------
     (1, "SQL_UNION_SELECT",
      r"(?i)\bunion\b\s+(?:all\s+)?\bselect\b", RiskLevel.HIGH),
@@ -259,8 +258,8 @@ class _Compiled:
     risk: RiskLevel
 
 
-def _build(entries: Sequence[Tuple[int, str, str, RiskLevel]]) -> Tuple[_Compiled, ...]:
-    out: List[_Compiled] = []
+def _build(entries: Sequence[tuple[int, str, str, RiskLevel]]) -> tuple[_Compiled, ...]:
+    out: list[_Compiled] = []
     for cat, pid, raw, risk in entries:
         try:
             out.append(_Compiled(category=cat, pattern_id=pid,
@@ -270,7 +269,7 @@ def _build(entries: Sequence[Tuple[int, str, str, RiskLevel]]) -> Tuple[_Compile
     return tuple(out)
 
 
-DEFAULT_PATTERNS: Tuple[_Compiled, ...] = _build(_RAW_PATTERNS)
+DEFAULT_PATTERNS: tuple[_Compiled, ...] = _build(_RAW_PATTERNS)
 
 
 # Network tool heuristic for category 8 size-based rule
@@ -296,7 +295,7 @@ class Finding:
     risk: RiskLevel
     location: str                       # JSON path, e.g. "args.cmd" or "args.query.0"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["risk"] = self.risk.value
         d["category_name"] = CATEGORY_NAMES.get(self.category, "unknown")
@@ -308,7 +307,7 @@ class Finding:
 # --------------------------------------------------------------------------- #
 
 
-def _walk(value: Any, path: str) -> List[Tuple[str, str]]:
+def _walk(value: Any, path: str) -> list[tuple[str, str]]:
     """Recursively yield ``(jsonpath, str_value)`` pairs from a JSON-like tree.
 
     - dict   -> recurse into values, appending ``.key``
@@ -320,7 +319,7 @@ def _walk(value: Any, path: str) -> List[Tuple[str, str]]:
     The walker never raises; it swallows exceptions and yields nothing for
     un-walkable subtrees.
     """
-    out: List[Tuple[str, str]] = []
+    out: list[tuple[str, str]] = []
     try:
         if isinstance(value, str):
             out.append((path, value))
@@ -348,8 +347,8 @@ def _walk(value: Any, path: str) -> List[Tuple[str, str]]:
 def screen_input(
     tool_name: str,
     arguments: Mapping[str, Any],
-    patterns: Optional[Sequence[_Compiled]] = None,
-) -> List[Finding]:
+    patterns: Sequence[_Compiled] | None = None,
+) -> list[Finding]:
     """Scan ``arguments`` and return every risky pattern match.
 
     Parameters
@@ -370,7 +369,7 @@ def screen_input(
         Empty when safe. The function never raises; pathological inputs
         are skipped silently.
     """
-    findings: List[Finding] = []
+    findings: list[Finding] = []
     if arguments is None:
         return findings
     pset = DEFAULT_PATTERNS if patterns is None else patterns
@@ -400,7 +399,7 @@ def _check_exfiltration(
     tool_name: str,
     arguments: Mapping[str, Any],
     patterns: Sequence[_Compiled],
-    findings: List[Finding],
+    findings: list[Finding],
 ) -> None:
     """Append a BLOCKED finding when a network tool carries a >1 MiB payload."""
     try:
@@ -445,9 +444,9 @@ class ToolScreener:
         default. Pass an empty dict to disable every category.
     """
 
-    def __init__(self, custom_patterns: Optional[Dict[Any, Any]] = None) -> None:
-        self._patterns: Tuple[_Compiled, ...] = self._compile(custom_patterns)
-        self._stats: Dict[str, int] = {
+    def __init__(self, custom_patterns: dict[Any, Any] | None = None) -> None:
+        self._patterns: tuple[_Compiled, ...] = self._compile(custom_patterns)
+        self._stats: dict[str, int] = {
             "scanned": 0,
             "blocked": 0,
             "by_category": {str(i): 0 for i in range(1, 10)},
@@ -455,7 +454,7 @@ class ToolScreener:
 
     # ----- public API ------------------------------------------------------- #
 
-    def screen(self, tool_name: str, arguments: Mapping[str, Any]) -> List[Finding]:
+    def screen(self, tool_name: str, arguments: Mapping[str, Any]) -> list[Finding]:
         """Run :func:`screen_input` and update internal counters."""
         try:
             findings = screen_input(tool_name, arguments, self._patterns)
@@ -470,7 +469,7 @@ class ToolScreener:
             self._stats["blocked"] += 1
         return findings
 
-    def should_block(self, findings: List[Finding]) -> bool:
+    def should_block(self, findings: list[Finding]) -> bool:
         """Block when there is >=1 BLOCKED or >=2 HIGH finding."""
         if not findings:
             return False
@@ -479,18 +478,17 @@ class ToolScreener:
         high = sum(1 for f in findings if f.risk == RiskLevel.HIGH)
         return high >= 2
 
-    def classify(self, findings: List[Finding]) -> RiskLevel:
+    def classify(self, findings: list[Finding]) -> RiskLevel:
         """Roll a list of findings up into a single :class:`RiskLevel`."""
         if not findings:
             return RiskLevel.SAFE
         worst = RiskLevel.SAFE
         for f in findings:
-            if f.risk > worst:
-                worst = f.risk
+            worst = max(worst, f.risk)
         return worst
 
     @property
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """Live counters (copy)."""
         out = dict(self._stats)
         out["by_category"] = dict(self._stats["by_category"])
@@ -503,13 +501,13 @@ class ToolScreener:
 
     # ----- internals -------------------------------------------------------- #
 
-    def _compile(self, custom: Optional[Dict[Any, Any]]) -> Tuple[_Compiled, ...]:
+    def _compile(self, custom: dict[Any, Any] | None) -> tuple[_Compiled, ...]:
         if custom is None:
             return DEFAULT_PATTERNS
-        by_cat: Dict[int, List[_Compiled]] = {i: [] for i in range(1, 10)}
+        by_cat: dict[int, list[_Compiled]] = {i: [] for i in range(1, 10)}
         # split defaults per category, skip ones being overridden
         overridden_cats: set[int] = set()
-        entries: List[Tuple[int, str, str, RiskLevel]] = []
+        entries: list[tuple[int, str, str, RiskLevel]] = []
         if isinstance(custom, dict):
             for key, value in custom.items():
                 cat = int(key)
@@ -554,7 +552,7 @@ class ToolScreener:
                 )
             except re.error as exc:
                 raise RuntimeError(f"bad custom pattern {pid}: {exc}") from exc
-        merged: List[_Compiled] = []
+        merged: list[_Compiled] = []
         for i in range(1, 10):
             merged.extend(by_cat[i])
         return tuple(merged)
@@ -565,8 +563,9 @@ class ToolScreener:
 # --------------------------------------------------------------------------- #
 
 
-def _cli(argv: Optional[List[str]] = None) -> int:  # pragma: no cover
-    import argparse, json as _json
+def _cli(argv: list[str] | None = None) -> int:  # pragma: no cover
+    import argparse
+    import json as _json
     parser = argparse.ArgumentParser(description="Tool-input 9-segment screener")
     parser.add_argument("--tool", default="unknown")
     parser.add_argument("--args", default="{}",

@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import threading
 import time
-from typing import Optional
 
 import pytest
 
@@ -13,7 +12,6 @@ from moa_gateway.capability.audit_cache import (
     AuditCache,
     AuditEvent,
 )
-
 
 # ============ Fixtures ============
 
@@ -28,17 +26,17 @@ def make_event(fixed_clock):
         resource: str = "fs:/tmp/a.txt",
         action: str = "read",
         outcome: str = "allow",
-        timestamp: Optional[float] = None,
-        metadata: Optional[dict] = None,
-        event_id: Optional[str] = None,
+        timestamp: float | None = None,
+        metadata: dict | None = None,
+        event_id: str | None = None,
     ) -> AuditEvent:
-        kwargs = dict(
-            event_type=event_type,
-            actor=actor,
-            resource=resource,
-            action=action,
-            outcome=outcome,
-        )
+        kwargs = {
+            "event_type": event_type,
+            "actor": actor,
+            "resource": resource,
+            "action": action,
+            "outcome": outcome,
+        }
         kwargs["timestamp"] = timestamp if timestamp is not None else clock()
         if metadata is not None:
             kwargs["metadata"] = metadata

@@ -3,18 +3,21 @@
 iOS 风格 · 玻璃拟态 · Light/Dark/Auto 三主题 · 跨平台
 """
 from __future__ import annotations
-import asyncio
-import json
+
+import contextlib
 import logging
 from datetime import datetime
-from typing import Dict, Optional, Any
+
 import flet as ft
-from .theme import DARK, LIGHT, get_palette, make_flet_theme, make_dark_theme, THEMES
-from .server_runner import ServerRunner
+
 from .pages import (
-    build_dashboard, build_endpoints, build_playground,
+    build_dashboard,
+    build_endpoints,
+    build_playground,
 )
 from .pages2 import build_benchmark, build_prompts, build_settings
+from .server_runner import ServerRunner
+from .theme import DARK, LIGHT, THEMES, make_dark_theme, make_flet_theme
 
 logger = logging.getLogger(__name__)
 
@@ -97,8 +100,8 @@ def main(page: ft.Page):
     )
 
     # 侧栏
-    nav_buttons: Dict[str, ft.Control] = {}
-    page_views: Dict[str, ft.Control] = {}
+    nav_buttons: dict[str, ft.Control] = {}
+    page_views: dict[str, ft.Control] = {}
 
     def make_nav_item(key: str, icon: str, text: str):
         btn = ft.Container(
@@ -246,11 +249,11 @@ def main(page: ft.Page):
 
     # ========== 页面构造 ==========
     build_pages = {
-        "dashboard": lambda s, sr: build_dashboard(s, sr),
-        "endpoints": lambda s, sr: build_endpoints(s, sr),
-        "playground": lambda s, sr: build_playground(s, sr),
-        "benchmark": lambda s, sr: build_benchmark(s, sr),
-        "prompts": lambda s, sr: build_prompts(s, sr),
+        "dashboard": build_dashboard,
+        "endpoints": build_endpoints,
+        "playground": build_playground,
+        "benchmark": build_benchmark,
+        "prompts": build_prompts,
         "settings": lambda s, sr: build_settings(s, sr, apply_theme, toggle_server, server_runner),
     }
 
@@ -265,10 +268,8 @@ def main(page: ft.Page):
     import threading
     def clock_tick():
         while True:
-            try:
+            with contextlib.suppress(Exception):
                 _update_time()
-            except Exception:
-                pass
             import time
             time.sleep(1)
     threading.Thread(target=clock_tick, daemon=True).start()

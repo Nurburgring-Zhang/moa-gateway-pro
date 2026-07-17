@@ -20,12 +20,11 @@ HARD CAP / PRESERVE:
 - 末尾 finish marker 不被压缩
 """
 from __future__ import annotations
+
 import hashlib
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass
 from enum import Enum
-from typing import List, Optional
-
 
 __all__ = [
     "QuantLevel",
@@ -222,7 +221,7 @@ def is_finish_marker(msg: Message) -> bool:
 
 
 def should_compress(
-    messages: List[Message],
+    messages: list[Message],
     config: TurboQuantConfig,
 ) -> bool:
     """压缩决策: len(messages) > hard_cap → True
@@ -240,9 +239,9 @@ def should_compress(
     return len(messages) > config.hard_cap
 
 
-def extract_system_messages(messages: List[Message]) -> List[Message]:
+def extract_system_messages(messages: list[Message]) -> list[Message]:
     """抽取列表头部的 system messages (连续 0 条或多条)"""
-    out: List[Message] = []
+    out: list[Message] = []
     for m in messages:
         if m.role == "system":
             out.append(m)
@@ -252,9 +251,9 @@ def extract_system_messages(messages: List[Message]) -> List[Message]:
 
 
 def apply_turboquant(
-    messages: List[Message],
+    messages: list[Message],
     config: TurboQuantConfig,
-) -> List[Message]:
+) -> list[Message]:
     """应用 TurboQuant 压缩
 
     行为:
@@ -289,7 +288,7 @@ def apply_turboquant(
     body = messages[len(system_msgs):]
 
     # 2) 抽出末尾 finish marker
-    finish_msg: Optional[Message] = None
+    finish_msg: Message | None = None
     if body and is_finish_marker(body[-1]):
         finish_msg = body[-1]
         body = body[:-1]
@@ -309,7 +308,7 @@ def apply_turboquant(
 
     quantized = [compress_message(m, config.level) for m in to_quantize]
 
-    result: List[Message] = []
+    result: list[Message] = []
     result.extend(system_msgs)
     result.extend(preserved)
     result.extend(quantized)
@@ -320,7 +319,7 @@ def apply_turboquant(
 
 # ============ JSON 序列化 ============
 
-def messages_to_json(messages: List[Message]) -> str:
+def messages_to_json(messages: list[Message]) -> str:
     """Message 列表 → JSON 字符串"""
     return json.dumps(
         [m.to_dict() for m in messages],
@@ -329,7 +328,7 @@ def messages_to_json(messages: List[Message]) -> str:
     )
 
 
-def messages_from_json(text: str) -> List[Message]:
+def messages_from_json(text: str) -> list[Message]:
     """JSON 字符串 → Message 列表"""
     raw = json.loads(text)
     return [

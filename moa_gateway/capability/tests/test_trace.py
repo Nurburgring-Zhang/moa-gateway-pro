@@ -16,21 +16,20 @@
 - 并发: 10 线程
 """
 import sys
-import time
 import threading
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.trace import (
-    TraceContext,
     TraceCollector,
-    new_trace,
-    new_span,
+    TraceContext,
     format_traceparent,
+    new_span,
+    new_trace,
     parse_traceparent,
 )
-
 
 # ============ new_trace ============
 
@@ -447,7 +446,7 @@ def test_edge_invalid_status_falls_back():
 def test_perf_1000_traces():
     c = TraceCollector(max_traces=2000)
     t0 = time.time()
-    for i in range(1000):
+    for _i in range(1000):
         ctx = c.start_trace()
         c.record_span(ctx, "s", 1.0)
         c.end_trace(ctx)

@@ -14,9 +14,10 @@
   - 聚合用一次性 DFS 后序累加,O(V) 一次完成
 """
 from __future__ import annotations
-from dataclasses import dataclass, field, asdict
+
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import List, Dict, Optional, Any, Set, Tuple
+from typing import Any
 
 
 # ============ 状态枚举 ============
@@ -41,20 +42,20 @@ class TaskSegment:
     title: str
     description: str
     status: TaskStatus
-    parent_id: Optional[str]
-    children_ids: List[str] = field(default_factory=list)
+    parent_id: str | None
+    children_ids: list[str] = field(default_factory=list)
     token_cost: int = 0
     duration_seconds: float = 0.0
     resolution_score: float = 0.0
-    depends_on: List[str] = field(default_factory=list)
+    depends_on: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["status"] = self.status.value
         return d
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "TaskSegment":
+    def from_dict(cls, d: dict[str, Any]) -> TaskSegment:
         d2 = dict(d)
         d2["status"] = TaskStatus(d["status"])
         return cls(**d2)
@@ -70,7 +71,7 @@ class TaskTree:
     """
 
     def __init__(self, root_id: str) -> None:
-        self._tasks: Dict[str, TaskSegment] = {}
+        self._tasks: dict[str, TaskSegment] = {}
         root = TaskSegment(
             id=root_id,
             title="root",
@@ -93,23 +94,23 @@ class TaskTree:
             if task.id not in parent.children_ids:
                 parent.children_ids.append(task.id)
 
-    def get_task(self, task_id: str) -> Optional[TaskSegment]:
+    def get_task(self, task_id: str) -> TaskSegment | None:
         return self._tasks.get(task_id)
 
-    def all_tasks(self) -> List[TaskSegment]:
+    def all_tasks(self) -> list[TaskSegment]:
         return list(self._tasks.values())
 
     # ---- 层级遍历 ----
-    def get_children(self, task_id: str) -> List[TaskSegment]:
+    def get_children(self, task_id: str) -> list[TaskSegment]:
         """直接子节点(不含孙及以下)"""
         t = self._tasks.get(task_id)
         if t is None:
             return []
         return [self._tasks[cid] for cid in t.children_ids if cid in self._tasks]
 
-    def get_descendants(self, task_id: str) -> List[TaskSegment]:
+    def get_descendants(self, task_id: str) -> list[TaskSegment]:
         """全部后代(深度优先,不含自身)"""
-        out: List[TaskSegment] = []
+        out: list[TaskSegment] = []
 
         def dfs(cur_id: str) -> None:
             for cid in self._tasks[cur_id].children_ids:
@@ -140,7 +141,7 @@ class TaskTree:
 
 
 # ============ 树分析(纯函数) ============
-def compute_aggregates(tree: TaskTree, task_id: str) -> Dict[str, Any]:
+def compute_aggregates(tree: TaskTree, task_id: str) -> dict[str, Any]:
     """对 task_id 及其全部后代做聚合。
 
     返回: {
@@ -188,7 +189,7 @@ def depth(tree: TaskTree, task_id: str) -> int:
         return -1
     d = 0
     cur = t
-    seen: Set[str] = set()
+    seen: set[str] = set()
     while cur.parent_id is not None:
         if cur.id in seen:
             break
@@ -202,9 +203,9 @@ def depth(tree: TaskTree, task_id: str) -> int:
 
 
 # ============ 依赖图分析 ============
-def get_ready_tasks(tree: TaskTree) -> List[str]:
+def get_ready_tasks(tree: TaskTree) -> list[str]:
     """所有依赖已 COMPLETED 且自身为 PENDING 的 task id(按添加顺序稳定)。"""
-    ready: List[str] = []
+    ready: list[str] = []
     for t in tree.all_tasks():
         if t.status != TaskStatus.PENDING:
             continue
@@ -219,16 +220,16 @@ def get_ready_tasks(tree: TaskTree) -> List[str]:
     return ready
 
 
-def detect_cycles(tree: TaskTree) -> List[List[str]]:
+def detect_cycles(tree: TaskTree) -> list[list[str]]:
     """用 DFS 三色法找依赖图中的所有环。
 
     返回: 每条环是 task id 列表,首尾相同 (e.g. ["a","b","c","a"])
     若无环返回 []。
     """
     WHITE, GRAY, BLACK = 0, 1, 2
-    color: Dict[str, int] = {tid: WHITE for tid in tree._tasks}
-    cycles: List[List[str]] = []
-    path: List[str] = []
+    color: dict[str, int] = dict.fromkeys(tree._tasks, WHITE)
+    cycles: list[list[str]] = []
+    path: list[str] = []
 
     def dfs(u: str) -> None:
         color[u] = GRAY
@@ -253,14 +254,14 @@ def detect_cycles(tree: TaskTree) -> List[List[str]]:
 
 
 # ============ JSON 序列化 ============
-def tree_to_dict(tree: TaskTree) -> Dict[str, Any]:
+def tree_to_dict(tree: TaskTree) -> dict[str, Any]:
     """把整棵任务树序列化为 dict(含所有 TaskSegment)。"""
     return {
         "tasks": [t.to_dict() for t in tree.all_tasks()]
     }
 
 
-def tree_from_dict(d: Dict[str, Any]) -> TaskTree:
+def tree_from_dict(d: dict[str, Any]) -> TaskTree:
     """从 dict 反序列化出 TaskTree。根节点 = parent_id 为 None 的那个。"""
     tasks_raw = d.get("tasks", [])
     tasks = [TaskSegment.from_dict(x) for x in tasks_raw]

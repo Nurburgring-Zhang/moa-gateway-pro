@@ -1,16 +1,17 @@
 """test_acceptance — Acceptance Tree + EARS/GEARS 模式匹配测试"""
 import json
+
 import pytest
 
 from moa_gateway.capability.acceptance import (
     AcceptanceCriterion,
     AcceptanceTree,
-    GEARSPattern,
     EARSPattern,
-    validate_pattern,
+    GEARSPattern,
     parse_ears,
-    tree_to_dict,
     tree_from_dict,
+    tree_to_dict,
+    validate_pattern,
 )
 
 

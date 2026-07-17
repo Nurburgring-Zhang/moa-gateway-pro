@@ -7,16 +7,18 @@
 - 启动/停止/日志 都独立干净
 """
 from __future__ import annotations
-import os
-import sys
-import socket
-import time
-import subprocess
-import threading
-import logging
-import urllib.request
+
 import asyncio
+import logging
+import os
+import socket
+import subprocess
+import sys
+import threading
+import time
+import urllib.request
 from pathlib import Path
+
 import flet as ft
 
 logger = logging.getLogger(__name__)
@@ -220,7 +222,7 @@ class ServerRunner:
             with urllib.request.urlopen(req, timeout=2) as r:
                 # urllib 返回 http.client.HTTPResponse,属性是 .status 不是 .status_code
                 return r.status == 200
-        except socket.timeout:
+        except TimeoutError:
             return False
         except ConnectionRefusedError:
             return False

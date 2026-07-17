@@ -19,15 +19,15 @@
   - 跳过阈值:consecutive_failures >= 3 (与 self_heal 的 DEFAULT_FAILURE_THRESHOLD 一致)
 """
 from __future__ import annotations
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Optional, Tuple, Literal
 
+from dataclasses import asdict, dataclass, field
+from typing import Literal
 
 # ============ Constants ============
 
 # tier 升序:索引小 = 优先级低 / 成本低,索引大 = 优先级高 / 成本高
 _TIER_ORDER = ["free", "lite", "standard", "premium", "flagship"]
-_TIER_INDEX: Dict[str, int] = {t: i for i, t in enumerate(_TIER_ORDER)}
+_TIER_INDEX: dict[str, int] = {t: i for i, t in enumerate(_TIER_ORDER)}
 
 # 连续失败跳过阈值
 FAILURE_SKIP_THRESHOLD = 3
@@ -53,10 +53,28 @@ class RequestContext:
     """请求上下文"""
     request_id: str
     query: str
-    required_capabilities: List[str] = field(default_factory=list)
-    max_cost_per_1k: Optional[float] = None
-    max_latency_ms: Optional[float] = None
+    required_capabilities: list[str] = field(default_factory=list)
+    max_cost_per_1k: float | None = None
+    max_latency_ms: float | None = None
     priority: Priority = "normal"
+
+    @classmethod
+    def from_dict(cls, d: dict) -> 'RequestContext':
+        """接受字段别名,自动映射到正确字段。空 dict 走 defaults。"""
+        kwargs = {}
+        if "request_id" in d: kwargs["request_id"] = d["request_id"]
+        if "request_id" not in kwargs and "id" in d: kwargs["request_id"] = d["id"]
+        if "query" in d: kwargs["query"] = d["query"]
+        if "query" not in kwargs and "query" in d: kwargs["query"] = d["query"]
+        if "required_capabilities" in d: kwargs["required_capabilities"] = d["required_capabilities"]
+        if "required_capabilities" not in kwargs and "required_capabilities" in d: kwargs["required_capabilities"] = d["required_capabilities"]
+        if "max_cost_per_1k" in d: kwargs["max_cost_per_1k"] = d["max_cost_per_1k"]
+        if "max_cost_per_1k" not in kwargs and "cost" in d: kwargs["max_cost_per_1k"] = d["cost"]
+        if "max_latency_ms" in d: kwargs["max_latency_ms"] = d["max_latency_ms"]
+        if "max_latency_ms" not in kwargs and "latency" in d: kwargs["max_latency_ms"] = d["latency"]
+        if "priority" in d: kwargs["priority"] = d["priority"]
+        if "priority" not in kwargs and "priority" in d: kwargs["priority"] = d["priority"]
+        return cls(**kwargs)
 
     def __post_init__(self) -> None:
         if not self.request_id or not isinstance(self.request_id, str):
@@ -76,7 +94,7 @@ class RequestContext:
                 f"max_latency_ms must be >= 0, got {self.max_latency_ms}"
             )
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -88,7 +106,7 @@ class EndpointSpec:
     cost_per_1k_input: float
     cost_per_1k_output: float
     avg_latency_ms: float
-    capabilities: List[str] = field(default_factory=list)
+    capabilities: list[str] = field(default_factory=list)
     tier: TierLabel = "standard"
     enabled: bool = True
     consecutive_failures: int = 0
@@ -123,27 +141,27 @@ class EndpointSpec:
                 f"consecutive_failures must be >= 0, got {self.consecutive_failures}"
             )
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
 @dataclass
 class SelectionDecision:
     """单次选择决策"""
-    selected_endpoint_id: Optional[str]
-    fallback_chain: List[str] = field(default_factory=list)
-    vision_degraded_to: Optional[str] = None
+    selected_endpoint_id: str | None
+    fallback_chain: list[str] = field(default_factory=list)
+    vision_degraded_to: str | None = None
     reason: str = ""
     estimated_cost_usd: float = 0.0
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
 # ============ 工具函数 ============
 
 
-def _meets_capabilities(ep: EndpointSpec, required: List[str]) -> bool:
+def _meets_capabilities(ep: EndpointSpec, required: list[str]) -> bool:
     """检查 endpoint 是否满足所有 required capabilities"""
     if not required:
         return True
@@ -151,14 +169,14 @@ def _meets_capabilities(ep: EndpointSpec, required: List[str]) -> bool:
     return all(req in ep_caps for req in required)
 
 
-def _meets_cost(ep: EndpointSpec, max_cost: Optional[float]) -> bool:
+def _meets_cost(ep: EndpointSpec, max_cost: float | None) -> bool:
     """检查 endpoint 是否在 max_cost 预算内(基于 input 价)"""
     if max_cost is None:
         return True
     return float(ep.cost_per_1k_input) <= float(max_cost)
 
 
-def _meets_latency(ep: EndpointSpec, max_latency: Optional[float]) -> bool:
+def _meets_latency(ep: EndpointSpec, max_latency: float | None) -> bool:
     """检查 endpoint 是否在 max_latency 内"""
     if max_latency is None:
         return True
@@ -173,8 +191,8 @@ def _tier_index(ep: EndpointSpec) -> int:
 
 
 def _static_priority(
-    endpoints: List[EndpointSpec], ctx: RequestContext
-) -> List[EndpointSpec]:
+    endpoints: list[EndpointSpec], ctx: RequestContext
+) -> list[EndpointSpec]:
     """静态优先选择:按 tier 升序 + capabilities 过滤 + cost/latency 过滤
 
     - 只返回 enabled=True 的 endpoint
@@ -183,7 +201,7 @@ def _static_priority(
     - 按 tier 升序(free→flagship)
     - 同 tier 内按 cost_per_1k_input 升序(更便宜的优先)
     """
-    filtered: List[EndpointSpec] = []
+    filtered: list[EndpointSpec] = []
     for ep in endpoints:
         if not ep.enabled:
             continue
@@ -204,8 +222,8 @@ def _static_priority(
 
 
 def _dynamic_fallback(
-    candidates: List[EndpointSpec], ctx: RequestContext
-) -> Tuple[Optional[EndpointSpec], List[EndpointSpec]]:
+    candidates: list[EndpointSpec], ctx: RequestContext
+) -> tuple[EndpointSpec | None, list[EndpointSpec]]:
     """动态 fallback:从候选中挑主选 + 构造 fallback chain
 
     - 跳过 consecutive_failures >= FAILURE_SKIP_THRESHOLD 的 endpoint
@@ -216,7 +234,7 @@ def _dynamic_fallback(
     if not candidates:
         return None, []
 
-    healthy: List[EndpointSpec] = [
+    healthy: list[EndpointSpec] = [
         ep
         for ep in candidates
         if int(ep.consecutive_failures) < FAILURE_SKIP_THRESHOLD
@@ -235,7 +253,7 @@ def _dynamic_fallback(
 
 def _vision_degrade(
     candidate: EndpointSpec, ctx: RequestContext
-) -> Optional[EndpointSpec]:
+) -> EndpointSpec | None:
     """vision 降级:若 ctx 需要 vision 但 candidate 不支持 → 返回 None(交给上层重选)
 
     本函数只判断 candidate 本身是否满足 vision 需求。
@@ -251,10 +269,10 @@ def _vision_degrade(
 
 
 def _find_vision_alternative(
-    endpoints: List[EndpointSpec],
+    endpoints: list[EndpointSpec],
     ctx: RequestContext,
-    exclude_id: Optional[str] = None,
-) -> Optional[EndpointSpec]:
+    exclude_id: str | None = None,
+) -> EndpointSpec | None:
     """从 endpoints 中找一个支持 vision 的 fallback(跳过失败过多的)
 
     注:vision 降级是 fallback 路径,不再严格遵守 max_cost/max_latency,
@@ -277,7 +295,7 @@ def _find_vision_alternative(
 
 
 def select_endpoint(
-    ctx: RequestContext, endpoints: List[EndpointSpec]
+    ctx: RequestContext, endpoints: list[EndpointSpec]
 ) -> SelectionDecision:
     """主决策流水线:static_priority → dynamic_fallback → vision_degrade
 
@@ -291,7 +309,7 @@ def select_endpoint(
     candidates = _static_priority(endpoints, ctx)
 
     # 2) vision 降级入口:若 ctx 需要 vision 但无 vision 候选 → 放宽 vision 重试
-    vision_degraded_to: Optional[str] = None
+    vision_degraded_to: str | None = None
     needs_vision = "vision" in (ctx.required_capabilities or [])
     if not candidates and needs_vision:
         # 重新构造一个无 vision 要求的 ctx 来过静态过滤
@@ -366,12 +384,12 @@ def select_endpoint(
 # ============ 自愈 tier 重新平衡 ============
 
 
-def self_heal_rebalance(endpoints: List[EndpointSpec]) -> List[TierLabel]:
+def self_heal_rebalance(endpoints: list[EndpointSpec]) -> list[TierLabel]:
     """自愈 tier 重新平衡:每个 consecutive_failures >= 3 的 endpoint 降一档
 
     返回新 tier 列表(与输入同序),不修改原对象
     """
-    new_tiers: List[TierLabel] = []
+    new_tiers: list[TierLabel] = []
     for ep in endpoints:
         if int(ep.consecutive_failures) >= FAILURE_SKIP_THRESHOLD:
             new_tiers.append(_TIER_DEMOTE.get(ep.tier, ep.tier))
@@ -381,10 +399,10 @@ def self_heal_rebalance(endpoints: List[EndpointSpec]) -> List[TierLabel]:
 
 
 def self_heal_rebalance_inplace(
-    endpoints: List[EndpointSpec],
-) -> List[Tuple[str, TierLabel, TierLabel]]:
+    endpoints: list[EndpointSpec],
+) -> list[tuple[str, TierLabel, TierLabel]]:
     """自愈 tier 重新平衡(in-place) — 返回变更列表 [(endpoint_id, old_tier, new_tier)]"""
-    changes: List[Tuple[str, TierLabel, TierLabel]] = []
+    changes: list[tuple[str, TierLabel, TierLabel]] = []
     for ep in endpoints:
         if int(ep.consecutive_failures) >= FAILURE_SKIP_THRESHOLD:
             old = ep.tier
@@ -399,8 +417,8 @@ def self_heal_rebalance_inplace(
 
 
 def select_batch(
-    contexts: List[RequestContext], endpoints: List[EndpointSpec]
-) -> List[SelectionDecision]:
+    contexts: list[RequestContext], endpoints: list[EndpointSpec]
+) -> list[SelectionDecision]:
     """批量决策:对每个 ctx 跑一次 select_endpoint"""
     return [select_endpoint(ctx, endpoints) for ctx in contexts]
 

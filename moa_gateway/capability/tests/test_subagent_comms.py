@@ -1,19 +1,24 @@
 """subagent_comms 真实测试 — 端到端验证(非 mock)"""
-import sys
 import json
-import time
+import sys
 import threading
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.subagent_comms import (
-    Message, TaskCreate,
-    SubagentHub, TaskBoard, AdvisoryLock,
-    BACKOFF_BASE_SEC, MAX_RETRY,
-    hub_to_json, task_to_json, message_to_json,
+    BACKOFF_BASE_SEC,
+    MAX_RETRY,
+    AdvisoryLock,
+    Message,
+    SubagentHub,
+    TaskBoard,
+    TaskCreate,
+    hub_to_json,
+    message_to_json,
+    task_to_json,
 )
-
 
 # ============ SubagentHub: send_message / inbox ============
 

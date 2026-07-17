@@ -16,8 +16,9 @@ import os
 import random
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from enum import Enum
-from typing import Any, Dict, List, NamedTuple, Optional, Sequence
+from typing import Any, NamedTuple
 
 __all__ = [
     "ChannelType",
@@ -68,7 +69,7 @@ class ChannelResult(NamedTuple):
     success: bool
     output: str
     latency_ms: int
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class ChannelError(RuntimeError):
@@ -76,9 +77,9 @@ class ChannelError(RuntimeError):
 
     def __init__(self, message: str, attempts: Sequence[ChannelResult]) -> None:
         super().__init__(message)
-        self.attempts: List[ChannelResult] = list(attempts)
+        self.attempts: list[ChannelResult] = list(attempts)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "error": str(self),
             "attempts": [
@@ -148,7 +149,7 @@ class Channel(ABC):
         channel_type: ChannelType,
         *,
         enabled: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
     ) -> None:
         self.channel_type = channel_type
         self.enabled = enabled
@@ -169,7 +170,7 @@ class Channel(ABC):
         *,
         success: bool = True,
         latency_ms: int = 0,
-        error: Optional[str] = None,
+        error: str | None = None,
     ) -> ChannelResult:
         return ChannelResult(
             channel=self.channel_type,
@@ -197,7 +198,7 @@ class SubagentChannel(Channel):
         self,
         *,
         enabled: bool = True,
-        name: Optional[str] = None,
+        name: str | None = None,
         fail_rate: float = 0.0,
         sleep_ms: int = 5,
     ) -> None:
@@ -255,8 +256,8 @@ class CLIChannel(Channel):
         self,
         *,
         enabled: bool = True,
-        name: Optional[str] = None,
-        fail_kind: Optional[str] = None,
+        name: str | None = None,
+        fail_kind: str | None = None,
         fail_empty_output: bool = False,
         sleep_ms: int = 20,
     ) -> None:
@@ -320,10 +321,10 @@ class APIChannel(Channel):
         self,
         *,
         enabled: bool = True,
-        name: Optional[str] = None,
-        fail_kind: Optional[str] = None,
+        name: str | None = None,
+        fail_kind: str | None = None,
         sleep_ms: int = 50,
-        api_key_env: Optional[str] = None,
+        api_key_env: str | None = None,
     ) -> None:
         super().__init__(ChannelType.API, enabled=enabled, name=name)
         self.fail_kind = fail_kind
@@ -369,9 +370,9 @@ class ChannelChain:
 
     def __init__(
         self,
-        channels: Optional[Sequence[Channel]] = None,
+        channels: Sequence[Channel] | None = None,
         *,
-        order: Optional[Sequence[ChannelType]] = None,
+        order: Sequence[ChannelType] | None = None,
     ) -> None:
         if channels is None:
             channels = [
@@ -379,16 +380,16 @@ class ChannelChain:
                 CLIChannel(),
                 APIChannel(),
             ]
-        self.channels: List[Channel] = list(channels)
-        self._order: List[ChannelType] = list(order or [
+        self.channels: list[Channel] = list(channels)
+        self._order: list[ChannelType] = list(order or [
             ChannelType.SUBAGENT,
             ChannelType.CLI,
             ChannelType.API,
         ])
 
-    def _ordered(self) -> List[Channel]:
+    def _ordered(self) -> list[Channel]:
         by_type = {c.channel_type: c for c in self.channels}
-        out: List[Channel] = []
+        out: list[Channel] = []
         for ct in self._order:
             ch = by_type.get(ct)
             if ch is not None:
@@ -408,10 +409,10 @@ class ChannelChain:
                 return c.enabled
         return False
 
-    async def execute(self, query: str, **kwargs: Any) -> Dict[str, Any]:
-        attempts: List[ChannelResult] = []
-        path: List[ChannelType] = []
-        last_error: Optional[str] = None
+    async def execute(self, query: str, **kwargs: Any) -> dict[str, Any]:
+        attempts: list[ChannelResult] = []
+        path: list[ChannelType] = []
+        last_error: str | None = None
 
         for ch in self._ordered():
             if not ch.enabled:
@@ -433,7 +434,7 @@ class ChannelChain:
             attempts=attempts,
         )
 
-    async def execute_safe(self, query: str, **kwargs: Any) -> Dict[str, Any]:
+    async def execute_safe(self, query: str, **kwargs: Any) -> dict[str, Any]:
         """永不抛错的执行 — 失败时返回 ``{"error": ChannelError.to_dict()}``。"""
         try:
             return await self.execute(query, **kwargs)

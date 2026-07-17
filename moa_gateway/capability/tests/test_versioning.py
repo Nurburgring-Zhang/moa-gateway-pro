@@ -1,19 +1,17 @@
 """versioning 真实测试 (非 mock)"""
-import sys
 import json
-import time
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.versioning import (
     ProposalVersion,
-    VersionChain,
     VersionStore,
-    parse_rating,
-    parse_battle,
-    swap_positions_battle,
     diff_versions,
+    parse_battle,
+    parse_rating,
+    swap_positions_battle,
     to_json,
 )
 
@@ -132,7 +130,7 @@ def test_version_store_get_chain_unknown_proposal():
     chain = store.get_chain("nonexistent")
     assert chain.proposal_id == "nonexistent"
     assert chain.versions == []
-    print(f"  ✓ test_version_store_get_chain_unknown_proposal: empty chain")
+    print("  ✓ test_version_store_get_chain_unknown_proposal: empty chain")
     return True
 
 
@@ -239,7 +237,7 @@ def test_parse_rating_clamps_to_range():
     assert parse_rating("Rating: 99") == 10
     assert parse_rating("Rating: 5") == 5
     assert parse_rating("Rating: -3") == 1
-    print(f"  ✓ test_parse_rating_clamps_to_range: 0→1, 99→10, -3→1")
+    print("  ✓ test_parse_rating_clamps_to_range: 0→1, 99→10, -3→1")
     return True
 
 
@@ -292,7 +290,7 @@ def test_swap_positions_consistent():
     # round 2: judge_fn(b, a) → y=a 不含 marker, x=b 含 marker → B → response_a 胜 (位置互换后)
     # 两轮原始 winner 都是 response_a → 一致 → 返回 response_a
     assert result == response_a, f"got {result!r}"
-    print(f"  ✓ test_swap_positions_consistent: result=response_a (consistent both rounds)")
+    print("  ✓ test_swap_positions_consistent: result=response_a (consistent both rounds)")
     return True
 
 
@@ -300,7 +298,7 @@ def test_swap_positions_inconsistent():
     """swap_positions: 双向不一致 → 'tie'"""
     def jfn(x, y):
         # 第 1 轮偏好 x (label A); 第 2 轮 (x=response_b) 仍偏好 x → 与第 1 轮原始 winner=response_a 不一致
-        return f"[[winner]] A — prefer current first arg"
+        return "[[winner]] A — prefer current first arg"
 
     # 第 1 轮: x=response_a → A → response_a 胜
     # 第 2 轮: x=response_b → A → response_b 胜

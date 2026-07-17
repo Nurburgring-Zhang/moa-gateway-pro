@@ -14,11 +14,10 @@ from __future__ import annotations
 import json
 import threading
 import time
-import uuid
-from dataclasses import dataclass, field, asdict
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import List, Dict, Any, Optional, Callable
-
+from typing import Any
 
 # ============ SessionLockState ============
 
@@ -39,9 +38,9 @@ class SessionLock:
     acquired_at: float
     expires_at: float
     state: SessionLockState = SessionLockState.ACQUIRED
-    waiters: List[str] = field(default_factory=list)
+    waiters: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["state"] = self.state.value
         return d
@@ -68,7 +67,7 @@ class SessionLockManager:
         if default_ttl <= 0:
             raise ValueError("default_ttl must be > 0")
         self.default_ttl: float = float(default_ttl)
-        self._locks: Dict[str, SessionLock] = {}
+        self._locks: dict[str, SessionLock] = {}
         self._lock: threading.RLock = threading.RLock()
 
     # ---- 内部 ----
@@ -85,7 +84,7 @@ class SessionLockManager:
         self,
         lock_id: str,
         session_id: str,
-        ttl: Optional[float] = None,
+        ttl: float | None = None,
     ) -> bool:
         """非阻塞获取;成功返回 True,否则 False
 
@@ -182,7 +181,7 @@ class SessionLockManager:
             self._remove_lock(lock_id)
             return True
 
-    def get_lock_state(self, lock_id: str) -> Optional[SessionLock]:
+    def get_lock_state(self, lock_id: str) -> SessionLock | None:
         """读取锁快照(深拷贝 waiters,防止外部修改内部 list)
 
         返回 None 表示该 lock_id 当前无记录(等价 FREE)
@@ -209,7 +208,7 @@ class SessionLockManager:
                 self._remove_lock(k)
             return len(expired)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         with self._lock:
             return {
                 "default_ttl": self.default_ttl,
@@ -228,10 +227,10 @@ class MCPTool:
     """单个 MCP 工具描述 + handler"""
     name: str
     description: str
-    parameters: Dict[str, str]  # 参数名 -> 类型提示(如 "int" / "str" / "List[str]")
+    parameters: dict[str, str]  # 参数名 -> 类型提示(如 "int" / "str" / "List[str]")
     handler: Callable[..., Any]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         # handler 是 Callable,不能 JSON 序列化;只导出元数据
         return {
             "name": self.name,
@@ -255,7 +254,7 @@ class MCPRegistry:
     """
 
     def __init__(self) -> None:
-        self._tools: Dict[str, MCPTool] = {}
+        self._tools: dict[str, MCPTool] = {}
         self._lock: threading.RLock = threading.RLock()
 
     def register(self, tool: MCPTool) -> None:
@@ -283,7 +282,7 @@ class MCPRegistry:
             handler = tool.handler
         return handler(**kwargs)
 
-    def list_tools(self) -> List[Dict[str, Any]]:
+    def list_tools(self) -> list[dict[str, Any]]:
         """返回所有工具的元数据字典列表(按 name 排序)"""
         with self._lock:
             return sorted(
@@ -291,11 +290,11 @@ class MCPRegistry:
                 key=lambda d: d["name"],
             )
 
-    def get_tool(self, name: str) -> Optional[MCPTool]:
+    def get_tool(self, name: str) -> MCPTool | None:
         with self._lock:
             return self._tools.get(name)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         with self._lock:
             return {
                 "tool_count": len(self._tools),

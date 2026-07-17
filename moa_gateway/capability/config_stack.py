@@ -17,10 +17,11 @@
   - 所有算法基于真实数据结构(无 mock、无 hardcoded)
 """
 from __future__ import annotations
-from dataclasses import dataclass, field, asdict
-from enum import Enum, IntEnum
-from typing import List, Dict, Optional, Any, Tuple
+
 import fnmatch
+from dataclasses import asdict, dataclass
+from enum import Enum, IntEnum
+from typing import Any
 
 
 # ============ 配置层枚举 ============
@@ -79,13 +80,13 @@ class ConfigEntry:
     source: ConfigLayer
     explicit: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["source"] = self.source.value
         return d
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "ConfigEntry":
+    def from_dict(cls, d: dict[str, Any]) -> ConfigEntry:
         d2 = dict(d)
         d2["source"] = ConfigLayer(int(d["source"]))
         return cls(**d2)
@@ -106,13 +107,13 @@ class PermissionRule:
     def matches(self, tool_name: str) -> bool:
         return fnmatch.fnmatchcase(tool_name, self.tool_pattern)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
         d["mode"] = self.mode.value
         return d
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "PermissionRule":
+    def from_dict(cls, d: dict[str, Any]) -> PermissionRule:
         d2 = dict(d)
         d2["mode"] = PermissionMode(d["mode"])
         return cls(**d2)
@@ -127,7 +128,7 @@ class ConfigStack:
     """
 
     def __init__(self) -> None:
-        self._layers: Dict[int, Dict[str, ConfigEntry]] = {
+        self._layers: dict[int, dict[str, ConfigEntry]] = {
             layer.value: {} for layer in ConfigLayer
         }
 
@@ -153,7 +154,7 @@ class ConfigStack:
                 return entry.value
         return default
 
-    def get_with_source(self, key: str) -> Tuple[Any, ConfigLayer]:
+    def get_with_source(self, key: str) -> tuple[Any, ConfigLayer]:
         """返回 (value, source_layer);不存在时 (None, None)"""
         for layer in ConfigLayer:
             entry = self._layers[layer.value].get(key)
@@ -161,12 +162,12 @@ class ConfigStack:
                 return entry.value, entry.source
         return None, None  # type: ignore[return-value]
 
-    def get_entry(self, key: str, layer: ConfigLayer) -> Optional[ConfigEntry]:
+    def get_entry(self, key: str, layer: ConfigLayer) -> ConfigEntry | None:
         """拿到指定 layer 的原始 ConfigEntry(否则 None)"""
         return self._layers[layer.value].get(key)
 
     # ---- 删除 ----
-    def unset(self, key: str, layer: Optional[ConfigLayer] = None) -> int:
+    def unset(self, key: str, layer: ConfigLayer | None = None) -> int:
         """删除 key
 
         - layer=None: 从所有 8 层删除,返回总删除条数
@@ -182,13 +183,13 @@ class ConfigStack:
         return 1 if self._layers[layer.value].pop(key, None) is not None else 0
 
     # ---- 视图 ----
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """合并后视图:key -> 最高优先级的 value
 
         同时保留 _entries 字段,记录每个 key 实际胜出层(便于审计)。
         """
-        merged: Dict[str, Any] = {}
-        entries: Dict[str, Dict[str, Any]] = {}
+        merged: dict[str, Any] = {}
+        entries: dict[str, dict[str, Any]] = {}
         for layer in ConfigLayer:
             for k, entry in self._layers[layer.value].items():
                 if k not in merged:
@@ -196,14 +197,14 @@ class ConfigStack:
                     entries[k] = entry.to_dict()
         return {"merged": merged, "entries": entries}
 
-    def layers_snapshot(self) -> Dict[str, Dict[str, Any]]:
+    def layers_snapshot(self) -> dict[str, dict[str, Any]]:
         """导出每层的原始键值(便于调试/序列化)"""
         return {
             layer.name: {k: e.to_dict() for k, e in self._layers[layer.value].items()}
             for layer in ConfigLayer
         }
 
-    def load_snapshot(self, snap: Dict[str, Dict[str, Any]]) -> None:
+    def load_snapshot(self, snap: dict[str, dict[str, Any]]) -> None:
         """从 layers_snapshot 恢复;未知 layer 名静默忽略"""
         self._layers = {layer.value: {} for layer in ConfigLayer}
         for name, items in snap.items():
@@ -223,7 +224,7 @@ class ConfigStack:
 
 
 # ============ 合并函数 ============
-def merge_layers(layers_data: Dict[ConfigLayer, Dict[str, Any]]) -> Dict[str, Any]:
+def merge_layers(layers_data: dict[ConfigLayer, dict[str, Any]]) -> dict[str, Any]:
     """按 8 层优先级合并多层 dict
 
     - layers_data: {ConfigLayer.POLICY: {...}, ConfigLayer.USER: {...}, ...}
@@ -231,7 +232,7 @@ def merge_layers(layers_data: Dict[ConfigLayer, Dict[str, Any]]) -> Dict[str, An
     - 不存在的 layer 不参与
     - 输入 dict 顺序无关:始终按 ConfigLayer 枚举序(高->低)写入
     """
-    out: Dict[str, Any] = {}
+    out: dict[str, Any] = {}
     for layer in reversed(list(ConfigLayer)):  # 7..0:BUILTIN 先,POLICY 后写覆盖
         layer_dict = layers_data.get(layer, {})
         if not layer_dict:
@@ -255,7 +256,7 @@ class PermissionRegistry:
         if not isinstance(default_mode, PermissionMode):
             raise TypeError(f"default_mode must be PermissionMode, got {type(default_mode).__name__}")
         self._default_mode: PermissionMode = default_mode
-        self._rules: List[PermissionRule] = []
+        self._rules: list[PermissionRule] = []
 
     def set_rule(self, tool_pattern: str, mode: PermissionMode, reason: str = "") -> None:
         """新增/覆盖规则:同 pattern 后写覆盖先写"""
@@ -282,7 +283,7 @@ class PermissionRegistry:
                 return r.mode
         return self._default_mode
 
-    def check_with_reason(self, tool_name: str) -> Tuple[PermissionMode, str]:
+    def check_with_reason(self, tool_name: str) -> tuple[PermissionMode, str]:
         """返回 (mode, reason);reason 在未命中时为空串"""
         for r in self._rules:
             if r.matches(tool_name):
@@ -298,17 +299,17 @@ class PermissionRegistry:
     def default_mode(self) -> PermissionMode:
         return self._default_mode
 
-    def all_rules(self) -> List[PermissionRule]:
+    def all_rules(self) -> list[PermissionRule]:
         return list(self._rules)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "default_mode": self._default_mode.value,
             "rules": [r.to_dict() for r in self._rules],
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "PermissionRegistry":
+    def from_dict(cls, d: dict[str, Any]) -> PermissionRegistry:
         reg = cls(default_mode=PermissionMode(d["default_mode"]))
         for rd in d.get("rules", []):
             reg._rules.append(PermissionRule.from_dict(rd))
@@ -316,12 +317,12 @@ class PermissionRegistry:
 
 
 # ============ JSON 序列化 ============
-def stack_to_dict(stack: ConfigStack) -> Dict[str, Any]:
+def stack_to_dict(stack: ConfigStack) -> dict[str, Any]:
     """整栈 → JSON-friendly dict"""
     return stack.layers_snapshot()
 
 
-def stack_from_dict(d: Dict[str, Any]) -> ConfigStack:
+def stack_from_dict(d: dict[str, Any]) -> ConfigStack:
     s = ConfigStack()
     s.load_snapshot(d)
     return s

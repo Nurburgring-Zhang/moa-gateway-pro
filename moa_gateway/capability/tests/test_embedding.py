@@ -6,7 +6,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.embedding import (
-    Embedding,
     EmbeddingIndex,
     MockEmbeddingProvider,
     batch_embed,
@@ -15,7 +14,6 @@ from moa_gateway.capability.embedding import (
     hash_embedding,
     semantic_search,
 )
-
 
 # =============================================================================
 # hash_embedding
@@ -100,7 +98,7 @@ def test_cosine_similarity_length_mismatch():
         cosine_similarity([1.0, 2.0], [1.0, 2.0, 3.0])
     except ValueError as e:
         assert "length mismatch" in str(e).lower()
-        print(f"  ✓ test_cosine_similarity_length_mismatch (raised)")
+        print("  ✓ test_cosine_similarity_length_mismatch (raised)")
         return True
     raise AssertionError("expected ValueError")
 

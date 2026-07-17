@@ -1,13 +1,14 @@
 """moa_gateway.auth — 鉴权(API Key + WebUI JWT)"""
 from __future__ import annotations
+
+import logging
 import re as _re
 import time
-import logging
-from typing import Optional, Dict, Any
-from fastapi import Request, HTTPException, Depends, status
+from typing import Any
+
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import APIKeyHeader, HTTPBearer
-from jose import jwt, JWTError
-from passlib.context import CryptContext
+from jose import JWTError, jwt
 
 from .config import get_settings
 from .storage import get_storage
@@ -38,7 +39,7 @@ def _bearer_or_raw(token: str) -> str:
     return token
 
 
-async def authenticate_api_key(request: Request) -> Optional[Dict[str, Any]]:
+async def authenticate_api_key(request: Request) -> dict[str, Any] | None:
     """从 Authorization header 拿 API Key 并校验。
     兼容:
         Authorization: Bearer mgw-xxx
@@ -78,7 +79,7 @@ async def authenticate_api_key(request: Request) -> Optional[Dict[str, Any]]:
     return None
 
 
-async def require_api_key(request: Request) -> Dict[str, Any]:
+async def require_api_key(request: Request) -> dict[str, Any]:
     """FastAPI 依赖:必须通过 API Key 鉴权"""
     info = await authenticate_api_key(request)
     if not info:
@@ -96,7 +97,7 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 def create_jwt_token(subject: str, role: str = "admin",
-                     expires_minutes: Optional[int] = None) -> str:
+                     expires_minutes: int | None = None) -> str:
     settings = get_settings()
     expires_minutes = expires_minutes or settings.auth.jwt_expire_minutes
     payload = {
@@ -110,7 +111,7 @@ def create_jwt_token(subject: str, role: str = "admin",
     return jwt.encode(payload, settings.auth.jwt_secret, algorithm="HS256")
 
 
-def decode_jwt_token(token: str) -> Optional[Dict[str, Any]]:
+def decode_jwt_token(token: str) -> dict[str, Any] | None:
     settings = get_settings()
     try:
         return jwt.decode(
@@ -135,7 +136,7 @@ def decode_jwt_token(token: str) -> Optional[Dict[str, Any]]:
 
 
 async def require_admin(request: Request,
-                        credentials = Depends(_bearer)) -> Dict[str, Any]:
+                        credentials = Depends(_bearer)) -> dict[str, Any]:
     """FastAPI 依赖:WebUI 必须登录(从 Authorization: Bearer <jwt>)"""
     if credentials is None:
         raise HTTPException(

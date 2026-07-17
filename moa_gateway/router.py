@@ -2,13 +2,14 @@
 根据任务复杂度 / 成本 / 偏好选择合适的模型或模型组合。
 """
 from __future__ import annotations
-import re
-import logging
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple, Any
-from enum import Enum
 
-from .model_pool import ModelPool, ModelTier, ModelEndpoint, get_model_pool
+import logging
+import re
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any
+
+from .model_pool import ModelEndpoint, ModelPool, ModelTier, get_model_pool
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +30,12 @@ class ComplexityLevel(str, Enum):
 class RoutingDecision:
     complexity: ComplexityLevel
     tier: ModelTier
-    primary: Optional[ModelEndpoint]
-    fallback_chain: List[ModelEndpoint]
+    primary: ModelEndpoint | None
+    fallback_chain: list[ModelEndpoint]
     estimated_cost: float
     reason: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "complexity": self.complexity.value,
             "tier": self.tier.value,
@@ -99,9 +100,9 @@ class IntelligentRouter:
         "对比", "权衡", "取舍", "优缺点", "优劣", "区别", "差异",
     ]
 
-    def __init__(self, model_pool: Optional[ModelPool] = None,
-                 thresholds: Optional[Dict[str, int]] = None,
-                 tier_mapping: Optional[Dict[str, str]] = None,
+    def __init__(self, model_pool: ModelPool | None = None,
+                 thresholds: dict[str, int] | None = None,
+                 tier_mapping: dict[str, str] | None = None,
                  max_cost_per_request: float = 1.0):
         self.pool = model_pool or get_model_pool()
         self.thresholds = thresholds or {
@@ -115,7 +116,7 @@ class IntelligentRouter:
         self.max_cost_per_request = max_cost_per_request
 
     def evaluate_complexity(self, query: str,
-                            context: Optional[List[Dict]] = None) -> ComplexityLevel:
+                            context: list[dict] | None = None) -> ComplexityLevel:
         """多维度复杂度评估"""
         score = 0
         ql = (query or "").lower().strip()
@@ -182,10 +183,10 @@ class IntelligentRouter:
         return (est_input / 1000.0) * ep.config.cost_per_1k_input + \
                (estimated_output_tokens / 1000.0) * ep.config.cost_per_1k_output
 
-    def route(self, query: str, context: Optional[List[Dict]] = None,
-              prefer_provider: Optional[str] = None,
-              max_cost: Optional[float] = None,
-              require_tier: Optional[ModelTier] = None) -> RoutingDecision:
+    def route(self, query: str, context: list[dict] | None = None,
+              prefer_provider: str | None = None,
+              max_cost: float | None = None,
+              require_tier: ModelTier | None = None) -> RoutingDecision:
         """路由决策"""
         complexity = self.evaluate_complexity(query, context)
         tier_str = self.tier_mapping.get(complexity.value, "standard")
@@ -234,11 +235,11 @@ class IntelligentRouter:
             reason=f"complexity={complexity.value}, tier={tier.value}, model={primary.id}"
         )
 
-    def route_for_moa(self, query: str, context: Optional[List[Dict]] = None,
-                      preset: Optional[str] = None,
+    def route_for_moa(self, query: str, context: list[dict] | None = None,
+                      preset: str | None = None,
                       reference_count: int = 4,
                       aggregator_tier: ModelTier = ModelTier.PREMIUM
-                      ) -> Tuple[List[ModelEndpoint], Optional[ModelEndpoint]]:
+                      ) -> tuple[list[ModelEndpoint], ModelEndpoint | None]:
         """MoA 路由:返回 (参考模型列表, 聚合模型)"""
         # 先评估复杂度
         complexity = self.evaluate_complexity(query, context)
@@ -280,7 +281,7 @@ class IntelligentRouter:
 
 
 # 单例
-_router: Optional[IntelligentRouter] = None
+_router: IntelligentRouter | None = None
 
 
 def get_router() -> IntelligentRouter:

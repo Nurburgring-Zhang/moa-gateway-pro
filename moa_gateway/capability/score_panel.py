@@ -10,12 +10,10 @@
 - IN (Insight): 洞察 — 转折词/稀有词
 """
 from __future__ import annotations
-import re
-import string
-from collections import Counter
-from dataclasses import dataclass, field, asdict
-from typing import List, Dict, Optional
 
+import re
+from collections import Counter
+from dataclasses import asdict, dataclass, field
 
 __all__ = [
     "DimensionScore",
@@ -32,7 +30,7 @@ __all__ = [
 
 # ============ 默认权重 ============
 
-DEFAULT_WEIGHTS: Dict[str, float] = {
+DEFAULT_WEIGHTS: dict[str, float] = {
     "TQ": 0.25,
     "CO": 0.25,
     "AP": 0.20,
@@ -109,9 +107,9 @@ class DimensionScore:
     full_name: str   # "Technical Quality" 等
     score: float     # 0-100
     max_score: float = 100
-    notes: List[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
@@ -124,11 +122,11 @@ class PanelScore:
     se: DimensionScore  # Specificity/Evidence
     in_: DimensionScore # Insight
     overall: float       # 加权平均
-    weights: Dict[str, float] = field(default_factory=dict)
+    weights: dict[str, float] = field(default_factory=dict)
     verdict: str = ""   # "excellent" / "good" / "fair" / "poor"
-    feedback: List[str] = field(default_factory=list)
+    feedback: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         d = asdict(self)
         # 将 in_ 键名规范化为 in
         d["in"] = d.pop("in_")
@@ -152,7 +150,7 @@ def _verdict_from_score(overall: float) -> str:
     return "poor"
 
 
-def _tokenize_words(text: str) -> List[str]:
+def _tokenize_words(text: str) -> list[str]:
     """分词:英文按空格,中文按字符"""
     if not text:
         return []
@@ -163,13 +161,13 @@ def _tokenize_words(text: str) -> List[str]:
     return [t.lower() for t in en_tokens] + zh_chars
 
 
-def _split_subqueries(query: str) -> List[str]:
+def _split_subqueries(query: str) -> list[str]:
     """把 query 拆成子问题列表"""
     if not query or not query.strip():
         return []
     text = query.strip()
     # 优先用 ? 拆分
-    parts: List[str] = []
+    parts: list[str] = []
     if "?" in text:
         parts = [p.strip() for p in text.split("?") if p.strip()]
     elif "？" in text:
@@ -189,7 +187,7 @@ def _split_subqueries(query: str) -> List[str]:
     return out
 
 
-def _subquery_keywords(subquery: str) -> List[str]:
+def _subquery_keywords(subquery: str) -> list[str]:
     """从子问题中提取关键词"""
     tokens = _tokenize_words(subquery)
     # 过滤常见词和短词
@@ -207,7 +205,7 @@ def score_technical_quality(answer: str) -> DimensionScore:
     - 含代码块 ```...``` → +20
     - 含数字 → +5 each (cap 30)
     """
-    notes: List[str] = []
+    notes: list[str] = []
     if not answer:
         return DimensionScore(
             name="TQ", full_name="Technical Quality",
@@ -218,7 +216,7 @@ def score_technical_quality(answer: str) -> DimensionScore:
     # 字数 (中英都按 1 字算)
     char_count = len(text)
     # 用空白分词得到英文词数
-    word_count = len(re.findall(r"\S+", text))
+    len(re.findall(r"\S+", text))
 
     # 基础分:按字数
     if char_count < 30:
@@ -278,7 +276,7 @@ def score_completeness(query: str, answer: str) -> DimensionScore:
     - 拆分 query 为子问题(用 ? 句号 等)
     - 检查 answer 是否每个子问题都有回答
     """
-    notes: List[str] = []
+    notes: list[str] = []
     if not answer or not answer.strip():
         return DimensionScore(
             name="CO", full_name="Completeness",
@@ -305,7 +303,7 @@ def score_completeness(query: str, answer: str) -> DimensionScore:
 
     answer_lower = answer.lower()
     covered = 0
-    coverage_details: List[str] = []
+    coverage_details: list[str] = []
     for sq in subqueries:
         kws = _subquery_keywords(sq)
         if not kws:
@@ -350,7 +348,7 @@ def score_applicability(answer: str) -> DimensionScore:
     - 含 "step 1" / "步骤" / "1." → 高分
     - 含 "you can" / "try" / "use" → +20
     """
-    notes: List[str] = []
+    notes: list[str] = []
     if not answer or not answer.strip():
         return DimensionScore(
             name="AP", full_name="Applicability",
@@ -375,7 +373,7 @@ def score_applicability(answer: str) -> DimensionScore:
 
     # 步骤结构检测
     step_hits = 0
-    step_patterns_found: List[str] = []
+    step_patterns_found: list[str] = []
     for pat in STEP_PATTERNS:
         matches = re.findall(pat, text, re.IGNORECASE | re.MULTILINE)
         if matches:
@@ -394,7 +392,7 @@ def score_applicability(answer: str) -> DimensionScore:
 
     # actionable 动词
     verb_hits = 0
-    verbs_found: List[str] = []
+    verbs_found: list[str] = []
     for verb in ACTIONABLE_VERBS:
         if verb in text_lower:
             verb_hits += 1
@@ -430,7 +428,7 @@ def score_specificity(answer: str) -> DimensionScore:
     - 数字(年份/版本/百分比) → +5 each
     - 引用 [...] → +5
     """
-    notes: List[str] = []
+    notes: list[str] = []
     if not answer or not answer.strip():
         return DimensionScore(
             name="SE", full_name="Specificity",
@@ -498,7 +496,7 @@ def score_insight(query: str, answer: str) -> DimensionScore:
     - 包含"uniquely" / "specifically" / "特别是" → +15
     - 长度 / 复杂度(稀有词) → +5
     """
-    notes: List[str] = []
+    notes: list[str] = []
     if not answer or not answer.strip():
         return DimensionScore(
             name="IN", full_name="Insight",
@@ -585,7 +583,7 @@ def score_insight(query: str, answer: str) -> DimensionScore:
 def score_panel(
     query: str,
     answer: str,
-    rubric: Optional[Dict[str, float]] = None,
+    rubric: dict[str, float] | None = None,
 ) -> PanelScore:
     """5 维评分主函数
 
@@ -623,7 +621,7 @@ def score_panel(
     verdict = _verdict_from_score(overall)
 
     # 生成 feedback
-    feedback: List[str] = []
+    feedback: list[str] = []
     dim_scores = [
         ("TQ", "Technical Quality", tq.score),
         ("CO", "Completeness", co.score),
@@ -654,7 +652,7 @@ def score_panel(
 
 # ============ Multi-eval averaging ============
 
-def multi_eval_average(scores: List[PanelScore]) -> PanelScore:
+def multi_eval_average(scores: list[PanelScore]) -> PanelScore:
     """多次评分取平均(multi-eval averaging)
 
     真实逻辑:同维度取均值,verdict 重新计算
@@ -672,7 +670,7 @@ def multi_eval_average(scores: List[PanelScore]) -> PanelScore:
         all_notes_lists = [dim_getter(s).notes for s in scores]
         avg_score = sum(all_scores) / n
         # 合并 notes (去重)
-        merged_notes: List[str] = []
+        merged_notes: list[str] = []
         seen = set()
         for notes in all_notes_lists:
             for note in notes:
@@ -695,7 +693,7 @@ def multi_eval_average(scores: List[PanelScore]) -> PanelScore:
     all_keys = set()
     for s in scores:
         all_keys.update(s.weights.keys())
-    merged_weights: Dict[str, float] = {}
+    merged_weights: dict[str, float] = {}
     for k in all_keys:
         vals = [s.weights.get(k, 0.0) for s in scores]
         merged_weights[k] = sum(vals) / n
@@ -715,7 +713,7 @@ def multi_eval_average(scores: List[PanelScore]) -> PanelScore:
     verdict = _verdict_from_score(overall)
 
     # 合并 feedback
-    merged_feedback: List[str] = []
+    merged_feedback: list[str] = []
     seen = set()
     for s in scores:
         for fb in s.feedback:

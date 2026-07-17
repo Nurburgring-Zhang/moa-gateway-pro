@@ -1,15 +1,22 @@
 """task_tree 真实测试(非 mock)"""
-import sys
 import json
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from moa_gateway.capability.task_tree import (
-    TaskStatus, TaskSegment, TaskTree,
-    compute_aggregates, is_leaf, is_root, depth,
-    get_ready_tasks, detect_cycles,
-    tree_to_dict, tree_from_dict,
+    TaskSegment,
+    TaskStatus,
+    TaskTree,
+    compute_aggregates,
+    depth,
+    detect_cycles,
+    get_ready_tasks,
+    is_leaf,
+    is_root,
+    tree_from_dict,
+    tree_to_dict,
 )
 
 
@@ -208,7 +215,7 @@ def test_get_ready_tasks_deps_pending():
     ready = get_ready_tasks(tree)
     assert "a" not in ready
     assert "root" in ready  # root 无依赖,本身是 PENDING
-    print(f"  ✓ test_get_ready_tasks_deps_pending: a 不在 ready")
+    print("  ✓ test_get_ready_tasks_deps_pending: a 不在 ready")
 
 
 def test_detect_cycles_none():

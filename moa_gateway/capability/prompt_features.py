@@ -22,12 +22,10 @@
 - conversational: 默认 fallback
 """
 from __future__ import annotations
-import re
-import math
-from collections import Counter
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Optional
 
+import math
+import re
+from dataclasses import asdict, dataclass
 
 __all__ = [
     "PromptFeatures",
@@ -44,7 +42,7 @@ __all__ = [
 
 # ============ 25 维特征名 (顺序固定,便于序列化) ============
 
-FEATURE_NAMES: List[str] = [
+FEATURE_NAMES: list[str] = [
     # 1-4 结构
     "length",                # 0-1
     "word_count",            # 0-1
@@ -183,14 +181,14 @@ def _count_imperatives(text_lower: str) -> int:
     return seen
 
 
-def _split_sentences(text: str) -> List[str]:
+def _split_sentences(text: str) -> list[str]:
     if not text:
         return []
     parts = SENTENCE_END_RE.split(text)
     return [p for p in parts if p and p.strip()]
 
 
-def _tokenize_words(text: str) -> List[str]:
+def _tokenize_words(text: str) -> list[str]:
     """分词:英文 + 单个中文字符"""
     if not text:
         return []
@@ -463,23 +461,21 @@ def should_use_pro_model(features: PromptFeatures) -> bool:
         return False
     if features.has_code_block >= 1.0:
         return True
-    if features.math_density > PRO_MATH_DENSITY_THRESHOLD:
-        return True
-    return False
+    return features.math_density > PRO_MATH_DENSITY_THRESHOLD
 
 
 # ============ JSON 序列化 ============
 
-def features_to_dict(features: PromptFeatures) -> Dict:
+def features_to_dict(features: PromptFeatures) -> dict:
     """features → dict (含全部 25 + language_detected)"""
     return asdict(features)
 
 
-def features_from_dict(d: Dict) -> PromptFeatures:
+def features_from_dict(d: dict) -> PromptFeatures:
     """dict → features, 容忍缺失字段(用 dataclass 默认值兜底)"""
     if d is None:
         return PromptFeatures()
-    kwargs: Dict = {}
+    kwargs: dict = {}
     for name in FEATURE_NAMES:
         if name == "language_detected":
             kwargs[name] = str(d.get(name, "other"))
