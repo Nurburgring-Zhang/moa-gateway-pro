@@ -265,11 +265,12 @@ def _bootstrap_default_services(dispatcher: AgentDispatcher) -> None:
     from .safety_service import SafetyService
     from .observability_service import ObservabilityService
     from .config_service import ConfigService
+    from .capability_dispatcher import CapabilityDispatcher
 
     for svc_cls in [
         MoAService, ConsensusService, RoutingService, QualityService,
         AgentService, QuotaService, KnowledgeService, SafetyService,
-        ObservabilityService, ConfigService,
+        ObservabilityService, ConfigService, CapabilityDispatcher,
     ]:
         try:
             dispatcher.register(svc_cls())

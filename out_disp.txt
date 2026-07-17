@@ -1,5 +1,5 @@
 ﻿login OK, token len=217
-key created: mgw-ojwF7O5HXSp9AMac...
+key created: mgw-oKYyIUsyPPY-fb-o...
 
 agents: 200
 {
@@ -22,6 +22,7 @@ agents: 200
             "temperature",
             "max_total_tokens"
           ],
+          "status": "implemented",
           "examples": []
         },
         {
@@ -37,6 +38,7 @@ agents: 200
             "validate_only",
             "temperature"
           ],
+          "status": "implemented",
           "examples": []
         },
         {
@@ -48,19 +50,16 @@ agents: 200
             "action"
           ],
           "input_optional": [],
+          "status": "implemented",
           "examples": []
         },
         {
           "name": "validate_config",
-          "description": "校验 MoA 配置(不实际运行)",
-          "is_async": false,
-          "input_required": [
-            "proposers",
-            "aggr
+          "description": "校验 MoA 配置(不实际运行
 
-dispatch group_think: 400
+dispatch group_think: 422
 {
-  "detail": "ImportError: cannot import name 'build_consensus' from 'moa_gateway.capability.consensus' (D:\\MoA Gateway Pro\\moa_gateway\\capability\\consensus.py)"
+  "detail": "missing required fields: ['session_id']"
 }
 
 dispatch_batch: 200
@@ -91,7 +90,7 @@ dispatch_batch: 200
       },
       "error": null,
       "error_code": null,
-      "latency_ms": 0.7070999999996275,
+      "latency_ms": 1.197699981275946,
       "service": "routing",
       "method": "chain_info",
       "meta": {}
@@ -101,13 +100,13 @@ dispatch_batch: 200
       "data": "cli",
       "error": null,
       "error_code": null,
-      "latency_ms": 0.01069999416358769,
+      "latency_ms": 0.011199997970834374,
       "service": "routing",
       "method": "classify_error",
       "meta": {}
     }
   ],
-  "latency_ms": 0.7822999905329198
+  "latency_ms": 1.2753999908454716
 }
 
 workflows: 200

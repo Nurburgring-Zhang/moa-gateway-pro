@@ -68,6 +68,7 @@ class ServiceMethod:
     input_required: List[str] = field(default_factory=list)  # required input keys
     input_optional: List[str] = field(default_factory=list)  # optional input keys
     examples: List[dict] = field(default_factory=list)
+    status: str = "implemented"  # "implemented" | "passthrough" | "todo"
 
 
 class ServiceBase:
@@ -87,17 +88,6 @@ class ServiceBase:
             attr = getattr(self, attr_name)
             if isinstance(attr, ServiceMethod):
                 self._methods[attr.name] = attr
-        # 兼容: 也接受 public 函数 with @service_method decorator
-        for attr_name in dir(self):
-            attr = getattr(self, attr_name)
-            if callable(attr) and not attr_name.startswith("_"):
-                # 自动 wrap any public method if not already
-                if attr_name not in self._methods and attr_name in dir(self.__class__):
-                    sig = getattr(attr, "_is_service_method", False)
-                    if sig:
-                        m = getattr(attr, "_method_meta", None)
-                        if m:
-                            self._methods[m.name] = m
 
     def list_methods(self) -> List[dict]:
         return [
@@ -107,6 +97,7 @@ class ServiceBase:
                 "is_async": m.is_async,
                 "input_required": m.input_required,
                 "input_optional": m.input_optional,
+                "status": m.status,
                 "examples": m.examples[:2],  # 限 2 例
             }
             for m in self._methods.values()
@@ -181,6 +172,7 @@ def service_method(
     input_required: Optional[List[str]] = None,
     input_optional: Optional[List[str]] = None,
     examples: Optional[List[dict]] = None,
+    status: str = "implemented",
 ):
     """decorator: 标记一个方法为 service method."""
     def deco(func):
@@ -192,6 +184,7 @@ def service_method(
             input_required=input_required or [],
             input_optional=input_optional or [],
             examples=examples or [],
+            status=status,
         )
         func._is_service_method = True
         func._method_meta = m
