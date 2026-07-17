@@ -260,8 +260,17 @@ def _bootstrap_default_services(dispatcher: AgentDispatcher) -> None:
     from .routing_service import RoutingService
     from .quality_service import QualityService
     from .agent_service import AgentService
+    from .quota_service import QuotaService
+    from .knowledge_service import KnowledgeService
+    from .safety_service import SafetyService
+    from .observability_service import ObservabilityService
+    from .config_service import ConfigService
 
-    for svc_cls in [MoAService, ConsensusService, RoutingService, QualityService, AgentService]:
+    for svc_cls in [
+        MoAService, ConsensusService, RoutingService, QualityService,
+        AgentService, QuotaService, KnowledgeService, SafetyService,
+        ObservabilityService, ConfigService,
+    ]:
         try:
             dispatcher.register(svc_cls())
         except Exception as e:
@@ -280,6 +289,11 @@ def _register_builtin_workflows(dispatcher: AgentDispatcher) -> None:
       - MoA: validate → run → score
       - Consensus: detect_convergent → build_consensus → arbitrate
       - Quality: gate_l0 → brainstorm → meta_prompt
+      - Knowledge: embed → semantic_search → rerank
+      - Quota: cost_estimate → provider_health → should_rebalance
+      - Agent: send_message → broadcast → list_tasks
+      - Safety: gate_l0 → tool_screening → output_wrapping
+      - Observability: trace.start → trace.span → trace.end
     """
     # Workflow 1: MoA + Quality (validate → run → FLASK score)
     wf1 = Workflow(name="moa_quality_pipeline", description="Validate MoA config → Run MoA → FLASK score")
@@ -306,7 +320,7 @@ def _register_builtin_workflows(dispatcher: AgentDispatcher) -> None:
     ))
     dispatcher.register_workflow("moa_quality_pipeline", wf1)
 
-    # Workflow 2: Consensus (detect convergent → build consensus → arbitrate conflicts)
+    # Workflow 2: Consensus (detect convergent → build consensus)
     wf2 = Workflow(name="consensus_pipeline", description="Detect convergent ideas → build consensus")
     wf2.add_step(WorkflowStep(
         name="detect", service="consensus", method="detect_convergent",
@@ -323,8 +337,8 @@ def _register_builtin_workflows(dispatcher: AgentDispatcher) -> None:
     ))
     dispatcher.register_workflow("consensus_pipeline", wf2)
 
-    # Workflow 3: Quality gate (gate_l0 → brainstorm → decide)
-    wf3 = Workflow(name="quality_gate", description="L0 gate → brainstorm → decide")
+    # Workflow 3: Quality gate (gate_l0 → brainstorm)
+    wf3 = Workflow(name="quality_gate", description="L0 gate → brainstorm ideas")
     wf3.add_step(WorkflowStep(
         name="gate", service="quality", method="gate_l0",
         payload={"query": "$input.query"},
@@ -337,3 +351,82 @@ def _register_builtin_workflows(dispatcher: AgentDispatcher) -> None:
         description="Brainstorm ideas",
     ))
     dispatcher.register_workflow("quality_gate", wf3)
+
+    # Workflow 4: Knowledge pipeline (embed → semantic search → rerank)
+    wf4 = Workflow(name="knowledge_pipeline", description="Embed query → semantic search → rerank")
+    wf4.add_step(WorkflowStep(
+        name="embed_q", service="knowledge", method="embed",
+        payload={"input": "$input.query"},
+        description="Embed query",
+    ))
+    wf4.add_step(WorkflowStep(
+        name="search", service="knowledge", method="semantic_search",
+        payload={"query": "$input.query", "documents": "$input.documents"},
+        depends_on=["embed_q"],
+        description="Search by semantic similarity",
+    ))
+    wf4.add_step(WorkflowStep(
+        name="rerank", service="knowledge", method="rerank",
+        payload={"query": "$input.query", "documents": "$input.documents"},
+        depends_on=["search"],
+        description="Rerank results",
+    ))
+    dispatcher.register_workflow("knowledge_pipeline", wf4)
+
+    # Workflow 5: Quota check (cost estimate → provider health → should rebalance)
+    wf5 = Workflow(name="quota_check", description="Cost estimate → provider health → rebalance check")
+    wf5.add_step(WorkflowStep(
+        name="cost", service="quota", method="cost_estimate",
+        payload={"input_tokens": "$input.input_tokens", "output_tokens": "$input.output_tokens",
+                  "channels": "$input.channels"},
+        description="Estimate cost across channels",
+    ))
+    wf5.add_step(WorkflowStep(
+        name="health", service="quota", method="provider_health_aggregate",
+        payload={"providers": "$input.providers"},
+        depends_on=["cost"],
+        description="Aggregate provider health",
+    ))
+    wf5.add_step(WorkflowStep(
+        name="rebalance", service="quota", method="should_rebalance",
+        payload={"stats": "$input.stats"},
+        depends_on=["health"],
+        description="Check if rebalance needed",
+    ))
+    dispatcher.register_workflow("quota_check", wf5)
+
+    # Workflow 6: Safety pipeline (gate → tool screen → wrap output)
+    wf6 = Workflow(name="safety_pipeline", description="L0 gate → tool screening → output wrapping")
+    wf6.add_step(WorkflowStep(
+        name="gate", service="quality", method="gate_l0",
+        payload={"query": "$input.query"},
+        description="L0 safety gate",
+    ))
+    wf6.add_step(WorkflowStep(
+        name="screen", service="safety", method="tool_screening",
+        payload={"tool_name": "$input.tool_name", "arguments": "$input.arguments"},
+        depends_on=["gate"],
+        description="Screen tool call",
+    ))
+    wf6.add_step(WorkflowStep(
+        name="wrap", service="safety", method="output_wrapping",
+        payload={"action": "wrap", "content": "$input.output", "source": "$input.source"},
+        depends_on=["screen"],
+        description="Wrap output for safety",
+    ))
+    dispatcher.register_workflow("safety_pipeline", wf6)
+
+    # Workflow 7: RAG pipeline (rag_search → rerank → score)
+    wf7 = Workflow(name="rag_pipeline", description="RAG search → rerank → top result")
+    wf7.add_step(WorkflowStep(
+        name="search", service="knowledge", method="rag_search",
+        payload={"query": "$input.query", "corpus": "$input.corpus"},
+        description="RAG search corpus",
+    ))
+    wf7.add_step(WorkflowStep(
+        name="rerank", service="knowledge", method="rerank",
+        payload={"query": "$input.query", "documents": "$input.documents"},
+        depends_on=["search"],
+        description="Rerank",
+    ))
+    dispatcher.register_workflow("rag_pipeline", wf7)

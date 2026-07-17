@@ -1,5 +1,5 @@
 ﻿login OK, token len=217
-key created: mgw-ESs_nylav8b3CJ-E...
+key created: mgw-ojwF7O5HXSp9AMac...
 
 agents: 200
 {
@@ -91,7 +91,7 @@ dispatch_batch: 200
       },
       "error": null,
       "error_code": null,
-      "latency_ms": 0.8751999994274229,
+      "latency_ms": 0.7070999999996275,
       "service": "routing",
       "method": "chain_info",
       "meta": {}
@@ -101,18 +101,315 @@ dispatch_batch: 200
       "data": "cli",
       "error": null,
       "error_code": null,
-      "latency_ms": 0.01200000406242907,
+      "latency_ms": 0.01069999416358769,
       "service": "routing",
       "method": "classify_error",
       "meta": {}
     }
   ],
-  "latency_ms": 0.9979999740608037
+  "latency_ms": 0.7822999905329198
 }
 
 workflows: 200
 {
-  "workflows": []
+  "workflows": [
+    {
+      "name": "moa_quality_pipeline",
+      "description": "Validate MoA config → Run MoA → FLASK score",
+      "steps": [
+        {
+          "name": "validate",
+          "service": "moa",
+          "method": "validate_config",
+          "payload": {},
+          "depends_on": [],
+          "input_map": {
+            "proposers": "$input.proposers",
+            "aggregator": "$input.aggregator"
+          },
+          "optional": true,
+          "description": "Validate MoA config (best-effort)"
+        },
+        {
+          "name": "run_moa",
+          "service": "moa",
+          "method": "run_engine",
+          "payload": {
+            "query": "$input.query"
+          },
+          "depends_on": [
+            "validate"
+          ],
+          "input_map": {},
+          "optional": false,
+          "description": "Run MoA engine"
+        },
+        {
+          "name": "score",
+          "service": "quality",
+          "method": "score_flask",
+          "payload": {},
+          "depends_on": [
+            "run_moa"
+          ],
+          "input_map": {
+            "query": "$input.query",
+            "response": "run_moa.aggregated"
+          },
+          "optional": true,
+          "description": "FLASK score the MoA aggregated output (optional)"
+        }
+      ]
+    },
+    {
+      "name": "consensus_pipeline",
+      "description": "Detect convergent ideas → build consensus",
+      "steps": [
+        {
+          "name": "detect",
+          "service": "consensus",
+          "method": "detect_convergent",
+          "payload": {
+            "proposals": "$input.proposals"
+          },
+          "depends_on": [],
+          "input_map": {
+            "viability_scores": "$input.viability_scores"
+          },
+          "optional": false,
+          "description": "Detect cross-proposal convergent ideas"
+        },
+        {
+          "name": "build",
+          "service": "consensus",
+          "method": "build_consensus",
+          "payload": {
+            "proposals": "$input.proposals"
+          },
+          "depends_on": [
+            "detect"
+          ],
+          "input_map": {
+            "viability_scores": "$input.viability_scores"
+          },
+          "optional": false,
+          "description": "Build consensus score"
+        }
+      ]
+    },
+    {
+      "name": "quality_gate",
+      "description": "L0 gate → brainstorm ideas",
+      "steps": [
+        {
+          "name": "gate",
+          "service": "quality",
+          "method": "gate_l0",
+          "payload": {
+            "query": "$input.query"
+          },
+          "depends_on": [],
+          "input_map": {},
+          "optional": false,
+          "description": "L0 safety gate"
+        },
+        {
+          "name": "brainstorm",
+          "service": "quality",
+          "method": "brainstorm",
+          "payload": {
+            "topic": "$input.query",
+            "action": "ideas"
+          },
+          "depends_on": [
+            "gate"
+          ],
+          "input_map": {},
+          "optional": false,
+          "description": "Brainstorm ideas"
+        }
+      ]
+    },
+    {
+      "name": "knowledge_pipeline",
+      "description": "Embed query → semantic search → rerank",
+      "steps": [
+        {
+          "name": "embed_q",
+          "service": "knowledge",
+          "method": "embed",
+          "payload": {
+            "input": "$input.query"
+          },
+          "depends_on": [],
+          "input_map": {},
+          "optional": false,
+          "description": "Embed query"
+        },
+        {
+          "name": "search",
+          "service": "knowledge",
+          "method": "semantic_search",
+          "payload": {
+            "query": "$input.query",
+            "documents": "$input.documents"
+          },
+          "depends_on": [
+            "embed_q"
+          ],
+          "input_map": {},
+          "optional": false,
+          "description": "Search by semantic similarity"
+        },
+        {
+          "name": "rerank",
+          "service": "knowledge",
+          "method": "rerank",
+          "payload": {
+            "query": "$input.query",
+            "documents": "$input.documents"
+          },
+          "depends_on": [
+            "search"
+          ],
+          "input_map": {},
+          "optional": false,
+          "description": "Rerank results"
+        }
+      ]
+    },
+    {
+      "name": "quota_check",
+      "description": "Cost estimate → provider health → rebalance check",
+      "steps": [
+        {
+          "name": "cost",
+          "service": "quota",
+          "method": "cost_estimate",
+          "payload": {
+            "input_tokens": "$input.input_tokens",
+            "output_tokens": "$input.output_tokens",
+            "channels": "$input.channels"
+          },
+          "depends_on": [],
+          "input_map": {},
+          "optional": false,
+          "description": "Estimate cost across channels"
+        },
+        {
+          "name": "health",
+          "service": "quota",
+          "method": "provider_health_aggregate",
+          "payload": {
+            "providers": "$input.providers"
+          },
+          "depends_on": [
+            "cost"
+          ],
+          "input_map": {},
+          "optional": false,
+          "description": "Aggregate provider health"
+        },
+        {
+          "name": "rebalance",
+          "service": "quota",
+          "method": "should_rebalance",
+          "payload": {
+            "stats": "$input.stats"
+          },
+          "depends_on": [
+            "health"
+          ],
+          "input_map": {},
+          "optional": false,
+          "description": "Check if rebalance needed"
+        }
+      ]
+    },
+    {
+      "name": "safety_pipeline",
+      "description": "L0 gate → tool screening → output wrapping",
+      "steps": [
+        {
+          "name": "gate",
+          "service": "quality",
+          "method": "gate_l0",
+          "payload": {
+            "query": "$input.query"
+          },
+          "depends_on": [],
+          "input_map": {},
+          "optional": false,
+          "description": "L0 safety gate"
+        },
+        {
+          "name": "screen",
+          "service": "safety",
+          "method": "tool_screening",
+          "payload": {
+            "tool_name": "$input.tool_name",
+            "arguments": "$input.arguments"
+          },
+          "depends_on": [
+            "gate"
+          ],
+          "input_map": {},
+          "optional": false,
+          "description": "Screen tool call"
+        },
+        {
+          "name": "wrap",
+          "service": "safety",
+          "method": "output_wrapping",
+          "payload": {
+            "action": "wrap",
+            "content": "$input.output",
+            "source": "$input.source"
+          },
+          "depends_on": [
+            "screen"
+          ],
+          "input_map": {},
+          "optional": false,
+          "description": "Wrap output for safety"
+        }
+      ]
+    },
+    {
+      "name": "rag_pipeline",
+      "description": "RAG search → rerank → top result",
+      "steps": [
+        {
+          "name": "search",
+          "service": "knowledge",
+          "method": "rag_search",
+          "payload": {
+            "query": "$input.query",
+            "corpus": "$input.corpus"
+          },
+          "depends_on": [],
+          "input_map": {},
+          "optional": false,
+          "description": "RAG search corpus"
+        },
+        {
+          "name": "rerank",
+          "service": "knowledge",
+          "method": "rerank",
+          "payload": {
+            "query": "$input.query",
+            "documents": "$input.documents"
+          },
+          "depends_on": [
+            "search"
+          ],
+          "input_map": {},
+          "optional": false,
+          "description": "Rerank"
+        }
+      ]
+    }
+  ]
 }
 
 ALL DISPATCHER TESTS PASSED

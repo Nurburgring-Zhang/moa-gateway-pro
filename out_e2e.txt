@@ -5,7 +5,7 @@
   ✓ admin token len=217
 
 === Phase 2: API Keys ===
-  ✓ created key: mgw-jAIZD6YqQeVBllw5... id=key_02c6e4ede9e8
+  ✓ created key: mgw-oK6MG2sj25nBJqPo... id=key_a8593ed2f412
 
 === Phase 3: Endpoints ===
   ✓ 0 endpoints
@@ -25,7 +25,7 @@
 === Phase 9: Error Handling ===
 
 === Phase 10: Rate Limit ===
-  rate_test create: status=200 key=mgw-OMQnMj1cLuJQbg1K  body={'key_id': 'key_a3742584050f', 'key': 'mgw-OMQnMj1cLuJQbg1KCNHjc35SYDjd68Im', 'name': 'rate_test', 'quota_rpm': 3, 'quota_daily_tokens': 1000000}
+  rate_test create: status=200 key=mgw-InuRK4j3JT3dJX7G  body={'key_id': 'key_00248b2a104d', 'key': 'mgw-InuRK4j3JT3dJX7G64r0TNA8SxB1lVSj', 'name': 'rate_test', 'quota_rpm': 3, 'quota_daily_tokens': 1000000}
   rate limit test: 3 OK + 5 429
   ✓ rate limit works
 

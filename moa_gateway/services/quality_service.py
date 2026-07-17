@@ -25,7 +25,7 @@ def _load_elo():
 
 
 def _load_gate():
-    from ..capability.gate_l0 import gate_l0_check
+    from ..capability.gate_l0 import gate as gate_l0_check
     return gate_l0_check
 
 
@@ -117,9 +117,12 @@ class QualityService(ServiceBase):
             return submit_workers(workers=workers, strategy=strategy)
         raise ValueError(f"unknown action: {action}, expected record/ranked/submit")
 
-    def gate_l0(self, query):
+    def gate_l0(self, query, context=None):
         gate_l0_check = _load_gate()
-        return gate_l0_check(query)
+        v = gate_l0_check(query, context=context)
+        if hasattr(v, "to_dict"):
+            return v.to_dict()
+        return v
 
     def score_panel(self, query, answer, criteria=None):
         score_panel = _load_score_panel()
