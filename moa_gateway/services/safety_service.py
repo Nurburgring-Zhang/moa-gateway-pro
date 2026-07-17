@@ -31,15 +31,16 @@ def _load_prompt_canary():
 
 
 def _load_tool_screening():
-    from ..capability.tool_screening import screen
-    return screen
+    from ..capability.tool_screening import screen_input, ToolScreener
+    return screen_input, ToolScreener
 
 
 def _load_output_wrapping():
     from ..capability.output_wrapping import (
-        wrap, sanitize, needs_wrapping, unwrap,
+        wrap_output, safe_wrap, sanitize_for_prompt,
+        needs_wrapping, unwrap_output,
     )
-    return wrap, sanitize, needs_wrapping, unwrap
+    return wrap_output, safe_wrap, sanitize_for_prompt, needs_wrapping, unwrap_output
 
 
 def _load_frozen():
@@ -167,19 +168,21 @@ class SafetyService(ServiceBase):
         raise ValueError(f"unknown action: {action}")
 
     def tool_screening(self, tool_name, arguments):
-        screen = _load_tool_screening()
-        return screen(tool_name=tool_name, arguments=arguments)
+        screen_input, ToolScreener = _load_tool_screening()
+        screener = ToolScreener()
+        findings = screener.screen(tool_name=tool_name, arguments=arguments)
+        return {"findings": [f.__dict__ if hasattr(f, "__dict__") else f for f in findings]}
 
     def output_wrapping(self, action, content=None, source=None, trust=None, max_length=None, wrapped=None):
-        wrap, sanitize, needs_wrapping, unwrap = _load_output_wrapping()
+        wrap_output, safe_wrap, sanitize_for_prompt, needs_wrapping, unwrap_output = _load_output_wrapping()
         if action == "wrap":
-            return wrap(content=content or "", source=source or "", trust=trust or "untrusted", max_length=max_length or 8192)
+            return {"wrapped": safe_wrap(content=content or "", source=source or "unknown", trust=trust or "untrusted")}
         if action == "sanitize":
-            return {"sanitized": sanitize(content=content or "")}
+            return {"sanitized": sanitize_for_prompt(content=content or "")}
         if action == "needs_wrapping":
             return {"needs_wrapping": needs_wrapping(content=content or "")}
         if action == "unwrap":
-            return {"content": unwrap(wrapped=wrapped or "")}
+            return {"content": unwrap_output(wrapped=wrapped or "")}
         raise ValueError(f"unknown action: {action}")
 
     def frozen(self, action, path=None, zone=None, freeze=None, sentinel=None, reason=None, added_at=None):

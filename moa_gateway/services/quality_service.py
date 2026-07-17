@@ -35,8 +35,8 @@ def _load_score_panel():
 
 
 def _load_brainstorm():
-    from ..capability.brainstorm import ideas, decide
-    return ideas, decide
+    from ..capability.brainstorm import BrainstormSession, DecideMode
+    return BrainstormSession, DecideMode
 
 
 def _load_plan_act():
@@ -128,12 +128,17 @@ class QualityService(ServiceBase):
         score_panel = _load_score_panel()
         return score_panel(query=query, answer=answer, criteria=criteria or [])
 
-    def brainstorm(self, topic, action):
-        ideas, decide = _load_brainstorm()
+    def brainstorm(self, topic, action, detailed=False, options=None):
+        BrainstormSession, DecideMode = _load_brainstorm()
         if action == "ideas":
-            return ideas(topic)
+            session = BrainstormSession(topic)
+            ideas_obj = session.generate_ideas_detailed() if detailed else session.generate_ideas()
+            if isinstance(ideas_obj, dict):
+                return ideas_obj
+            return {k: v.__dict__ for k, v in ideas_obj.items()}
         if action == "decide":
-            return decide(topic, options=None)
+            dm = DecideMode(topic, options or [])
+            return {"advocates": dm.generate_advocates()}
         raise ValueError(f"unknown action: {action}, expected ideas/decide")
 
     async def plan_act(self, query):

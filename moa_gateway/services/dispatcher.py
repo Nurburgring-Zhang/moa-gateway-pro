@@ -308,9 +308,13 @@ def _register_builtin_workflows(dispatcher: AgentDispatcher) -> None:
     ))
     wf1.add_step(WorkflowStep(
         name="run_moa", service="moa", method="run_engine",
-        payload={"query": "$input.query"},
+        payload={}, input_map={
+            "query": "$input.query",
+            "proposers": "$input.proposers",
+            "aggregator": "$input.aggregator",
+        },
         depends_on=["validate"],
-        description="Run MoA engine",
+        description="Run MoA engine with real data flow from input",
     ))
     wf1.add_step(WorkflowStep(
         name="score", service="quality", method="score_flask",
@@ -321,8 +325,8 @@ def _register_builtin_workflows(dispatcher: AgentDispatcher) -> None:
     ))
     dispatcher.register_workflow("moa_quality_pipeline", wf1)
 
-    # Workflow 2: Consensus (detect convergent → build consensus)
-    wf2 = Workflow(name="consensus_pipeline", description="Detect convergent ideas → build consensus")
+    # Workflow 2: Consensus (detect convergent → vote ensemble)
+    wf2 = Workflow(name="consensus_pipeline", description="Detect convergent ideas → ensemble vote")
     wf2.add_step(WorkflowStep(
         name="detect", service="consensus", method="detect_convergent",
         payload={"proposals": "$input.proposals"},
@@ -330,11 +334,10 @@ def _register_builtin_workflows(dispatcher: AgentDispatcher) -> None:
         description="Detect cross-proposal convergent ideas",
     ))
     wf2.add_step(WorkflowStep(
-        name="build", service="consensus", method="build_consensus",
-        payload={"proposals": "$input.proposals"},
+        name="vote", service="consensus", method="vote_ensemble",
+        payload={"votes": "$input.votes"},
         depends_on=["detect"],
-        input_map={"viability_scores": "$input.viability_scores"},
-        description="Build consensus score",
+        description="Run ensemble vote on proposals",
     ))
     dispatcher.register_workflow("consensus_pipeline", wf2)
 

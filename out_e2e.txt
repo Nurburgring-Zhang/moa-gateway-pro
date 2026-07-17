@@ -1,11 +1,11 @@
 ﻿=== Phase 0: 启动 server ===
-  ✓ server ready in 3.0s
+  ✓ server ready in 1.0s
 
 === Phase 1: Auth ===
   ✓ admin token len=217
 
 === Phase 2: API Keys ===
-  ✓ created key: mgw-oK6MG2sj25nBJqPo... id=key_a8593ed2f412
+  ✓ created key: mgw-CEm9oU4g5qU4gVVT... id=key_4af5eb98cbef
 
 === Phase 3: Endpoints ===
   ✓ 0 endpoints
@@ -25,7 +25,7 @@
 === Phase 9: Error Handling ===
 
 === Phase 10: Rate Limit ===
-  rate_test create: status=200 key=mgw-InuRK4j3JT3dJX7G  body={'key_id': 'key_00248b2a104d', 'key': 'mgw-InuRK4j3JT3dJX7G64r0TNA8SxB1lVSj', 'name': 'rate_test', 'quota_rpm': 3, 'quota_daily_tokens': 1000000}
+  rate_test create: status=200 key=mgw-CiesCsqqxtom3iRS  body={'key_id': 'key_55421a27e41d', 'key': 'mgw-CiesCsqqxtom3iRSL6uy_YhkTLaVbliK', 'name': 'rate_test', 'quota_rpm': 3, 'quota_daily_tokens': 1000000}
   rate limit test: 3 OK + 5 429
   ✓ rate limit works
 

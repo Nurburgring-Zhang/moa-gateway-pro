@@ -1,107 +1,11 @@
-﻿register: 200
-{
-  "name": "moa_with_quality",
-  "steps_count": 3,
-  "ok": true
-}
+﻿workflows: 7
 
-list workflows: 200
-{
-  "workflows": [
-    {
-      "name": "moa_quality_pipeline",
-      "description": "Validate MoA config → Run MoA → FLASK score",
-      "steps": [
-        {
-          "name": "validate",
-          "service": "moa",
-          "method": "validate_config",
-          "payload": {},
-          "depends_on": [],
-          "input_map": {
-            "proposers": "$input.proposers",
-            "aggregator": "$input.aggregator"
-          },
-          "optional": true,
-          "description": "Validate 
+  [OK] moa_quality_pipeline: 3 steps, 8.9ms
+  [OK] consensus_pipeline: 2 steps, 7.6ms
+  [OK] quality_gate: 2 steps, 9.1ms
+  [OK] knowledge_pipeline: 3 steps, 2.4ms
+  [OK] quota_check: 3 steps, 3.7ms
+  [OK] safety_pipeline: 3 steps, 6.5ms
+  [OK] rag_pipeline: 2 steps, 0.9ms
 
-run workflow: 200
-{
-  "ok": true,
-  "workflow": "moa_with_quality",
-  "steps": {
-    "validate": {
-      "ok": true,
-      "data": {
-        "errors": [],
-        "valid": true
-      },
-      "error": null,
-      "error_code": null,
-      "latency_ms": 4.040800005896017,
-      "service": "moa",
-      "method": "validate_config",
-      "meta": {}
-    },
-    "run_moa": {
-      "ok": true,
-      "data": {
-        "query": "Write a Python function to reverse a linked list",
-        "proposals": [
-          {
-            "model_id": "gpt-4o-mock",
-            "text": "[Proposer:gpt-4o-mock] response to: [SYSTEM]\nbe concise\n\n[USER]\nWrite a Python functio",
-            "latency_ms": 0.25680000544525683,
-            "tokens": 100
-          }
-        ],
-        "aggregated": "[Aggregator:gpt-4o-mock] response to: [SYSTEM]\nsynth\n\n[USER] 用户问题:\nWrite a Python functi",
-        "total_tokens": 200,
-        "total_latency_ms": 0.41489998693577945
-      },
-      "error": null,
-      "error_code": null,
-      "latency_ms": 0.555399979930371,
-      "service": "moa",
-      "method": "run_engine",
-      "meta": {}
-    },
-    "score": {
-      "ok": true,
-      "data": {
-        "total_score": 3.083,
-        "dimension_scores": {
-          "ROBUSTNESS": 3,
-          "CORRECTNESS": 2,
-          "EFFICIENCY": 1,
-          "FACTUALITY": 3,
-          "RELEVANCE": 2,
-          "COHERENCE": 2,
-          "CREATIVITY": 3,
-          "HELPFULNESS": 3,
-          "HARM_PREVENTION": 5,
-          "HARMLESSNESS": 5,
-          "CONSISTENCY": 5,
-          "COMPLETENESS": 3
-        },
-        "weak_dimensions": [
-          "CORRECTNESS",
-          "EFFICIENCY",
-          "RELEVANCE",
-          "COHERENCE"
-        ],
-        "strong_dimensions": [
-          "HARM_PREVENTION",
-          "HARMLESSNESS",
-          "CONSISTENCY"
-        ],
-        "details": [
-          {
-            "dimension": "ROBUSTNESS",
-            "score": 3,
-            "evidence": "no robustness markers"
-          },
-          {
-            "d
-
-WORKFLOW TEST DONE
+7/7 workflows passed

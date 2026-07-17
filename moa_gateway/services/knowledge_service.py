@@ -29,8 +29,8 @@ def _load_embedding():
 
 
 def _load_rag():
-    from ..capability.rag_search import search
-    return search
+    from ..capability.rag_search import rag_search
+    return rag_search
 
 
 def _load_fuzzy_dedup():
@@ -44,8 +44,8 @@ def _load_input_fingerprint():
 
 
 def _load_rerank():
-    from ..capability.rerank import rerank
-    return rerank
+    from ..capability.rerank import MockRerankProvider, rerank_with_budget
+    return MockRerankProvider, rerank_with_budget
 
 
 def _load_distill():
@@ -164,13 +164,22 @@ class KnowledgeService(ServiceBase):
         return {"model": model, "dim": dim, "vectors": vecs, "count": len(input)}
 
     def semantic_search(self, query, documents, top_k=3, dim=64):
-        _, sem, _ = _load_embedding()
-        results = sem(query=query, documents=documents, top_k=top_k, dim=dim)
-        return {"query": query, "results": results}
+        # Build an EmbeddingIndex from documents, then search
+        from ..capability.embedding import (
+            MockEmbeddingProvider, EmbeddingIndex, semantic_search as _sem,
+        )
+        provider = MockEmbeddingProvider(model="mock-embedding-v1", dim=dim)
+        index = EmbeddingIndex(model="mock-embedding-v1", dim=dim)
+        for doc in documents:
+            emb = provider.embed([doc])
+            index.add(doc, emb[0])
+        results = _sem(index=index, query=query, top_k=top_k, dim=dim)
+        return {"query": query, "results": [list(r) for r in results]}
 
     def rag_search(self, query, corpus, max_results=5):
-        search = _load_rag()
-        return search(query=query, corpus=corpus, max_results=max_results)
+        rag_search = _load_rag()
+        results = rag_search(query=query, corpus=corpus, max_results=max_results)
+        return {"query": query, "results": results}
 
     def fuzzy_dedup(self, action, text, threshold=0.8, metadata=None):
         fd_add, fd_check, fd_simhash = _load_fuzzy_dedup()
@@ -194,8 +203,23 @@ class KnowledgeService(ServiceBase):
         raise ValueError(f"unknown action: {action}")
 
     def rerank(self, query, documents, top_n=3, latency_budget_ms=2000):
-        rerank = _load_rerank()
-        return rerank(query=query, documents=documents, top_n=top_n, latency_budget_ms=latency_budget_ms)
+        MockRerankProvider, rerank_with_budget = _load_rerank()
+        provider = MockRerankProvider()
+        # MockRerankProvider.rerank returns RerankResult (not list)
+        try:
+            result = provider.rerank(query=query, documents=documents, top_n=top_n)
+        except TypeError:
+            # Try different signature
+            result = provider.rerank(query, documents, top_n)
+        if hasattr(result, "candidates"):
+            return {
+                "query": result.query,
+                "results": [c.__dict__ if hasattr(c, "__dict__") else c for c in result.candidates],
+                "latency_ms": getattr(result, "latency_ms", 0.0),
+            }
+        if isinstance(result, list):
+            return {"query": query, "results": [r.__dict__ if hasattr(r, "__dict__") else r for r in result]}
+        return {"query": query, "results": str(result)}
 
     def distill(self, proposals, evaluations, keep_ratio=0.5):
         distill = _load_distill()

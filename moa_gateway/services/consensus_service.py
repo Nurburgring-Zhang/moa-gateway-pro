@@ -110,9 +110,28 @@ class ConsensusService(ServiceBase):
 
     def detect_convergent(self, proposals, min_support=3, viability_scores=None):
         convergent_summary, extract_ideas = _load_convergent()
-        ideas = extract_ideas(proposals, min_support=min_support)
-        summary = convergent_summary(ideas, viability_scores=viability_scores or {})
-        return {"ideas": [i.to_dict() if hasattr(i, "to_dict") else i for i in ideas], "summary": summary}
+        from ..capability.convergent_detector import Proposal, arbitrate_conflicts
+        # Convert dict proposals to Proposal objects
+        prop_objs = []
+        for p in proposals:
+            if isinstance(p, dict):
+                prop = Proposal(**{k: v for k, v in p.items() if k in Proposal.__dataclass_fields__})
+                if not getattr(prop, "ideas", None):
+                    prop.ideas = extract_ideas(prop.text, prop.proposal_idx)
+                prop_objs.append(prop)
+            else:
+                prop_objs.append(p)
+        summary = convergent_summary(prop_objs, min_support=min_support)
+        if viability_scores:
+            if "conflicts" in summary:
+                summary["arbitrations"] = [
+                    {"option_a": c.option_a, "option_b": c.option_b,
+                     "winner": w, "confidence": conf}
+                    for c, w, conf in arbitrate_conflicts(summary["conflicts"], viability_scores)
+                ]
+        if hasattr(summary, "to_dict"):
+            return summary.to_dict()
+        return summary
 
     def arbitrate_conflicts(self, options, criteria=None):
         if not options:

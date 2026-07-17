@@ -78,8 +78,10 @@ def _load_tier_promo():
 
 
 def _load_provider_health():
-    from ..capability.provider_health import aggregate
-    return aggregate
+    from ..capability.provider_health import (
+        compute_score, aggregate_scores, recommend, rank_providers,
+    )
+    return compute_score, aggregate_scores, recommend, rank_providers
 
 
 def _load_consumption_intel():
@@ -93,8 +95,10 @@ def _load_consensus():
 
 
 def _load_cost_estimator():
-    from ..capability.cost_estimator import estimate_cost
-    return estimate_cost
+    from ..capability.cost_estimator import (
+        estimate_moa_cost, dry_run_preset, compare_presets, format_report,
+    )
+    return estimate_moa_cost, dry_run_preset, compare_presets, format_report
 
 
 class QuotaService(ServiceBase):
@@ -356,8 +360,23 @@ class QuotaService(ServiceBase):
 
     # provider health
     def provider_health_aggregate(self, providers, prefer_tier=None):
-        aggregate = _load_provider_health()
-        return aggregate(providers=providers, prefer_tier=prefer_tier)
+        compute_score, aggregate_scores, recommend, rank_providers = _load_provider_health()
+        from ..capability.provider_health import HealthMetrics
+        scores = []
+        for p in providers:
+            if isinstance(p, dict):
+                # Filter unknown fields, support both 'breaker_open' and 'circuit_open'
+                valid = {k: v for k, v in p.items() if k in HealthMetrics.__dataclass_fields__}
+                m = HealthMetrics(**valid)
+                scores.append(compute_score(m))
+        agg = aggregate_scores(scores)
+        rec = recommend(agg, prefer_tier=prefer_tier) if prefer_tier else None
+        return {
+            "scores": {k: {"score": v.score, "tier": v.tier, "reasons": v.reasons}
+                        for k, v in agg.items()},
+            "ranked": [{"provider": p, "score": s} for p, s in rank_providers(agg)],
+            "recommended": rec,
+        }
 
     # consumption intel
     def consumption_intel(self, context, endpoints):
@@ -365,12 +384,35 @@ class QuotaService(ServiceBase):
         return analyze(context=context, endpoints=endpoints)
 
     # should rebalance
-    def should_rebalance(self, stats):
-        should_rebalance = _load_consensus()
-        return should_rebalance(stats=stats)
+    def should_rebalance(self, stats, config=None):
+        from ..capability.consensus import TierStat
+        stats_objs = {k: TierStat(**v) if isinstance(v, dict) else v for k, v in stats.items()}
+        # Inline implementation since we can't easily pass config through _load_consensus
+        total = len(stats_objs)
+        if total == 0:
+            return {"should_rebalance": False}
+        high = sum(1 for s in stats_objs.values() if s.success_count / max(s.total_calls, 1) > 0.95)
+        low = sum(1 for s in stats_objs.values() if s.success_count / max(s.total_calls, 1) < 0.5)
+        return {"should_rebalance": high >= 1 and low >= 1, "high_count": high, "low_count": low, "total": total}
 
     # cost estimate
-    def cost_estimate(self, input_tokens, output_tokens, channels, include_fallback=True, format="report"):
-        estimate_cost = _load_cost_estimator()
-        return estimate_cost(input_tokens=input_tokens, output_tokens=output_tokens,
-                             channels=channels, include_fallback=include_fallback, format=format)
+    def cost_estimate(self, input_tokens, output_tokens, channels, include_fallback=True, preset_name="balanced", retry_factor=1.0):
+        estimate_moa_cost, *_ = _load_cost_estimator()
+        from ..capability.cost_estimator import Channel as CEChannel
+        # Convert dict channels to Channel objects
+        ch_objs = []
+        for ch in channels:
+            if isinstance(ch, dict):
+                ch_objs.append(CEChannel(**{k: v for k, v in ch.items() if k in CEChannel.__dataclass_fields__}))
+            else:
+                ch_objs.append(ch)
+        result = estimate_moa_cost(
+            input_tokens=input_tokens, output_tokens=output_tokens,
+            channels=ch_objs, preset_name=preset_name,
+            include_fallback=include_fallback, retry_factor=retry_factor,
+        )
+        if hasattr(result, "to_dict"):
+            return result.to_dict()
+        if isinstance(result, dict):
+            return result
+        return {"result": str(result)}
