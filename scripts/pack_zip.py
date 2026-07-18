@@ -35,16 +35,18 @@ EXCLUDE_FILES_EXACT = {
     "debug_tmp.py",
 }
 
-# 单文件名 glob 模式
+# 单文件名 glob 模式(所有路径都生效)
 EXCLUDE_FILE_PATTERNS = [
-    re.compile(r"^_\w+\.py$"),         # _*.py 临时脚本 (_gen_descriptions.py, _check_desc.py ...)
-    re.compile(r"^test_pat\d*\.py$"),   # test_pat.py / test_pat2.py ... PAT 测试脚本
+    re.compile(r"^_\w+\.py$"),         # _*.py 临时脚本
+    re.compile(r"^test_pat\d*\.py$"),   # test_pat.py / test_pat2.py ...
     re.compile(r"^test_pat\.py$"),
     re.compile(r"^debug_\w+\.py$"),     # debug_*.py 调试脚本
-    re.compile(r"^out_.+\.(txt|log)$"), # out_*.txt / out_*.log 输出文件
-    re.compile(r"^.*\.log$"),           # 所有 .log 文件
-    re.compile(r"^.*\.db$"),            # .db 数据库文件
-    re.compile(r"^.*\.zip$"),           # 防止 zip 递归
+    re.compile(r"^out_.+\.(txt|log)$"), # out_*.txt / out_*.log
+    re.compile(r"^out\.txt$"),
+    re.compile(r"^out\d+\.txt$"),       # out20.txt, out1.txt 等
+    re.compile(r"^.*\.log$"),           # 所有 .log
+    re.compile(r"^.*\.db$"),
+    re.compile(r"^.*\.zip$"),
     re.compile(r"^.*\.pem$"),
     re.compile(r"^.*\.key$"),
     re.compile(r"^.*\.pyc$"),
@@ -53,14 +55,17 @@ EXCLUDE_FILE_PATTERNS = [
     re.compile(r"^.*\.so$"),
     re.compile(r"^.*\.dll$"),
     re.compile(r"^.*\.pdb$"),
+    re.compile(r"^analyze_results\.py$"),
+    re.compile(r"^find_bare_except\.py$"),
+    re.compile(r"^start_test\.py$"),
 ]
 
-# 顶层(非子目录)文件 glob — 这些只在根目录是 dev 脚本
-TOPLEVEL_FILE_PATTERNS = [
-    re.compile(r"^test_.+\.py$"),       # 顶层 test_*.py (dev 集成测试)
-    re.compile(r"^test_.+\.json$"),     # 顶层 test_*.json
-    re.compile(r"^test_.+\.txt$"),      # 顶层 test_*.txt
-    re.compile(r"^test_.+\.log$"),      # 顶层 test_*.log
+# 任何路径下都生效的 test_*.py (包括子目录)
+ANYWHERE_FILE_PATTERNS = [
+    re.compile(r"^test_.+\.py$"),
+    re.compile(r"^test_.+\.json$"),
+    re.compile(r"^test_.+\.txt$"),
+    re.compile(r"^test_.+\.log$"),
 ]
 
 # 路径里包含特定子串的也排除
@@ -80,12 +85,10 @@ def should_exclude(path: Path) -> bool:
     for pat in EXCLUDE_FILE_PATTERNS:
         if pat.match(name):
             return True
-    # 顶层文件(无父目录的 dev 脚本)
-    is_toplevel = len(path.parts) == 1
-    if is_toplevel:
-        for pat in TOPLEVEL_FILE_PATTERNS:
-            if pat.match(name):
-                return True
+    # test_*.py 任何路径下都排除 (顶层 + 子目录)
+    for pat in ANYWHERE_FILE_PATTERNS:
+        if pat.match(name):
+            return True
     posix = str(path).replace(os.sep, "/")
     if any(sub in posix for sub in EXCLUDE_PATH_SUBSTR):
         return True

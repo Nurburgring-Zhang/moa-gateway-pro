@@ -96,13 +96,37 @@ debug_*.py
 dbg_*.py
 _dbg_*.py
 
+# Any test_*.py anywhere — neither top-level nor capability/tests/
+test_*.py
+moa_gateway/capability/tests/
+
+# All dev/debug/verify/fix/sim/diag scripts under scripts/
+scripts/audit_*.py
+scripts/check_*.py
+scripts/debug_*.py
+scripts/diag_*.py
+scripts/fix_*.py
+scripts/gen_*.py
+scripts/list_*.py
+scripts/patch_*.py
+scripts/server_*.py
+scripts/simulate_*.py
+scripts/t.py
+scripts/t[2-9].py
+scripts/verify_*.py
+scripts/deep_*.txt
+
+# Loose top-level dev files
+analyze_results.py
+find_bare_except.py
+start_test.py
+
 # Test output captures
 out_*.txt
-out_*.log
+out.txt
+out20.txt
 endpoints_scan.json
-
-# scripts/_*.py (one-off dev scripts)
-scripts/_*.py
+*.log
 
 # test files (v1.8.1+ 严格清理:zip & repo 都不包含)
 test_*.py
