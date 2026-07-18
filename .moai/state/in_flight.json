@@ -214,5 +214,14 @@
       "interrupted": false,
       "checkpoint_data": {}
     }
+  ],
+  "80e76fc5f462": [
+    {
+      "phase": "analyze",
+      "started_at": 100.0,
+      "completed_at": null,
+      "interrupted": false,
+      "checkpoint_data": {}
+    }
   ]
 }

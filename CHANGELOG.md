@@ -5,23 +5,69 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — v1.6.7
+## [Unreleased] — v1.7.x
 
-### Added
-- **Engineering infrastructure (v1.6.7)**
-  - `pyproject.toml` — PEP 621 compliant project metadata, ruff+mypy+pytest+coverage config
-  - `.github/workflows/ci.yml` — CI pipeline: ruff lint, mypy, pytest, E2E
-  - `CHANGELOG.md` — this file
-  - `CODE_OF_CONDUCT.md` — community guidelines
+### v1.7.4 (2026-07-18) — Round 6: Production deployment
+### v1.7.3 (2026-07-18) — Round 5: All 7 workflows pass with real data flow
+### v1.7.2 (2026-07-18) — Round 4: 11 services + 176 methods
+### v1.7.1 (2026-07-18) — Round 3: 10 services + 7 builtin workflows + dispatcher
+### v1.7.0 (2026-07-18) — Round 1+2: 80→0 deep e2e fail + Service Layer + AgentDispatch
 
-- **Wave 14 (planned) — 5 more HIGH capabilities**
-- **Pydantic validation (planned) — 30 endpoints**
-- **v1.6.5 deferred P0/P1 (planned)**
-  - P0-7: rag_search → aiosqlite + WAL + conn pool
-  - P1-8: storage single conn pool + drop redundant BEGIN IMMEDIATE
-  - P1-9: per-provider-rl timestamp validation + singleton
-  - P1-10/11: LRU cap on unbounded singletons (SubagentHub, HookRegistry, etc.)
-  - P1-12: is_mock_key logic + atomic token increment
+## [v1.7.0] — 2026-07-18 — Production Architecture (5 rounds of fixes)
+
+### Round 1: P0/P1/P2 + 80 deep e2e fails → all fixed
+- **Global exception handlers** — TypeError/ValueError/KeyError/AttributeError/JSONDecodeError → 4xx
+- **43× `HTTPException(500)` → `_err_500()` smart mapper** — input errors → 4xx, real server errors → 500
+- **Aggregator.from_dict added** + **BOM stripped** + **duplicate `except HTTPException: raise` removed** (32 dup clauses)
+- **P0-11 per-endpoint async lock** for `_saved_api_key` race condition
+- **P0-12 chat_completions fallback recheck** on endpoint removal race
+- **P1-2 worktree `__import__("os")` cleanup** → direct `os.environ`
+- **P1-9 login rate limit** — IP-based, 10 attempts per 60s, new `login_attempts` table
+- **moa-n-layer query type validation** — int query → 422
+- **moa-3-layer 422 validation** for invalid proposer/aggregator
+- **DEEP E2E RESULT**: 432/512 → 512/512 pass (0 fail)
+
+### Round 2: Service Layer + AgentDispatch + Workflow Engine
+- **`services/base.py`** — `ServiceBase`, `ServiceMethod`, `ServiceRegistry`, `service_method` decorator
+- **`services/dispatcher.py`** — `AgentDispatcher` + `Workflow` + `WorkflowStep` (DAG executor with real inter-module data flow)
+- **7 endpoints under `/v1/agent/*`** — list, dispatch, dispatch_batch, workflows, workflow/run, workflow/register
+
+### Round 3: 10 services + 100 methods
+- **MoAService** (4): `run_three_layer`, `run_engine`, `cross_iter`, `validate_config`
+- **ConsensusService** (7): `vote_ensemble`, `should_rebalance`, `detect_convergent`, `arbitrate_conflicts`, `synthesize_multi_mode`, `check_group_think`, `evaluate_section_viability`
+- **RoutingService** (6): `route`, `chain_info`, `execute_chain`, `classify_error`, `cost_estimate`, `reference_route`
+- **QualityService** (7): `score_flask`, `rank_elo`, `gate_l0`, `score_panel`, `brainstorm`, `plan_act`, `meta_prompt`
+- **AgentService** (18): comms, session_lock, bubble, MCP (subagent_comms, try_acquire, escalate, etc.)
+- **QuotaService** (24): rate_quota, per_provider_rl, token_bucket, request_dedup, self_heal, tier_recalibrate, tier_promo, provider_health, consumption_intel, should_rebalance, cost_estimate
+- **KnowledgeService** (12): embed, semantic_search, rag_search, fuzzy_dedup, input_fingerprint, rerank, distill, importance, context_clean, turboquant, prompt_features, goal_eval
+- **SafetyService** (10): secret_scan, prompt_canary, tool_screening, output_wrapping, frozen, grace, anthropic_compat, llm_merge, version, worktree
+- **ObservabilityService** (4): trace, audit, hook_events, in_flight
+- **ConfigService** (8): config, mx, checkpoint, artifact, acceptance, action_policy, tool_replay, brainstorm_decide
+
+### Round 4: CapabilityDispatcher (76 capability passthroughs)
+- **`services/capability_dispatcher.py`** — single service with 76 `call_<endpoint>` methods
+- **All capability endpoints** accessible via `service=capability, method=call_<endpoint>`
+
+### Round 5: 7 builtin workflow templates (all pass with real data flow)
+- `moa_quality_pipeline` — validate → run_moa → score_flask (3 steps, 8.9ms)
+- `consensus_pipeline` — detect_convergent → vote_ensemble (2 steps, 7.6ms)
+- `quality_gate` — gate_l0 → brainstorm (2 steps, 9.1ms)
+- `knowledge_pipeline` — embed → semantic_search → rerank (3 steps, 2.4ms)
+- `quota_check` — cost_estimate → provider_health → should_rebalance (3 steps, 3.7ms)
+- `safety_pipeline` — gate_l0 → tool_screening → output_wrapping (3 steps, 11.4ms)
+- `rag_pipeline` — rag_search → rerank (2 steps, 0.9ms)
+
+### Round 6: Production deployment
+- **`Dockerfile`** — multi-stage Python 3.11-slim
+- **`docker-compose.yml`** — production compose with healthcheck, resource limits, log rotation
+- **`.dockerignore`** — exclude test files, caches, secrets
+- **`DEPLOYMENT.md`** — comprehensive deployment guide (Linux/macOS/Windows/Docker/K8s)
+- **Performance test** (`test_perf.py`):
+  - Sequential `/health`: 1000 reqs, p50=0.81ms, p99=23.27ms
+  - Concurrent `/health`: 200 threads × 10 = 2000 reqs in 0.28s → **7193 RPS**
+  - Concurrent `/v1/agent/dispatch`: 50 threads × 5 = 250 dispatches
+
+## [v1.6.6] — 2026-07-15 — Deep E2E catch-up (4 critical bugs)
 
 ## [1.6.6] — 2026-07-15 — Deep E2E catch-up
 
