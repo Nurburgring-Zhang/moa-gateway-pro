@@ -87,3 +87,11 @@ moa_gateway/
 - Don't use `os.system()` or `shell=True` — use `subprocess.run(..., check=True)`
 - Don't `print()` for logging — use `logger` from `logging` module
 - Don't skip tests to make CI green — fix the underlying issue
+
+
+## Communication style
+
+- 说人话,严禁堆术语
+- 短句,数字+动词,不要形容词
+- 不写文档式输出(去掉首先/其次/最后)
+- 不用客服腔(您/请/感谢)

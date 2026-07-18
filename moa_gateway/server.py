@@ -23,6 +23,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .config import get_settings, DATA_DIR
+from .req_models import ENDPOINT_MODELS
+# Import all request models into this module's namespace so Pydantic can resolve
+# forward refs like `body: CreateMoaSimilarityRequest` in endpoint signatures.
+from . import req_models as _req_models  # noqa: F401
+for _model_name in dir(_req_models):
+    _model_obj = getattr(_req_models, _model_name, None)
+    if isinstance(_model_obj, type) and issubclass(_model_obj, BaseModel) and _model_obj is not BaseModel:
+        globals()[_model_name] = _model_obj
+del _model_name, _model_obj, _req_models
 from .storage import get_storage
 from .model_pool import get_model_pool, start_model_pool, ModelTier
 from .router import get_router, ComplexityLevel
@@ -607,7 +616,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/moa/similarity")
     async def moa_similarity(request: Request,
-                              body: Dict[str, Any],
+                              body: CreateMoaSimilarityRequest,
                               key_info: Dict[str, Any] = Depends(require_api_key)):
         """计算两个候选答案之间的多维相似度(论文 3.3 Figure 4)
         Body:
@@ -637,7 +646,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/moa/flask")
     async def moa_flask(request: Request,
-                         body: Dict[str, Any],
+                         body: CreateMoaFlaskRequest,
                          key_info: Dict[str, Any] = Depends(require_api_key)):
         """FLASK 12 维评分(论文 3.2)
         Body:
@@ -670,7 +679,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/moa/benchmark")
     async def moa_benchmark(request: Request,
-                             body: Dict[str, Any],
+                             body: CreateMoaBenchmarkRequest,
                              key_info: Dict[str, Any] = Depends(require_api_key)):
         """内置 Benchmark Suite(论文 3 AlpacaEval/MT-Bench 简版)
         用一组标准 prompt 在一个或多个 preset 上跑,
@@ -732,7 +741,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/moa/cost-pareto")
     async def moa_cost_pareto(request: Request,
-                                body: Dict[str, Any],
+                                body: CreateMoaCostParetoRequest,
                                 key_info: Dict[str, Any] = Depends(require_api_key)):
         """Cost Pareto Analysis(论文 3.4 Figure 5):
         对一组 prompt,跑多个 preset,输出 cost vs quality 散点。
@@ -853,7 +862,7 @@ def create_app() -> FastAPI:
     @app.post("/v1/capability/secret-scan")
     async def capability_secret_scan(
         request: Request,
-        body: Dict[str, Any],
+        body: CreateSecretScanRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """9 类硬编码密钥扫描 + 3 层豁免 (来自 moa-skill + moat-ops-auditor)
@@ -870,7 +879,7 @@ def create_app() -> FastAPI:
     @app.post("/v1/capability/group-think-check")
     async def capability_group_think_check(
         request: Request,
-        body: Dict[str, Any],
+        body: CreateGroupThinkCheckRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """3 反群体思维纪律栈判定(来自 moa-skill 核心创新)
@@ -899,7 +908,7 @@ def create_app() -> FastAPI:
     @app.post("/v1/capability/ensemble-vote")
     async def capability_ensemble_vote(
         request: Request,
-        body: Dict[str, Any],
+        body: CreateEnsembleVoteRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """集成投票器(来自 01 GateSwarm — 4 种算法:majority/weighted/borda/approval)
@@ -916,7 +925,7 @@ def create_app() -> FastAPI:
     @app.post("/v1/capability/should-rebalance")
     async def capability_should_rebalance(
         request: Request,
-        body: Dict[str, Any],
+        body: CreateShouldRebalanceRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """Tier 边界再训练(来自 01 GateSwarm)
@@ -932,7 +941,7 @@ def create_app() -> FastAPI:
     @app.post("/v1/capability/cost-estimate")
     async def capability_cost_estimate(
         request: Request,
-        body: Dict[str, Any],
+        body: CreateCostEstimateRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """dry-run 成本估算(来自 05 moa-skill)
@@ -958,7 +967,7 @@ def create_app() -> FastAPI:
     @app.post("/v1/capability/gate-l0")
     async def capability_gate_l0(
         request: Request,
-        body: Dict[str, Any],
+        body: CreateGateL0Request,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """L0 闸门(来自 05 moa-skill)— 判断是否需要启 MoA
@@ -970,7 +979,7 @@ def create_app() -> FastAPI:
     @app.post("/v1/capability/score-panel")
     async def capability_score_panel(
         request: Request,
-        body: Dict[str, Any],
+        body: CreateScorePanelRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """5 维评分(来自 09 opencode-moa — TQ/CO/AP/SE/IN)
@@ -1006,7 +1015,7 @@ def create_app() -> FastAPI:
     @app.post("/v1/capability/calculate-max-tokens")
     async def capability_calculate_max_tokens(
         request: Request,
-        body: Dict[str, Any],
+        body: CreateCalculateMaxTokensRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """根据模型 context window 智能调整 max_tokens
@@ -1026,7 +1035,7 @@ def create_app() -> FastAPI:
     @app.post("/v1/capability/estimate-cost")
     async def capability_estimate_cost(
         request: Request,
-        body: Dict[str, Any],
+        body: CreateEstimateCostRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """估算单模型成本
@@ -1042,7 +1051,7 @@ def create_app() -> FastAPI:
     # ========== v1.5.1 Capability Endpoints — Wave 1 (HIGH 优先级) ==========
     @app.post("/v1/capability/quota-check")
     async def capability_quota_check(
-        body: Dict[str, Any],
+        body: CreateQuotaCheckRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """R-08 多窗口配额检查 (5h/weekly/monthly + ETA)
@@ -1062,7 +1071,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/quota-record")
     async def capability_quota_record(
-        body: Dict[str, Any],
+        body: CreateQuotaRecordRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """R-08 记录 quota usage + 返回新 state"""
@@ -1074,7 +1083,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/moa-n-layer")
     async def capability_moa_n_layer(
-        body: Dict[str, Any],
+        body: CreateMoaNLayerRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """M-02 多层 MoA (3-layer 默认,真实跑通)
@@ -1117,7 +1126,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/convergent-detect")
     async def capability_convergent_detect(
-        body: Dict[str, Any],
+        body: CreateConvergentDetectRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """M-16 跨提案 CONVERGENT 想法检测 + M-17 冲突仲裁
@@ -1142,7 +1151,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/action-policy")
     async def capability_action_policy(
-        body: Dict[str, Any],
+        body: CreateActionPolicyRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-31 Action Policy (Allow/Deny/AdminReview) + A-32 Bypass Defense
@@ -1158,7 +1167,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/embeddings")
     async def capability_embeddings(
-        body: Dict[str, Any],
+        body: CreateEmbeddingsRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """L-36 Embedding 端点 (OpenAI 兼容 /v1/embeddings 接口)
@@ -1183,7 +1192,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/semantic-search")
     async def capability_semantic_search(
-        body: Dict[str, Any],
+        body: CreateSemanticSearchRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """L-36 语义搜索 (端到端: embed query + 搜 index)
@@ -1209,7 +1218,7 @@ def create_app() -> FastAPI:
     # ========== v1.5.2 Capability Endpoints — Wave 2 (HIGH 优先级) ==========
     @app.post("/v1/capability/prompt-features")
     async def capability_prompt_features(
-        body: Dict[str, Any],
+        body: CreatePromptFeaturesRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """R-02 25 维 prompt 特征提取 + 域判 + complexity/urgency/pro_model
@@ -1231,7 +1240,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/provider-health")
     async def capability_provider_health(
-        body: Dict[str, Any],
+        body: CreateProviderHealthRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """R-07 提供者健康评分 (0-100) + tier 等级 + 排名 + 推荐
@@ -1253,7 +1262,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/context-clean")
     async def capability_context_clean(
-        body: Dict[str, Any],
+        body: CreateContextCleanRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """R-11 7 阶段消息清洗
@@ -1271,7 +1280,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/self-heal")
     async def capability_self_heal(
-        body: Dict[str, Any],
+        body: CreateSelfHealRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """R-15 自愈 tier 重新平衡 (action: record_success/record_failure/check_recovery/promote/demote/auto_balance)
@@ -1317,7 +1326,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/multi-mode-synth")
     async def capability_multi_mode_synth(
-        body: Dict[str, Any],
+        body: CreateMultiModeSynthRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """M-14 多模式综合器 (4 模式: classification / integrated_synthesis / final_selection / cross_iteration)
@@ -1355,7 +1364,7 @@ def create_app() -> FastAPI:
     # ========== v1.5.3 Capability Endpoints — Wave 3 (HIGH 优先级) ==========
     @app.post("/v1/capability/conflict-arbitrate")
     async def capability_conflict_arbitrate(
-        body: Dict[str, Any],
+        body: CreateConflictArbitrateRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """M-17 CONFLICTING 选择仲裁 (4 维: viability/support/empirical/compilable)
@@ -1379,7 +1388,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/section-viability")
     async def capability_section_viability(
-        body: Dict[str, Any],
+        body: CreateSectionViabilityRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """M-18 Per-section viability (复杂提案分节验证)
@@ -1402,7 +1411,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/feedback-iter")
     async def capability_feedback_iter(
-        body: Dict[str, Any],
+        body: CreateFeedbackIterRequest,
         admin: Dict[str, Any] = Depends(require_admin),  # 修 P0-6: 必须 admin 防 path traversal
     ):
         """M-19 Feedback-aware iteration (跨迭代知识传递)
@@ -1451,7 +1460,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/stream-aggregate")
     async def capability_stream_aggregate(
-        body: Dict[str, Any],
+        body: CreateStreamAggregateRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """M-06 Aggregator 流式 + 非流式 fallback
@@ -1488,7 +1497,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/per-provider-rl")
     async def capability_per_provider_rl(
-        body: Dict[str, Any],
+        body: CreatePerProviderRlRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """R-17 Per-provider 限流 (RPM/IPM/并发 + 429 cooldown)
@@ -1544,7 +1553,7 @@ def create_app() -> FastAPI:
     # ========== v1.5.4 Capability Endpoints — Wave 4 (HIGH 优先级) ==========
     @app.post("/v1/capability/tier-recalibrate")
     async def capability_tier_recalibrate(
-        body: Dict[str, Any],
+        body: CreateTierRecalibrateRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """R-04 Tier 边界动态重校准 (网格搜索阈值 + demote/promote)
@@ -1571,7 +1580,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/consumption-intel")
     async def capability_consumption_intel(
-        body: Dict[str, Any],
+        body: CreateConsumptionIntelRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """R-06 消费智能引擎 (静态优先 + 动态 fallback + vision 降级)
@@ -1593,7 +1602,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/importance-score")
     async def capability_importance_score(
-        body: Dict[str, Any],
+        body: CreateImportanceScoreRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """R-13 重要性评分 (5 维加权 + top-k + 压缩决策)
@@ -1613,7 +1622,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/quorum-check")
     async def capability_quorum_check(
-        body: Dict[str, Any],
+        body: CreateQuorumCheckRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """R-20 Quorum 宽限窗 (30s 宽限 + LLM-as-Judge 评分)
@@ -1663,7 +1672,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/model-entry")
     async def capability_model_entry(
-        body: Dict[str, Any],
+        body: CreateModelEntryRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """L-29 Provider 状态 12 字段 ModelEntry (capability check + filter + sort + budget)
@@ -1710,7 +1719,7 @@ def create_app() -> FastAPI:
     # ========== v1.5.5 Capability Endpoints — Wave 5 (HIGH 优先级) ==========
     @app.post("/v1/capability/tool-replay")
     async def capability_tool_replay(
-        body: Dict[str, Any],
+        body: CreateToolReplayRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """M-07 Tool call 重放 + M-09 Tool choice 防循环
@@ -1742,7 +1751,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/hook-events")
     async def capability_hook_events(
-        body: Dict[str, Any],
+        body: CreateHookEventsRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-02 27 Hook 事件注册 + A-10 4 阶段 Ralph 反馈循环
@@ -1794,7 +1803,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/meta-prompt")
     async def capability_meta_prompt(
-        body: Dict[str, Any],
+        body: CreateMetaPromptRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """M-22 3 阶段元 Prompt 协议 + M-23 认知摩擦对抗 + M-26 冲突消解
@@ -1825,7 +1834,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/task-tree")
     async def capability_task_tree(
-        body: Dict[str, Any],
+        body: CreateTaskTreeRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-18 Task Tree (TaskSegment) + A-34 Task 分解树
@@ -1901,7 +1910,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/distill")
     async def capability_distill(
-        body: Dict[str, Any],
+        body: CreateDistillRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """M-15 Integrated synthesis + M-51 Multi-eval consensus averaging
@@ -1940,7 +1949,7 @@ def create_app() -> FastAPI:
     # ========== v1.5.6 Capability Endpoints — Wave 6 (HIGH 优先级) ==========
     @app.post("/v1/capability/rerank")
     async def capability_rerank(
-        body: Dict[str, Any],
+        body: CreateRerankRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """L-37 Cohere Rerank v4 (latency-bounded) + L-31 Stream delta 完整代理
@@ -1969,7 +1978,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/goal-eval")
     async def capability_goal_eval(
-        body: Dict[str, Any],
+        body: CreateGoalEvalRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-12 2-tier 目标求值 + A-13 5-section Ceiling Report
@@ -2010,7 +2019,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/auto-converge")
     async def capability_auto_converge(
-        body: Dict[str, Any],
+        body: CreateAutoConvergeRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-15 Auto-converge + A-14 Tier classification 1/3/5/10
@@ -2053,7 +2062,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/subagent-comms")
     async def capability_subagent_comms(
-        body: Dict[str, Any],
+        body: CreateSubagentCommsRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-38 Subagent 通信 (SendMessage/TaskCreate) + A-22 Advisory lock
@@ -2135,7 +2144,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/version")
     async def capability_version(
-        body: Dict[str, Any],
+        body: CreateVersionRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """M-35 方案版本化 (v1→v2) + M-27 LLM-as-Judge 单答评分
@@ -2205,7 +2214,7 @@ def create_app() -> FastAPI:
     # ========== v1.5.7 Capability Endpoints — Wave 7 (HIGH 优先级) ==========
     @app.post("/v1/capability/config")
     async def capability_config(
-        body: Dict[str, Any],
+        body: CreateConfigRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-03 8 层配置合并栈 + A-05 5 个 Permission Mode
@@ -2256,7 +2265,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/bubble")
     async def capability_bubble(
-        body: Dict[str, Any],
+        body: CreateBubbleRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-06 Bubble Mode (parent escalate) + A-26 Event scheduling
@@ -2386,7 +2395,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/route")
     async def capability_route(
-        body: Dict[str, Any],
+        body: CreateRouteRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-45 Harness Routing 3 档 + A-46 Auto-Detection Rules
@@ -2435,7 +2444,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/session-lock")
     async def capability_session_lock(
-        body: Dict[str, Any],
+        body: CreateSessionLockRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-22 Multi-session 协调 (advisory lock) + A-20 MCP 工具注册
@@ -2510,7 +2519,7 @@ def create_app() -> FastAPI:
     # ========== v1.5.8 Capability Endpoints — Wave 8 (HIGH 优先级) ==========
     @app.post("/v1/capability/flask")
     async def capability_flask(
-        body: Dict[str, Any],
+        body: CreateFlaskRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """M-29 FLASK 12 维技能评分 + M-34 Task 分解树 (高内聚低耦合)
@@ -2539,7 +2548,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/elo")
     async def capability_elo(
-        body: Dict[str, Any],
+        body: CreateEloRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """M-30 Elo ranking + Bootstrap CI + Worker 调度
@@ -2590,7 +2599,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/brainstorm")
     async def capability_brainstorm(
-        body: Dict[str, Any],
+        body: CreateBrainstormRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """M-45 5 发散人格头脑风暴 + M-47 Decide 模式 advocate_<选项>
@@ -2621,7 +2630,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/cross-iter")
     async def capability_cross_iter(
-        body: Dict[str, Any],
+        body: CreateCrossIterRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """M-50 Cross-iteration synthesis + M-52 Step-5 三种模式
@@ -2663,7 +2672,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/audit")
     async def capability_audit(
-        body: Dict[str, Any],
+        body: CreateAuditRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-31 Action Policy 增强 + A-35 Audit Gate (5 步协议)
@@ -2688,7 +2697,7 @@ def create_app() -> FastAPI:
     # ========== v1.5.9 Capability Endpoints — Wave 9 (HIGH 优先级) ==========
     @app.post("/v1/capability/in-flight")
     async def capability_in_flight(
-        body: Dict[str, Any],
+        body: CreateInFlightRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-24 In-Flight Transition 检测 + A-25 Team Checkpoint Merge
@@ -2740,7 +2749,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/mx")
     async def capability_mx(
-        body: Dict[str, Any],
+        body: CreateMxRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-39 MX 注解系统 + A-40 fan-in + A-44 mx CLI
@@ -2774,7 +2783,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/tier-promo")
     async def capability_tier_promo(
-        body: Dict[str, Any],
+        body: CreateTierPromoRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-48 Tier Promotion (1/3/5/10 + confidence<0.70) + A-49 Sub-agent Boundary
@@ -2829,7 +2838,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/artifact")
     async def capability_artifact(
-        body: Dict[str, Any],
+        body: CreateArtifactRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-21 Artifact Schema 统一 + A-50 Tmux 面板编排 (CG mode)
@@ -2900,7 +2909,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/frozen")
     async def capability_frozen(
-        body: Dict[str, Any],
+        body: CreateFrozenRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-19 Frozen Zone 4-enum + A-34 HARNESS_FROZEN_* 8 sentinels
@@ -2955,7 +2964,7 @@ def create_app() -> FastAPI:
     # ========== v1.5.10 Capability Endpoints — Wave 10 (HIGH 优先级) ==========
     @app.post("/v1/capability/turboquant")
     async def capability_turboquant(
-        body: Dict[str, Any],
+        body: CreateTurboquantRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """R-12 TurboQuant 5 级量化 (Q0/Q1/Q2/Q4/Q8) + 60 msg HARD CAP + 30 PRESERVE
@@ -2995,7 +3004,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/moa-engine")
     async def capability_moa_engine(
-        body: Dict[str, Any],
+        body: CreateMoaEngineRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """M-01 MoA 引擎核心 (3 proposer + 1 aggregator) + M-05 协同
@@ -3036,7 +3045,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/acceptance")
     async def capability_acceptance(
-        body: Dict[str, Any],
+        body: CreateAcceptanceRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-17 Acceptance Tree (Given/When/Then) + A-16 EARS/GEARS 5+6 模式
@@ -3086,7 +3095,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/llm-merge")
     async def capability_llm_merge(
-        body: Dict[str, Any],
+        body: CreateLlmMergeRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """L-32 LLM 响应合并 (5 strategy) + L-33 LLM 降级 chain
@@ -3139,7 +3148,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/grace")
     async def capability_grace(
-        body: Dict[str, Any],
+        body: CreateGraceRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-37 7-day Grace Window (FAIL 7 天仅警告不阻塞)
@@ -3184,7 +3193,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/rag-search")
     async def capability_rag_search(
-        body: Dict[str, Any],
+        body: CreateRagSearchRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """R-09: 关键词重叠 RAG 检索 — 24h TTL 缓存, max_results 默认 3"""
@@ -3205,7 +3214,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/plan-act")
     async def capability_plan_act(
-        body: Dict[str, Any],
+        body: CreatePlanActRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """R-10: Plan/Act 模式解析 — 24+14 关键词 + 11+8 正则 → confidence"""
@@ -3222,7 +3231,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/channels")
     async def capability_channels(
-        body: Dict[str, Any],
+        body: CreateChannelsRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """R-23: CH1/CH2/CH3 三通道 fallback — subagent → CLI → API"""
@@ -3261,7 +3270,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/reference-router")
     async def capability_reference_router(
-        body: Dict[str, Any],
+        body: CreateReferenceRouterRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """M-11: Reference 模型分流 — SHADOW/VALIDATE/VETO 4 策略"""
@@ -3292,7 +3301,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/checkpoint")
     async def capability_checkpoint(
-        body: Dict[str, Any],
+        body: CreateCheckpointRequest,
         admin: Dict[str, Any] = Depends(require_admin),  # 修 P0-4: 必须 admin,防任意文件写 RCE
     ):
         """A-23: 原子写 checkpoint 存储 — temp+rename, fsync, thread-safe
@@ -3355,7 +3364,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/audit")
     async def capability_audit(
-        body: Dict[str, Any],
+        body: CreateAuditRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """A-36: 24h 审计缓存 — LRU + TTL"""
@@ -3412,7 +3421,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/canary")
     async def capability_canary(
-        body: Dict[str, Any],
+        body: CreateCanaryRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """S-36: Prompt Injection 金丝雀 — 4 策略注入 + 检测泄露"""
@@ -3448,7 +3457,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/wrap-output")
     async def capability_wrap_output(
-        body: Dict[str, Any],
+        body: CreateWrapOutputRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """S-38: Output Wrapping — untrusted_tool_output 标签"""
@@ -3491,7 +3500,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/fuzzy-dedup")
     async def capability_fuzzy_dedup(
-        body: Dict[str, Any],
+        body: CreateFuzzyDedupRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """F-30: Fuzzy Dedup 指纹 — simhash + 暴力去重"""
@@ -3527,7 +3536,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/input-fingerprint")
     async def capability_input_fingerprint(
-        body: Dict[str, Any],
+        body: CreateInputFingerprintRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """I-15: Input Fingerprint — 4 层 hash 指纹 + 碰撞检测"""
@@ -3571,7 +3580,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/tool-screening")
     async def capability_tool_screening(
-        body: Dict[str, Any],
+        body: CreateToolScreeningRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """S-37/A-37: 9 段 Tool Input 风险检测"""
@@ -3595,7 +3604,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/anthropic-compat")
     async def capability_anthropic_compat(
-        body: Dict[str, Any],
+        body: CreateAnthropicCompatRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """L-04~L-15: Anthropic Messages API 兼容层"""
@@ -3639,7 +3648,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/token-bucket")
     async def capability_token_bucket(
-        body: Dict[str, Any],
+        body: CreateTokenBucketRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """F-32/R-17: Token Bucket 限流算法 (lazy refill)"""
@@ -3682,7 +3691,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/request-dedup")
     async def capability_request_dedup(
-        body: Dict[str, Any],
+        body: CreateRequestDedupRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """I-13/A-23: Request Dedup 重复请求检测"""
@@ -3736,7 +3745,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/trace")
     async def capability_trace(
-        body: Dict[str, Any],
+        body: CreateTraceRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """T-13/L-32: W3C Trace Propagation 链路追踪"""
@@ -4060,7 +4069,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/agent/dispatch")
     async def agent_dispatch(
-        body: Dict[str, Any],
+        body: CreateAgentDispatchRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """Agent Dispatch — 统一入口调用任意 Service.method.
@@ -4081,7 +4090,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/agent/dispatch_batch")
     async def agent_dispatch_batch(
-        body: Dict[str, Any],
+        body: CreateAgentDispatchBatchRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """批量 dispatch, 并行执行多个 service.method 调用.
@@ -4109,7 +4118,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/agent/workflow/register")
     async def agent_workflow_register(
-        body: Dict[str, Any],
+        body: CreateAgentWorkflowRegisterRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """动态注册一个 workflow 模板.
@@ -4145,7 +4154,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/agent/workflow/run")
     async def agent_workflow_run(
-        body: Dict[str, Any],
+        body: CreateAgentWorkflowRunRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
         """执行一个 workflow 模板 — 多 service.method DAG 执行, 真实数据流转.

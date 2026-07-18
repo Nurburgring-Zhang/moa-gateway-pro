@@ -1,11 +1,11 @@
 ﻿workflows: 7
 
-  [OK] moa_quality_pipeline: 3 steps, 8.9ms
-  [OK] consensus_pipeline: 2 steps, 7.6ms
-  [OK] quality_gate: 2 steps, 9.1ms
-  [OK] knowledge_pipeline: 3 steps, 2.4ms
-  [OK] quota_check: 3 steps, 3.7ms
-  [OK] safety_pipeline: 3 steps, 6.5ms
-  [OK] rag_pipeline: 2 steps, 0.9ms
+  [OK] moa_quality_pipeline: 3 steps, 4.8ms
+  [OK] consensus_pipeline: 2 steps, 5.0ms
+  [OK] quality_gate: 2 steps, 8.4ms
+  [OK] knowledge_pipeline: 3 steps, 4.9ms
+  [OK] quota_check: 3 steps, 2.8ms
+  [OK] safety_pipeline: 3 steps, 7.2ms
+  [OK] rag_pipeline: 2 steps, 0.8ms
 
 7/7 workflows passed

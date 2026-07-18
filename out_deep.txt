@@ -1,9 +1,9 @@
 ﻿=== Phase 0: 启动 server ===
-  [+] server ready in 2.0s
+  [+] server ready in 1.5s
 
 === Phase 1: Auth + API Keys ===
   + admin token len=217
-  + api_key created: mgw-lVdsLvu-n5fFyJS5... id=key_23e5642bb565
+  + api_key created: mgw-dYais6Z5-ddVYTDm... id=key_11a2ce6a3a38
 
 === Phase 2: Endpoints 管理 ===
   + 0 endpoints listed
