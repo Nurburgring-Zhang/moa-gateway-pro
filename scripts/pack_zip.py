@@ -55,6 +55,14 @@ EXCLUDE_FILE_PATTERNS = [
     re.compile(r"^.*\.pdb$"),
 ]
 
+# 顶层(非子目录)文件 glob — 这些只在根目录是 dev 脚本
+TOPLEVEL_FILE_PATTERNS = [
+    re.compile(r"^test_.+\.py$"),       # 顶层 test_*.py (dev 集成测试)
+    re.compile(r"^test_.+\.json$"),     # 顶层 test_*.json
+    re.compile(r"^test_.+\.txt$"),      # 顶层 test_*.txt
+    re.compile(r"^test_.+\.log$"),      # 顶层 test_*.log
+]
+
 # 路径里包含特定子串的也排除
 EXCLUDE_PATH_SUBSTR = (
     "scripts/_",  # scripts/_*.py 临时脚本
@@ -72,6 +80,12 @@ def should_exclude(path: Path) -> bool:
     for pat in EXCLUDE_FILE_PATTERNS:
         if pat.match(name):
             return True
+    # 顶层文件(无父目录的 dev 脚本)
+    is_toplevel = len(path.parts) == 1
+    if is_toplevel:
+        for pat in TOPLEVEL_FILE_PATTERNS:
+            if pat.match(name):
+                return True
     posix = str(path).replace(os.sep, "/")
     if any(sub in posix for sub in EXCLUDE_PATH_SUBSTR):
         return True
