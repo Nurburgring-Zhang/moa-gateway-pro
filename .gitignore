@@ -103,3 +103,15 @@ endpoints_scan.json
 
 # scripts/_*.py (one-off dev scripts)
 scripts/_*.py
+
+# test files (v1.8.1+ 严格清理:zip & repo 都不包含)
+test_*.py
+test_*.json
+test_*.txt
+test_*.log
+**/test_*.py
+**/test_*.json
+**/test_*.txt
+**/test_*.log
+**/tests/
+scripts/test_*.py
