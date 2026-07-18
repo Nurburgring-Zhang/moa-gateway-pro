@@ -1,17 +1,17 @@
-﻿will pack 1309 files, raw size 22.1 MB
-  100/1309
-  200/1309
-  300/1309
-  400/1309
-  500/1309
-  600/1309
-  700/1309
-  800/1309
-  900/1309
-  1000/1309
-  1100/1309
-  1200/1309
-  1300/1309
-[OK] D:\MoA Gateway Pro\zip\MoA Gateway Pro v1.7.5.zip
-  1309 files, raw 22.1 MB → zip 9.7 MB
-  path: D:\MoA Gateway Pro\zip\MoA Gateway Pro v1.7.5.zip
+﻿will pack 1345 files, raw size 22.2 MB
+  100/1345
+  200/1345
+  300/1345
+  400/1345
+  500/1345
+  600/1345
+  700/1345
+  800/1345
+  900/1345
+  1000/1345
+  1100/1345
+  1200/1345
+  1300/1345
+[OK] D:\MoA Gateway Pro\zip\MoA Gateway Pro v1.8.0.zip
+  1345 files, raw 22.2 MB → zip 9.8 MB
+  path: D:\MoA Gateway Pro\zip\MoA Gateway Pro v1.8.0.zip

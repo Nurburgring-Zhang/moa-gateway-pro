@@ -46,6 +46,18 @@ logger = logging.getLogger(__name__)
 WEBUI_DIR = Path(__file__).parent / "webui"
 
 
+# ========== FastAPI Dependencies ==========
+def get_client_ip(request: Request) -> str:
+    """从 Request 提取客户端 IP,优先 X-Forwarded-For,fallback 到 client.host"""
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        # 取第一个 IP(原始客户端)
+        return xff.split(",")[0].strip()
+    if request.client:
+        return request.client.host
+    return "unknown"
+
+
 # ========== Pydantic Schemas ==========
 class ChatMessage(BaseModel):
     role: str = Field(..., max_length=64)
@@ -341,6 +353,7 @@ def create_app() -> FastAPI:
         """OpenAI 兼容:列出可用模型"""
         # 公共端点:OpenAI 客户端需列出模型
         # 如果带有效 key,返回所有启用的端点;否则返回基础预设
+        # 真用 request:从 Authorization 拿 API key(可选)
         info = await authenticate_api_key(request)
         out = []
         presets = [
@@ -376,7 +389,7 @@ def create_app() -> FastAPI:
         return {"object": "list", "data": out}
 
     @app.post("/v1/chat/completions")
-    async def chat_completions(req: ChatCompletionRequest, request: Request,
+    async def chat_completions(req: ChatCompletionRequest,
                                 key_info: Dict[str, Any] = Depends(require_api_key)):
         """OpenAI 兼容:chat completions(非流式 + 流式)"""
         metrics.incr("chat_requests")
@@ -539,7 +552,7 @@ def create_app() -> FastAPI:
         )
 
     @app.post("/v1/moa/execute")
-    async def moa_execute(req: ChatCompletionRequest, request: Request,
+    async def moa_execute(req: ChatCompletionRequest,
                           key_info: Dict[str, Any] = Depends(require_api_key)):
         """原生 MoA 端点(返回完整 result,非 OpenAI 格式)
         支持 strategy: parallel | compose | judge | chain | pipeline | single
@@ -576,7 +589,7 @@ def create_app() -> FastAPI:
         return result.to_dict()
 
     @app.post("/v1/moa/eval")
-    async def moa_eval(request: Request,
+    async def moa_eval(body: CreateMoaEvalRequest,
                         key_info: Dict[str, Any] = Depends(require_api_key)):
         """横向对比 N 个模型的答案(预设 chinsque_battalion 等也能用)
 
@@ -588,7 +601,6 @@ def create_app() -> FastAPI:
               "temperature": 0.3
             }
         """
-        body = await request.json()
         query = (body.get("query") or "").strip()
         candidates = body.get("candidates") or []
         reference = body.get("reference_answer")
@@ -615,8 +627,7 @@ def create_app() -> FastAPI:
         return res
 
     @app.post("/v1/moa/similarity")
-    async def moa_similarity(request: Request,
-                              body: CreateMoaSimilarityRequest,
+    async def moa_similarity(body: CreateMoaSimilarityRequest,
                               key_info: Dict[str, Any] = Depends(require_api_key)):
         """计算两个候选答案之间的多维相似度(论文 3.3 Figure 4)
         Body:
@@ -645,8 +656,7 @@ def create_app() -> FastAPI:
         return result
 
     @app.post("/v1/moa/flask")
-    async def moa_flask(request: Request,
-                         body: CreateMoaFlaskRequest,
+    async def moa_flask(body: CreateMoaFlaskRequest,
                          key_info: Dict[str, Any] = Depends(require_api_key)):
         """FLASK 12 维评分(论文 3.2)
         Body:
@@ -678,8 +688,7 @@ def create_app() -> FastAPI:
         return result
 
     @app.post("/v1/moa/benchmark")
-    async def moa_benchmark(request: Request,
-                             body: CreateMoaBenchmarkRequest,
+    async def moa_benchmark(body: CreateMoaBenchmarkRequest,
                              key_info: Dict[str, Any] = Depends(require_api_key)):
         """内置 Benchmark Suite(论文 3 AlpacaEval/MT-Bench 简版)
         用一组标准 prompt 在一个或多个 preset 上跑,
@@ -740,8 +749,7 @@ def create_app() -> FastAPI:
         }
 
     @app.post("/v1/moa/cost-pareto")
-    async def moa_cost_pareto(request: Request,
-                                body: CreateMoaCostParetoRequest,
+    async def moa_cost_pareto(body: CreateMoaCostParetoRequest,
                                 key_info: Dict[str, Any] = Depends(require_api_key)):
         """Cost Pareto Analysis(论文 3.4 Figure 5):
         对一组 prompt,跑多个 preset,输出 cost vs quality 散点。
@@ -847,7 +855,7 @@ def create_app() -> FastAPI:
         return {"name": name, "deleted": True}
 
     @app.get("/v1/route/preview")
-    async def route_preview(q: str, request: Request,
+    async def route_preview(q: str,
                             key_info: Dict[str, Any] = Depends(require_api_key)):
         """预览路由决策(调试用)"""
         router = get_router()
@@ -855,13 +863,12 @@ def create_app() -> FastAPI:
         return d.to_dict()
 
     @app.get("/v1/quota")
-    async def quota(request: Request, key_info: Dict[str, Any] = Depends(require_api_key)):
+    async def quota(key_info: Dict[str, Any] = Depends(require_api_key)):
         return get_limiter().get_quota(key_info)
 
     # ========== v1.5 Capability Endpoints (从 10 项目迁移) ==========
     @app.post("/v1/capability/secret-scan")
     async def capability_secret_scan(
-        request: Request,
         body: CreateSecretScanRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
@@ -878,7 +885,6 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/group-think-check")
     async def capability_group_think_check(
-        request: Request,
         body: CreateGroupThinkCheckRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
@@ -907,7 +913,6 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/ensemble-vote")
     async def capability_ensemble_vote(
-        request: Request,
         body: CreateEnsembleVoteRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
@@ -924,7 +929,6 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/should-rebalance")
     async def capability_should_rebalance(
-        request: Request,
         body: CreateShouldRebalanceRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
@@ -940,7 +944,6 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/cost-estimate")
     async def capability_cost_estimate(
-        request: Request,
         body: CreateCostEstimateRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
@@ -966,7 +969,6 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/gate-l0")
     async def capability_gate_l0(
-        request: Request,
         body: CreateGateL0Request,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
@@ -978,7 +980,6 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/score-panel")
     async def capability_score_panel(
-        request: Request,
         body: CreateScorePanelRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
@@ -993,7 +994,6 @@ def create_app() -> FastAPI:
 
     @app.get("/v1/capability/models")
     async def capability_models(
-        request: Request,
         provider: Optional[str] = None,
         supports_tools: Optional[bool] = None,
         supports_vision: Optional[bool] = None,
@@ -1014,7 +1014,6 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/calculate-max-tokens")
     async def capability_calculate_max_tokens(
-        request: Request,
         body: CreateCalculateMaxTokensRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
@@ -1034,7 +1033,6 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/capability/estimate-cost")
     async def capability_estimate_cost(
-        request: Request,
         body: CreateEstimateCostRequest,
         key_info: Dict[str, Any] = Depends(require_api_key),
     ):
@@ -3826,9 +3824,8 @@ def create_app() -> FastAPI:
 
     # ========== WebUI Auth ==========
     @app.post("/api/auth/login")
-    async def login(req: LoginRequest, request: Request):
+    async def login(req: LoginRequest, client_ip: str = Depends(get_client_ip)):
         # Round-1 (P1-9): IP-based rate limit 防暴力破解
-        client_ip = request.client.host if request.client else "unknown"
         storage = get_storage()
         # 检查 IP 登录尝试次数(每 IP 每 60s 最多 10 次)
         with storage.conn() as c:

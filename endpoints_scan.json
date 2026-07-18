@@ -1,0 +1,1199 @@
+[
+  {
+    "method": "GET",
+    "path": "/health",
+    "fields": []
+  },
+  {
+    "method": "GET",
+    "path": "/api/health/detailed",
+    "fields": []
+  },
+  {
+    "method": "GET",
+    "path": "/v1/models",
+    "fields": []
+  },
+  {
+    "method": "POST",
+    "path": "/v1/chat/completions",
+    "fields": []
+  },
+  {
+    "method": "POST",
+    "path": "/v1/moa/execute",
+    "fields": []
+  },
+  {
+    "method": "POST",
+    "path": "/v1/moa/eval",
+    "fields": [
+      "candidates",
+      "get",
+      "query",
+      "reference_answer",
+      "temperature"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/moa/similarity",
+    "fields": [
+      "candidate_a",
+      "candidate_b",
+      "get",
+      "model_id",
+      "query"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/moa/flask",
+    "fields": [
+      "get",
+      "judge_model",
+      "query",
+      "reference",
+      "response"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/moa/benchmark",
+    "fields": [
+      "category",
+      "get",
+      "limit",
+      "presets"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/moa/cost-pareto",
+    "fields": [
+      "get",
+      "presets",
+      "prompts"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/v1/moa/presets",
+    "fields": []
+  },
+  {
+    "method": "GET",
+    "path": "/v1/moa/prompts",
+    "fields": []
+  },
+  {
+    "method": "GET",
+    "path": "/v1/moa/prompts/{name}",
+    "fields": []
+  },
+  {
+    "method": "PUT",
+    "path": "/v1/moa/prompts/{name}",
+    "fields": [
+      "content",
+      "get"
+    ]
+  },
+  {
+    "method": "DELETE",
+    "path": "/v1/moa/prompts/{name}",
+    "fields": []
+  },
+  {
+    "method": "GET",
+    "path": "/v1/route/preview",
+    "fields": []
+  },
+  {
+    "method": "GET",
+    "path": "/v1/quota",
+    "fields": []
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/secret-scan",
+    "fields": [
+      "fail_on",
+      "get",
+      "no_block",
+      "path"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/group-think-check",
+    "fields": [
+      "block_threshold",
+      "get",
+      "members",
+      "rounds",
+      "session_id",
+      "warn_threshold"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/ensemble-vote",
+    "fields": [
+      "get",
+      "method",
+      "votes"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/should-rebalance",
+    "fields": [
+      "config",
+      "get",
+      "stats"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/cost-estimate",
+    "fields": [
+      "channels",
+      "format",
+      "get",
+      "include_fallback",
+      "input_tokens",
+      "output_tokens"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/gate-l0",
+    "fields": [
+      "get",
+      "query"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/score-panel",
+    "fields": [
+      "answer",
+      "get",
+      "query"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/v1/capability/models",
+    "fields": []
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/calculate-max-tokens",
+    "fields": [
+      "get",
+      "input_tokens",
+      "model_id",
+      "requested_output",
+      "safety_margin"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/estimate-cost",
+    "fields": [
+      "get",
+      "input_tokens",
+      "model_id",
+      "output_tokens"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/quota-check",
+    "fields": [
+      "burn_rate_per_hour",
+      "get",
+      "last_updated",
+      "requested",
+      "windows"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/quota-record",
+    "fields": [
+      "at",
+      "get",
+      "last_updated",
+      "tokens",
+      "windows"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/moa-n-layer",
+    "fields": [
+      "aggregators",
+      "get",
+      "max_total_tokens",
+      "proposers",
+      "query",
+      "temperature"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/convergent-detect",
+    "fields": [
+      "get",
+      "min_support",
+      "proposals",
+      "viability_scores"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/action-policy",
+    "fields": [
+      "command",
+      "get",
+      "rules"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/embeddings",
+    "fields": [
+      "dim",
+      "get",
+      "input",
+      "model"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/semantic-search",
+    "fields": [
+      "dim",
+      "documents",
+      "get",
+      "query",
+      "top_k"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/prompt-features",
+    "fields": [
+      "get",
+      "text"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/provider-health",
+    "fields": [
+      "get",
+      "prefer_tier",
+      "providers"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/context-clean",
+    "fields": [
+      "get",
+      "max_total_chars",
+      "messages"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/self-heal",
+    "fields": [
+      "action",
+      "at",
+      "endpoint_id",
+      "endpoints",
+      "get",
+      "reason"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/multi-mode-synth",
+    "fields": [
+      "curr_proposals",
+      "get",
+      "mode",
+      "prev_proposals",
+      "proposals",
+      "scores",
+      "target_chars"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/conflict-arbitrate",
+    "fields": [
+      "fuse",
+      "get",
+      "options",
+      "query"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/section-viability",
+    "fields": [
+      "get",
+      "proposal_idx",
+      "text"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/feedback-iter",
+    "fields": [
+      "get",
+      "history_path",
+      "record"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/stream-aggregate",
+    "fields": [
+      "fail_prob",
+      "get",
+      "model",
+      "prompt"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/per-provider-rl",
+    "fields": [
+      "action",
+      "at",
+      "concurrent",
+      "cooldown_seconds",
+      "get",
+      "input_tokens",
+      "limit_config",
+      "limits",
+      "provider",
+      "request_count"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/tier-recalibrate",
+    "fields": [
+      "get",
+      "tiers"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/consumption-intel",
+    "fields": [
+      "context",
+      "endpoints",
+      "get"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/importance-score",
+    "fields": [
+      "get",
+      "messages",
+      "threshold",
+      "top_k"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/quorum-check",
+    "fields": [
+      "at",
+      "force_close",
+      "get",
+      "grace_seconds",
+      "judge_response",
+      "participants",
+      "required",
+      "response_a",
+      "response_b",
+      "wait_for_laggards"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/model-entry",
+    "fields": [
+      "filter",
+      "get",
+      "max_budget_input",
+      "max_budget_output",
+      "models",
+      "query_modalities",
+      "sort"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/tool-replay",
+    "fields": [
+      "get",
+      "proposals",
+      "recent_count",
+      "window"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/hook-events",
+    "fields": [
+      "action",
+      "data",
+      "event",
+      "get",
+      "max_iter",
+      "session_id",
+      "stage",
+      "timestamp"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/meta-prompt",
+    "fields": [
+      "action",
+      "context",
+      "get",
+      "options",
+      "query",
+      "role_a",
+      "role_b"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/task-tree",
+    "fields": [
+      "action",
+      "get",
+      "status",
+      "task_id",
+      "tasks"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/distill",
+    "fields": [
+      "apply_bias_correction",
+      "evaluations",
+      "get",
+      "keep_ratio",
+      "proposals"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/rerank",
+    "fields": [
+      "documents",
+      "get",
+      "latency_budget_ms",
+      "query",
+      "stream_chunks",
+      "top_n"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/goal-eval",
+    "fields": [
+      "baseline",
+      "claim",
+      "evidence",
+      "gaps",
+      "generate_ceiling",
+      "get",
+      "goals",
+      "output",
+      "residual_risk"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/auto-converge",
+    "fields": [
+      "calibrate_samples",
+      "calibrate_score",
+      "classify_events",
+      "config",
+      "epsilon",
+      "get",
+      "history",
+      "new_score",
+      "stagnation_threshold",
+      "state"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/subagent-comms",
+    "fields": [
+      "action",
+      "assignee",
+      "content",
+      "get",
+      "holder",
+      "kind",
+      "lock_id",
+      "parent",
+      "parent_msg_id",
+      "parent_task_id",
+      "session_id",
+      "sessions",
+      "status",
+      "task_id",
+      "timeout",
+      "title",
+      "to_session"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/version",
+    "fields": [
+      "action",
+      "content",
+      "created_by",
+      "critique",
+      "get",
+      "improvement",
+      "judge_response",
+      "parent",
+      "proposal_id",
+      "v1",
+      "v2"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/config",
+    "fields": [
+      "action",
+      "explicit",
+      "get",
+      "key",
+      "layer",
+      "layers",
+      "mode",
+      "value"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/bubble",
+    "fields": [
+      "action",
+      "action_desc",
+      "agent_id",
+      "decision",
+      "event_id",
+      "event_type",
+      "get",
+      "n",
+      "parent_id",
+      "payload",
+      "reason",
+      "request_id",
+      "timestamp"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/worktree",
+    "fields": []
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/route",
+    "fields": [
+      "action",
+      "file_count",
+      "files",
+      "get",
+      "is_bugfix",
+      "is_docs",
+      "severity",
+      "single_domain",
+      "task",
+      "tier"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/session-lock",
+    "fields": [
+      "action",
+      "get",
+      "lock_id",
+      "retry_interval",
+      "session_id",
+      "timeout",
+      "ttl"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/flask",
+    "fields": [
+      "answer",
+      "get",
+      "query",
+      "tasks"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/elo",
+    "fields": [
+      "action",
+      "ci",
+      "get",
+      "k_factor",
+      "matches",
+      "model_ids",
+      "n_resamples",
+      "ratings_before",
+      "strategy",
+      "workers"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/brainstorm",
+    "fields": [
+      "action",
+      "detailed",
+      "get",
+      "options",
+      "topic"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/cross-iter",
+    "fields": [
+      "action",
+      "get",
+      "iters",
+      "step5_mode"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/audit",
+    "fields": [
+      "action_data",
+      "action_id",
+      "get"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/in-flight",
+    "fields": [
+      "action",
+      "at",
+      "checkpoints",
+      "get",
+      "phase",
+      "session_id",
+      "state_dir"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/mx",
+    "fields": [
+      "action",
+      "command",
+      "file_path",
+      "get",
+      "language",
+      "text"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/tier-promo",
+    "fields": [
+      "action",
+      "allowed_children",
+      "child_id",
+      "children_a",
+      "children_b",
+      "confidence",
+      "confidence_threshold",
+      "count",
+      "evidence",
+      "get",
+      "parent_a",
+      "parent_b",
+      "parent_id",
+      "tier_1",
+      "tier_2",
+      "tier_3",
+      "tier_4"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/artifact",
+    "fields": [
+      "action",
+      "command",
+      "created_at",
+      "cwd",
+      "dependencies",
+      "description",
+      "env_vars",
+      "get",
+      "id",
+      "inputs",
+      "max_visible",
+      "name",
+      "outputs",
+      "pane_id",
+      "tags",
+      "type"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/frozen",
+    "fields": [
+      "action",
+      "added_at",
+      "get",
+      "path",
+      "reason",
+      "sentinel",
+      "zone"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/turboquant",
+    "fields": [
+      "action",
+      "get",
+      "hard_cap",
+      "level",
+      "messages",
+      "preserve"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/moa-engine",
+    "fields": [
+      "aggregator",
+      "get",
+      "proposers",
+      "query",
+      "validate_only"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/acceptance",
+    "fields": [
+      "action",
+      "criteria",
+      "criterion",
+      "get",
+      "root_id",
+      "text"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/llm-merge",
+    "fields": [
+      "action",
+      "get",
+      "providers",
+      "responses",
+      "strategy"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/grace",
+    "fields": [
+      "action",
+      "at",
+      "check_id",
+      "get",
+      "name"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/rag-search",
+    "fields": [
+      "corpus",
+      "get",
+      "max_results",
+      "query"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/plan-act",
+    "fields": [
+      "get",
+      "query"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/channels",
+    "fields": [
+      "action",
+      "api_latency_ms",
+      "cli_latency_ms",
+      "enabled",
+      "error",
+      "get",
+      "kwargs",
+      "query"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/reference-router",
+    "fields": [
+      "cost_ratio_cap",
+      "get",
+      "main_model",
+      "max_latency_ms",
+      "query",
+      "ref_model",
+      "strategy"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/checkpoint",
+    "fields": [
+      "_raw_payload",
+      "action",
+      "get",
+      "max_keep",
+      "name",
+      "older_than_seconds",
+      "payload",
+      "root_dir"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/audit",
+    "fields": [
+      "action",
+      "actor",
+      "event_id",
+      "event_type",
+      "get",
+      "limit",
+      "max_size",
+      "metadata",
+      "outcome",
+      "resource",
+      "since",
+      "sub_action",
+      "timestamp",
+      "ttl_seconds"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/canary",
+    "fields": [
+      "action",
+      "canary",
+      "get",
+      "prompt",
+      "response",
+      "strategy"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/wrap-output",
+    "fields": [
+      "action",
+      "aggressive",
+      "content",
+      "get",
+      "max_length",
+      "source",
+      "trust",
+      "wrapped"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/fuzzy-dedup",
+    "fields": [
+      "action",
+      "get",
+      "max_size",
+      "metadata",
+      "text",
+      "threshold"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/input-fingerprint",
+    "fields": [
+      "a",
+      "action",
+      "b",
+      "collisions_with",
+      "get",
+      "level",
+      "max_size",
+      "metadata",
+      "min_levels",
+      "text"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/tool-screening",
+    "fields": [
+      "arguments",
+      "get",
+      "tool_name"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/anthropic-compat",
+    "fields": [
+      "action",
+      "anthropic_request",
+      "chat_response",
+      "content",
+      "delta",
+      "error_type",
+      "get",
+      "input",
+      "is_error",
+      "message",
+      "model",
+      "name",
+      "stop_reason",
+      "tool_id",
+      "tool_use_id"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/token-bucket",
+    "fields": [
+      "action",
+      "capacity",
+      "get",
+      "key",
+      "refill_rate",
+      "tokens"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/request-dedup",
+    "fields": [
+      "action",
+      "body",
+      "get",
+      "max_size",
+      "method",
+      "path",
+      "response",
+      "source",
+      "strategy",
+      "ttl_seconds"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/capability/trace",
+    "fields": [
+      "action",
+      "duration_ms",
+      "error",
+      "get",
+      "limit",
+      "max_traces",
+      "min_duration_ms",
+      "name",
+      "since_ts",
+      "span_id",
+      "status",
+      "trace_id",
+      "traceparent"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/login",
+    "fields": []
+  },
+  {
+    "method": "POST",
+    "path": "/api/auth/change-password",
+    "fields": []
+  },
+  {
+    "method": "GET",
+    "path": "/api/auth/me",
+    "fields": []
+  },
+  {
+    "method": "GET",
+    "path": "/api/endpoints",
+    "fields": []
+  },
+  {
+    "method": "POST",
+    "path": "/api/endpoints",
+    "fields": []
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/endpoints/{eid}",
+    "fields": []
+  },
+  {
+    "method": "POST",
+    "path": "/api/endpoints/{eid}/toggle",
+    "fields": []
+  },
+  {
+    "method": "POST",
+    "path": "/api/endpoints/{eid}/reset-breaker",
+    "fields": []
+  },
+  {
+    "method": "GET",
+    "path": "/api/api-keys",
+    "fields": []
+  },
+  {
+    "method": "POST",
+    "path": "/api/api-keys",
+    "fields": []
+  },
+  {
+    "method": "DELETE",
+    "path": "/api/api-keys/{key_id}",
+    "fields": []
+  },
+  {
+    "method": "GET",
+    "path": "/api/logs",
+    "fields": []
+  },
+  {
+    "method": "GET",
+    "path": "/api/stats",
+    "fields": []
+  },
+  {
+    "method": "GET",
+    "path": "/api/metrics",
+    "fields": []
+  },
+  {
+    "method": "GET",
+    "path": "/api/adapters",
+    "fields": []
+  },
+  {
+    "method": "GET",
+    "path": "/api/adapters/curl",
+    "fields": []
+  },
+  {
+    "method": "GET",
+    "path": "/",
+    "fields": []
+  },
+  {
+    "method": "GET",
+    "path": "/webui/{name}",
+    "fields": []
+  },
+  {
+    "method": "GET",
+    "path": "/v1/agent/list",
+    "fields": []
+  },
+  {
+    "method": "POST",
+    "path": "/v1/agent/dispatch",
+    "fields": [
+      "get",
+      "method",
+      "payload",
+      "service"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/agent/dispatch_batch",
+    "fields": [
+      "calls",
+      "get"
+    ]
+  },
+  {
+    "method": "GET",
+    "path": "/v1/agent/workflows",
+    "fields": []
+  },
+  {
+    "method": "POST",
+    "path": "/v1/agent/workflow/register",
+    "fields": [
+      "description",
+      "get",
+      "name",
+      "steps"
+    ]
+  },
+  {
+    "method": "POST",
+    "path": "/v1/agent/workflow/run",
+    "fields": [
+      "get",
+      "input",
+      "name"
+    ]
+  }
+]

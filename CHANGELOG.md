@@ -5,13 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — v1.7.x
+## [Unreleased] — v1.8.x
 
-### v1.7.4 (2026-07-18) — Round 6: Production deployment
-### v1.7.3 (2026-07-18) — Round 5: All 7 workflows pass with real data flow
-### v1.7.2 (2026-07-18) — Round 4: 11 services + 176 methods
-### v1.7.1 (2026-07-18) — Round 3: 10 services + 7 builtin workflows + dispatcher
-### v1.7.0 (2026-07-18) — Round 1+2: 80→0 deep e2e fail + Service Layer + AgentDispatch
+### v1.8.1 (2026-07-19) — OpenAPI field descriptions + endpoint signature cleanup
+- **Pydantic Field descriptions (401 fields)** — `_gen_descriptions.py` 给 84 个 Pydantic model 的字段加中文 description,Swagger UI 直接展示字段含义
+- **5 dead `request: Request` removed** — `chat_completions` / `moa_execute` / `route_preview` / `quota` 端点签名不再注入无用 Request
+- **`get_client_ip` dependency** — `login` 改用 `Depends(get_client_ip)` 抽离 IP 提取,支持 X-Forwarded-For
+- **`list_models` 保留 `request: Request`** — 因 `authenticate_api_key(request)` 真用 Authorization header
+- **`_raw_payload` → `raw_payload`** — Pydantic 不允许前导下划线字段名
+- **Deep E2E 客户端改长连接池** — `urllib.request.urlopen` 换成 `http.client.HTTPConnection` 复用,解决 Windows ephemeral port 1000 上限的 TIME_WAIT 撞池
+
+### v1.8.0 (2026-07-18) — Pydantic BaseModel for 83 endpoints + 90 OpenAPI schemas
 
 ## [v1.7.0] — 2026-07-18 — Production Architecture (5 rounds of fixes)
 

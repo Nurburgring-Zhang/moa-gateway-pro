@@ -17,6 +17,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 import traceback
 import urllib.error
@@ -79,34 +80,63 @@ STATS = {
 FAILED_CASES: list = []
 
 
+import http.client
+
+# Reuse keepalive connections (Windows ephemeral port pool is limited to ~1000)
+_conn_lock = threading.Lock()
+_conns: dict[str, http.client.HTTPConnection] = {}
+
+
+def _get_conn(host: str, port: int, timeout: int) -> http.client.HTTPConnection:
+    key = f"{host}:{port}"
+    with _conn_lock:
+        c = _conns.get(key)
+        if c is None:
+            c = http.client.HTTPConnection(host, port, timeout=timeout)
+            _conns[key] = c
+            return c
+        # Reuse if still open, else reconnect
+        try:
+            c.sock  # probe
+            return c
+        except Exception:
+            try:
+                c.close()
+            except Exception:
+                pass
+            c = http.client.HTTPConnection(host, port, timeout=timeout)
+            _conns[key] = c
+            return c
+
+
 def call(method: str, path: str, body=None, headers=None, timeout: int = 30, raw: bool = False):
-    url = f"{BASE}{path}"
-    data = json.dumps(body).encode() if body is not None else None
     h = {"Content-Type": "application/json"}
     if headers:
         h.update(headers)
-    req = urllib.request.Request(url, data=data, headers=h, method=method)
-    try:
-        r = urllib.request.urlopen(req, timeout=timeout)
-        b = r.read().decode("utf-8", errors="replace")
-        if not raw:
-            try:
-                b = json.loads(b) if b and b[0] in "{[" else b
-            except Exception:
-                pass
-        return r.status, b
-    except urllib.error.HTTPError as e:
-        b = e.read().decode("utf-8", errors="replace")[:600]
-        if not raw:
-            try:
-                b = json.loads(b) if b and b[0] in "{[" else b
-            except Exception:
-                pass
-        return e.code, b
-    except urllib.error.URLError as e:
-        return 0, {"detail": f"URLError: {e.reason}"}
-    except Exception as e:  # noqa: BLE001
-        return -1, {"detail": str(e)}
+    data = json.dumps(body).encode() if body is not None else None
+    for attempt in range(3):
+        try:
+            c = _get_conn("127.0.0.1", PORT, timeout)
+            c.request(method, path, body=data, headers=h)
+            r = c.getresponse()
+            b = r.read().decode("utf-8", errors="replace")
+            status = r.status
+            if r.status >= 500 and attempt < 2:
+                time.sleep(0.05)
+                continue
+            if not raw and b and b[0] in "{[":
+                try:
+                    b = json.loads(b)
+                except Exception:
+                    pass
+            return status, b
+        except (http.client.RemoteDisconnected, ConnectionResetError, OSError) as e:
+            if attempt < 2:
+                time.sleep(0.05 * (attempt + 1))
+                continue
+            return 0, {"detail": f"Connection error: {e}"}
+        except Exception as e:  # noqa: BLE001
+            return -1, {"detail": str(e)[:200]}
 
 
 def body_summary(b) -> str:
