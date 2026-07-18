@@ -1,0 +1,18 @@
+﻿login OK, token len=217
+=== Test 1: Sequential /health (1000 requests) ===
+  count: 1000
+  p50: 0.81ms
+  p95: 16.00ms
+  p99: 23.27ms
+  avg: 5.56ms
+  max: 26.15ms
+  errors: 1
+
+=== Test 2: Concurrent /health (200 threads × 10 requests) ===
+  total requests: 2000
+  elapsed: 0.28s
+  RPS: 7193.7
+
+=== Test 3: Concurrent /v1/agent/dispatch (50 threads × 5) ===
+  key create: status=0, body keys=['error']
+  key create failed: {'error': '<urlopen error [WinError 10048] 通常每个套接字地址(协议/网络地址/端口)只允许使用一次。>'}
