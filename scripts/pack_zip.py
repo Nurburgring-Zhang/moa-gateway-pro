@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path.cwd()
 OUT_DIR = ROOT / "zip"
 OUT_DIR.mkdir(exist_ok=True)
-OUT = OUT_DIR / "MoA Gateway Pro v1.6.0.zip"
+OUT = OUT_DIR / "MoA Gateway Pro v1.7.5.zip"
 
 EXCLUDE_DIRS = {
     ".venv", "venv", "env", "ENV",

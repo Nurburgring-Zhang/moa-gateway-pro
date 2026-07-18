@@ -49,3 +49,9 @@
 2026-07-18 16:06:31 [WARNING] moa_gateway.model_pool: Circuit breaker triggered for deepseek-v3, cooldown 60s
 2026-07-18 16:07:03 [WARNING] moa_gateway.model_pool: Circuit breaker triggered for deepseek-v3, cooldown 60s
 2026-07-18 16:07:03 [WARNING] moa_gateway.model_pool: Circuit breaker triggered for deepseek-r1, cooldown 60s
+2026-07-18 16:07:34 [WARNING] moa_gateway.model_pool: Circuit breaker triggered for deepseek-r1, cooldown 60s
+2026-07-18 16:07:34 [WARNING] moa_gateway.model_pool: Circuit breaker triggered for deepseek-v3, cooldown 60s
+2026-07-18 16:08:06 [WARNING] moa_gateway.model_pool: Circuit breaker triggered for deepseek-r1, cooldown 60s
+2026-07-18 16:08:06 [WARNING] moa_gateway.model_pool: Circuit breaker triggered for deepseek-v3, cooldown 60s
+2026-07-18 16:08:37 [WARNING] moa_gateway.model_pool: Circuit breaker triggered for deepseek-v3, cooldown 60s
+2026-07-18 16:08:37 [WARNING] moa_gateway.model_pool: Circuit breaker triggered for deepseek-r1, cooldown 60s
