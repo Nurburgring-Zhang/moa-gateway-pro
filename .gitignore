@@ -88,3 +88,18 @@ secrets/
 
 # Generated docs
 docs/_build/
+
+# Temp scratch scripts (used during dev, not part of release)
+_*.py
+test_pat*.py
+debug_*.py
+dbg_*.py
+_dbg_*.py
+
+# Test output captures
+out_*.txt
+out_*.log
+endpoints_scan.json
+
+# scripts/_*.py (one-off dev scripts)
+scripts/_*.py

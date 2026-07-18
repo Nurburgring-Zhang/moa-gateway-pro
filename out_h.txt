@@ -1,1 +1,0 @@
-﻿{"status":"ok","version":"1.0.0","endpoints_total":16,"endpoints_enabled":16,"endpoints_healthy":0}
