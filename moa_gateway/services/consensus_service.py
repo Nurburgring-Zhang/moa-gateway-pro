@@ -110,14 +110,22 @@ class ConsensusService(ServiceBase):
 
     def detect_convergent(self, proposals, min_support=3, viability_scores=None):
         convergent_summary, extract_ideas = _load_convergent()
-        from ..capability.convergent_detector import Proposal, arbitrate_conflicts
-        # Convert dict proposals to Proposal objects
+        from ..capability.convergent_detector import Proposal, Idea
+        # Convert dict/string proposals to Proposal objects
         prop_objs = []
-        for p in proposals:
-            if isinstance(p, dict):
+        for idx, p in enumerate(proposals):
+            if isinstance(p, str):
+                # string → wrap as Proposal with text = the string, ideas = [single Idea]
+                prop = Proposal(text=p, proposal_idx=idx, author=f"prop_{idx}", ideas=[Idea(text=p, source_proposal_idx=idx)])
+                prop_objs.append(prop)
+            elif isinstance(p, dict):
                 prop = Proposal(**{k: v for k, v in p.items() if k in Proposal.__dataclass_fields__})
-                if not getattr(prop, "ideas", None):
-                    prop.ideas = extract_ideas(prop.text, prop.proposal_idx)
+                if "ideas" not in p and not getattr(prop, "ideas", None):
+                    try:
+                        prop.ideas = extract_ideas(prop.text, prop.proposal_idx)
+                    except (AttributeError, TypeError):
+                        # Proposal 没 ideas 字段,跳过提取
+                        pass
                 prop_objs.append(prop)
             else:
                 prop_objs.append(p)
@@ -146,7 +154,15 @@ class ConsensusService(ServiceBase):
     def check_group_think(self, session_id, members, rounds=None,
                           warn_threshold=0.4, block_threshold=0.7):
         MemberResponse, group_think_verdict = _load_moaflow()
-        m_objs = [MemberResponse(**m) if isinstance(m, dict) else m for m in members]
+        # 容错: string / dict / MemberResponse 三种类型都接
+        m_objs = []
+        for idx, m in enumerate(members):
+            if isinstance(m, str):
+                m_objs.append(MemberResponse(member_id=m, content=""))
+            elif isinstance(m, dict):
+                m_objs.append(MemberResponse(**{k: v for k, v in m.items() if k in MemberResponse.__dataclass_fields__}))
+            else:
+                m_objs.append(m)
         rounds_objs = None
         if rounds:
             rounds_objs = [[MemberResponse(**m) for m in r] for r in rounds]

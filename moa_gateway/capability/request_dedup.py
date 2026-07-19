@@ -202,7 +202,7 @@ def _simhash64(s: str) -> int:
         lo = [0] * 32
         hi = [0] * 32
         for gram in grams:
-            digest = hashlib.md5(gram.encode("utf-8")).hexdigest()
+            digest = hashlib.md5(gram.encode("utf-8"), usedforsecurity=False).hexdigest()
             bits = int(digest[:16], 16)
             b_lo = bits & 0xFFFFFFFF
             b_hi = (bits >> 32) & 0xFFFFFFFF

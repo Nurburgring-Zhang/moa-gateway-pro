@@ -41,6 +41,11 @@ from .auth import (require_api_key, require_admin, authenticate_api_key,
 from .ratelimit import get_limiter
 from .adapters import AdapterContext, all_adapters, GenericOpenAIAdapter
 from .observability import setup_logging, Metrics
+from .observability import (
+    prometheus_response, record_chat as _prom_record_chat,
+    record_capability as _prom_record_cap, record_rate_limit_block,
+    record_moa_exec, endpoint_health_gauge,
+)
 
 logger = logging.getLogger(__name__)
 WEBUI_DIR = Path(__file__).parent / "webui"
@@ -347,6 +352,27 @@ def create_app() -> FastAPI:
     async def health_detailed():
         return pool.snapshot()
 
+    # ========== Prometheus Metrics ==========
+    @app.get("/metrics")
+    async def prometheus_metrics():
+        """Prometheus 抓取端点 (公开,无鉴权,供 Prometheus server scrape)"""
+        # 同步更新 endpoint_health gauge
+        try:
+            snap = pool.snapshot()
+            for ep in snap.get("endpoints", []):
+                ep_id = ep.get("id", "unknown")
+                status = ep.get("health") or ep.get("status") or "unknown"
+                value = 1.0 if status == "healthy" else (0.5 if "breaker" in str(status) else 0.0)
+                try:
+                    endpoint_health_gauge.labels(endpoint_id=ep_id).set(value)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        body, status, headers = prometheus_response()
+        from fastapi.responses import Response
+        return Response(content=body, status_code=status, headers=headers)
+
     # ========== OpenAI 兼容 ==========
     @app.get("/v1/models")
     async def list_models(request: Request):
@@ -398,6 +424,10 @@ def create_app() -> FastAPI:
             limiter.check_and_incr(key_info)
         except HTTPException:
             metrics.incr("ratelimit_blocked")
+            try:
+                record_rate_limit_block("rpm")
+            except Exception:
+                pass
             raise
 
         messages = [m.model_dump(exclude_none=True) for m in req.messages]
@@ -481,6 +511,11 @@ def create_app() -> FastAPI:
             latency = (time.time() - t0) * 1000
             metrics.observe("chat_latency_ms", latency)
             metrics.incr("chat_completed")
+            # Prometheus: 记录 chat 成功
+            try:
+                _prom_record_chat(model_id, 200, (time.time() - t0))
+            except Exception:
+                pass
             _log_request(
                 key_info, request_id, model_id, model_id, "single",
                 resp.prompt_tokens, resp.completion_tokens,

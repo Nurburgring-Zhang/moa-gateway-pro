@@ -128,6 +128,23 @@ out20.txt
 endpoints_scan.json
 *.log
 
+# 本地测试用 binary (Redis/Prometheus executable)
+deploy/redis/
+deploy/prometheus/
+deploy/*.zip
+deploy/*.exe
+deploy/*.dll
+deploy/*.pdb
+deploy/*.docx
+
+# 临时 pip list 快照
+_reqs.json
+_reqs.txt
+
+# bandit / pip_audit 中间输出
+bandit_report.json
+pip_audit_report.json
+
 # test files (v1.8.1+ 严格清理:zip & repo 都不包含)
 test_*.py
 test_*.json

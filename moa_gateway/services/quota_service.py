@@ -287,7 +287,7 @@ class QuotaService(ServiceBase):
         try_consume, _, _ = _load_token_bucket()
         return try_consume(key=key, tokens=tokens, capacity=capacity, refill_rate=refill_rate)
 
-    def token_bucket_state(self):
+    def token_bucket_state(self, **kwargs):
         _, get_state, _ = _load_token_bucket()
         return get_state()
 

@@ -15,10 +15,9 @@ from .base import ServiceBase, ServiceMethod, service_method
 
 def _load_trace():
     from ..capability.trace import (
-        start as t_start, end as t_end, span as t_span,
-        parse_traceparent, query as t_query,
+        new_trace, new_span, format_traceparent, parse_traceparent,
     )
-    return t_start, t_end, t_span, parse_traceparent, t_query
+    return new_trace, new_span, format_traceparent, parse_traceparent
 
 
 def _load_audit():
@@ -70,19 +69,26 @@ class ObservabilityService(ServiceBase):
         )
 
     def trace(self, action, **kwargs):
-        t_start, t_end, t_span, parse_tp, t_query = _load_trace()
+        new_trace, new_span, format_tp, parse_tp = _load_trace()
         if action == "start":
-            return {"trace": t_start()}
-        if action == "end":
-            return t_end(trace_id=kwargs.get("trace_id", ""), span_id=kwargs.get("span_id", ""),
-                         status=kwargs.get("status", "ok"))
-        if action == "span":
-            return t_span(trace_id=kwargs.get("trace_id", ""), name=kwargs.get("name", ""),
-                          duration_ms=kwargs.get("duration_ms", 0.0))
+            tags = kwargs.get("tags") or {}
+            return {"trace": new_trace(tags)}
+        if action == "format_traceparent":
+            from ..capability.trace import TraceContext
+            ctx = TraceContext(
+                trace_id=kwargs.get("trace_id", "0" * 32),
+                span_id=kwargs.get("span_id", "0" * 16),
+                flags=kwargs.get("flags", "01"),
+            )
+            return {"traceparent": format_tp(ctx)}
         if action == "parse_traceparent":
             return parse_tp(traceparent=kwargs.get("traceparent", ""))
         if action == "query":
-            return {"traces": t_query(limit=kwargs.get("limit", 10))}
+            # 真 query 走 TraceCollector
+            from ..capability.trace import TraceCollector
+            tc = TraceCollector()
+            traces = tc.query(limit=kwargs.get("limit", 10))
+            return {"traces": traces}
         raise ValueError(f"unknown action: {action}")
 
     def audit(self, action, **kwargs):

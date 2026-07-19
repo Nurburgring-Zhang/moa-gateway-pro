@@ -18,8 +18,11 @@ from .base import ServiceBase, ServiceMethod, service_method
 
 
 def _load_config_stack():
-    from ..capability.config_stack import get, set, unset, merge, permission
-    return get, set, unset, merge, permission
+    from ..capability.config_stack import (
+        ConfigStack, ConfigLayer, ConfigEntry, stack_to_dict,
+        merge_layers, PermissionRegistry,
+    )
+    return ConfigStack, ConfigLayer, ConfigEntry, stack_to_dict, merge_layers, PermissionRegistry
 
 
 def _load_mx_annot():
@@ -110,17 +113,28 @@ class ConfigService(ServiceBase):
 
     def config(self, action, key=None, value=None, layer=None, explicit=False,
                mode=None, layers=None):
-        get, set, unset, merge, permission = _load_config_stack()
+        ConfigStack, ConfigLayer, ConfigEntry, stack_to_dict, merge_layers, PermissionRegistry = _load_config_stack()
+        # 真 config stack (in-memory)
+        if not hasattr(self, "_stack"):
+            self._stack = ConfigStack()
         if action == "get":
-            return {"value": get(key=key or "")}
+            entry = self._stack.get(key or "")
+            return {"value": entry.value if entry else None, "layer": entry.layer.value if entry else None}
         if action == "set":
-            return set(key=key or "", value=value, layer=layer or "user", explicit=explicit)
+            from ..capability.config_stack import ConfigLayer as _CL
+            self._stack.set(key or "", value, layer=_CL(layer or "user"), explicit=explicit)
+            return {"ok": True, "key": key, "value": value}
         if action == "unset":
-            return unset(key=key or "", layer=layer or "user")
+            from ..capability.config_stack import ConfigLayer as _CL
+            self._stack.unset(key or "", layer=_CL(layer or "user"))
+            return {"ok": True, "key": key}
         if action == "merge":
-            return merge(layers=layers or {})
+            return {"merged": merge_layers(layers or {})}
         if action == "permission":
-            return {"permission": permission(mode=mode or "default")}
+            reg = PermissionRegistry()
+            return {"permission": reg.mode(mode or "default")}
+        if action == "snapshot":
+            return {"stack": stack_to_dict(self._stack)}
         raise ValueError(f"unknown action: {action}")
 
     def mx(self, action, text=None, file_path=None, language="python", command=None):

@@ -111,3 +111,87 @@ class Metrics:
                 "max": v_sorted[-1],
             }
         return out
+
+
+# ========== Prometheus Metrics (生产可观测) ==========
+try:
+    from prometheus_client import (
+        Counter, Histogram, Gauge,
+        generate_latest, CONTENT_TYPE_LATEST,
+        REGISTRY,
+    )
+    _PROM_OK = True
+except ImportError:
+    _PROM_OK = False
+    # 定义 dummy 让 import 不挂
+    class _Dummy:
+        def labels(self, **kw): return self
+        def inc(self, n=1): pass
+        def observe(self, v): pass
+        def set(self, v): pass
+    Counter = Histogram = Gauge = lambda *a, **kw: _Dummy()
+    generate_latest = lambda x: b""
+    CONTENT_TYPE_LATEST = "text/plain; version=0.0.4"
+    REGISTRY = None
+
+
+# 全局 metric
+chat_requests_total = Counter(
+    "moa_chat_requests_total",
+    "Total chat completion requests",
+    ["model", "status"],
+)
+chat_latency_seconds = Histogram(
+    "moa_chat_latency_seconds",
+    "Chat completion latency in seconds",
+    ["model"],
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
+)
+endpoint_health_gauge = Gauge(
+    "moa_endpoint_health",
+    "Endpoint health (1=healthy, 0=unhealthy, 0.5=in_breaker)",
+    ["endpoint_id"],
+)
+rate_limit_blocked_total = Counter(
+    "moa_rate_limit_blocked_total",
+    "Total requests blocked by rate limit",
+    ["reason"],
+)
+moa_executions_total = Counter(
+    "moa_moa_executions_total",
+    "Total MoA executions",
+    ["preset"],
+)
+capability_calls_total = Counter(
+    "moa_capability_calls_total",
+    "Total capability endpoint calls",
+    ["capability", "status"],
+)
+
+
+def prometheus_response():
+    """Generate Prometheus exposition format response"""
+    if not _PROM_OK:
+        return b"# prometheus_client not installed\n", 200, {"Content-Type": CONTENT_TYPE_LATEST}
+    return generate_latest(REGISTRY), 200, {"Content-Type": CONTENT_TYPE_LATEST}
+
+
+def record_chat(model: str, status: int, latency_s: float):
+    """Record a chat completion for Prometheus"""
+    status_label = "2xx" if 200 <= status < 300 else ("4xx" if 400 <= status < 500 else "5xx")
+    chat_requests_total.labels(model=model, status=status_label).inc()
+    chat_latency_seconds.labels(model=model).observe(latency_s)
+
+
+def record_capability(name: str, status: int):
+    """Record a capability call"""
+    status_label = "ok" if 200 <= status < 300 else "err"
+    capability_calls_total.labels(capability=name, status=status_label).inc()
+
+
+def record_rate_limit_block(reason: str = "rpm"):
+    rate_limit_blocked_total.labels(reason=reason).inc()
+
+
+def record_moa_exec(preset: str):
+    moa_executions_total.labels(preset=preset).inc()
