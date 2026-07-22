@@ -1,0 +1,58 @@
+# MoA Gateway Pro Prometheus 告警规则
+groups:
+  - name: moa-gateway-availability
+    rules:
+      - alert: MoAEndpointAllDown
+        expr: sum(moa_endpoint_health) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "所有 MoA endpoint 不可用"
+          description: "持续 5 分钟, 16 个 endpoint 都 unhealthy 或 in_breaker"
+
+      - alert: MoAEndpointHighFailureRate
+        expr: |
+          sum(moa_endpoint_health{endpoint_id!=""}) by (endpoint_id) < 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MoA endpoint {{ $labels.endpoint_id }} 持续不健康"
+          description: "持续 10 分钟 health < 1"
+
+  - name: moa-gateway-traffic
+    rules:
+      - alert: MoAChatHighErrorRate
+        expr: |
+          sum(rate(moa_chat_requests_total{status="5xx"}[5m]))
+          /
+          sum(rate(moa_chat_requests_total[5m]))
+          > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MoA chat 5xx 错误率 > 10%"
+          description: "5 分钟内 5xx 错误率 {{ $value | humanizePercentage }}"
+
+      - alert: MoAChatHighLatency
+        expr: |
+          histogram_quantile(0.99, sum(rate(moa_chat_latency_seconds_bucket[5m])) by (le, model))
+          > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MoA chat p99 latency > 10s ({{ $labels.model }})"
+          description: "p99 {{ $value }}s, 模型 {{ $labels.model }}"
+
+      - alert: MoARateLimitBlockedHigh
+        expr: |
+          sum(rate(moa_rate_limit_blocked_total[5m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MoA 限速阻挡 > 10 req/s"
+          description: "持续 5 分钟,可能是被攻击或配额设置过低"

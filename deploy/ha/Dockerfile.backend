@@ -1,0 +1,44 @@
+# MoA Gateway Pro — Production Backend Image
+# Multi-stage build for minimal attack surface
+
+FROM python:3.12-slim AS builder
+
+WORKDIR /build
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+FROM python:3.12-slim
+
+# Security: non-root user
+RUN groupadd -r moa && useradd -r -g moa -d /app -s /sbin/nologin moa
+
+WORKDIR /app
+
+# Copy installed packages
+COPY --from=builder /install /usr/local
+
+# Copy application code
+COPY moa_gateway/ ./moa_gateway/
+COPY config.yaml alembic.ini ./
+COPY data/ ./data/
+
+# Permissions
+RUN chown -R moa:moa /app && mkdir -p /app/data/logs && chown -R moa:moa /app/data
+
+USER moa
+
+ENV MOA_LOG_LEVEL=INFO \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=15s --timeout=10s --start-period=30s --retries=3 \
+  CMD python -c "import urllib.request; r=urllib.request.urlopen('http://localhost:8000/health/live'); exit(0 if r.status==200 else 1)"
+
+# Graceful shutdown: SIGTERM handled by app
+STOPSIGNAL SIGTERM
+
+CMD ["python", "-m", "uvicorn", "moa_gateway.server:app", \
+     "--host", "0.0.0.0", "--port", "8000", \
+     "--workers", "4", "--timeout-graceful-shutdown", "30"]

@@ -1,0 +1,25 @@
+# PostgreSQL service for MoA Gateway Pro
+# Usage: docker compose -f docker-compose.postgres.yml up -d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: moa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: moa_user
+      POSTGRES_PASSWORD: change_me_strong_password
+      POSTGRES_DB: moa_gateway
+    ports:
+      - "5432:5432"
+    volumes:
+      - moa_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moa_user -d moa_gateway"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  moa_pgdata:
+    driver: local

@@ -1,0 +1,116 @@
+# MOA Gateway Pro - Prometheus Alert Rules
+# Import into Prometheus via rule_files configuration
+
+groups:
+  - name: moa_gateway_critical
+    rules:
+      - alert: HighLatencyP99
+        expr: histogram_quantile(0.99, rate(moa_llm_request_duration_seconds_bucket[5m])) > 5
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "LLM request P99 latency > 5s"
+          description: "P99 latency is {{ $value | humanizeDuration }} for model={{ $labels.model }}, provider={{ $labels.provider }}"
+          runbook_url: "https://docs.internal/runbooks/high-latency"
+
+      - alert: HighErrorRate
+        expr: |
+          (
+            rate(moa_llm_requests_total{status="error"}[5m])
+            / rate(moa_llm_requests_total[5m])
+          ) > 0.05
+        for: 3m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "LLM error rate > 5%"
+          description: "Error rate is {{ $value | humanizePercentage }} for model={{ $labels.model }}, provider={{ $labels.provider }}"
+
+      - alert: ProviderUnavailable
+        expr: moa_endpoint_health == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Provider endpoint unhealthy"
+          description: "Endpoint {{ $labels.endpoint_id }} is unhealthy (health=0)"
+
+      - alert: CostAnomaly
+        expr: rate(moa_llm_cost_dollars_total[1h]) * 3600 > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: finance
+        annotations:
+          summary: "LLM cost exceeds $10/hour"
+          description: "Hourly cost is ${{ $value | printf "%.2f" }} for model={{ $labels.model }}"
+
+  - name: moa_gateway_warning
+    rules:
+      - alert: HighLatencyP95
+        expr: histogram_quantile(0.95, rate(moa_llm_request_duration_seconds_bucket[5m])) > 3
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "LLM request P95 latency > 3s"
+          description: "P95 latency is {{ $value | humanizeDuration }}"
+
+      - alert: CacheHitRateLow
+        expr: |
+          (
+            rate(moa_cache_hits_total[10m])
+            / (rate(moa_cache_hits_total[10m]) + rate(moa_cache_misses_total[10m]))
+          ) < 0.3
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Cache hit rate below 30%"
+          description: "Cache {{ $labels.layer }} hit rate is {{ $value | humanizePercentage }}"
+
+      - alert: RateLimitExcessive
+        expr: rate(moa_rate_limit_blocked_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Rate limiting blocking >10 req/s"
+          description: "{{ $value | printf "%.1f" }} requests/sec being blocked (reason={{ $labels.reason }})"
+
+      - alert: CircuitBreakerOpen
+        expr: moa_provider_circuit_breaker == 1
+        for: 30s
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Circuit breaker OPEN for provider"
+          description: "Provider {{ $labels.provider }} circuit breaker is open"
+
+      - alert: HighTokenUsage
+        expr: rate(moa_llm_tokens_total[5m]) * 300 > 1000000
+        for: 5m
+        labels:
+          severity: warning
+          team: finance
+        annotations:
+          summary: "Token usage exceeds 1M tokens/5min"
+          description: "Model {{ $labels.model }} consuming {{ $value | humanize }} tokens per 5min window"
+
+      - alert: MoAExecutionSlow
+        expr: histogram_quantile(0.95, rate(moa_execution_duration_seconds_bucket[5m])) > 60
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "MoA execution P95 > 60s"
+          description: "MoA preset={{ $labels.preset }} taking {{ $value | humanizeDuration }}"

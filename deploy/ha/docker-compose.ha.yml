@@ -1,0 +1,209 @@
+version: '3.8'
+
+# MoA Gateway Pro — High Availability Deployment
+# Targets: 99.99% SLA (<4.3 min downtime/month)
+
+services:
+  # ====== Go Reverse Proxy (L7 Load Balancer) ======
+  moa-proxy:
+    build:
+      context: ../../proxy
+    ports:
+      - "8080:8080"
+    environment:
+      - MOA_JWT_SECRET=${MOA_JWT_SECRET}
+      - PROXY_RATE_LIMIT=1000
+      - BACKEND_URLS=http://moa-backend-1:8000,http://moa-backend-2:8000,http://moa-backend-3:8000
+    depends_on:
+      moa-backend-1:
+        condition: service_healthy
+      moa-backend-2:
+        condition: service_healthy
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+        max_attempts: 5
+        delay: 5s
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ====== Backend Instances (scale horizontally) ======
+  moa-backend-1:
+    build:
+      context: ../..
+      dockerfile: deploy/ha/Dockerfile.backend
+    environment: &backend_env
+      DATABASE_URL: postgresql+psycopg2://moa:${DB_PASSWORD}@postgres-primary:5432/moa_gateway
+      DATABASE_REPLICA_URL: postgresql+psycopg2://moa:${DB_PASSWORD}@postgres-replica:5432/moa_gateway
+      REDIS_URL: redis://redis-sentinel:26379/0
+      MOA_JWT_SECRET: ${MOA_JWT_SECRET}
+      MOA_ADMIN_PASSWORD: ${MOA_ADMIN_PASSWORD}
+      MOA_INSTANCE_ID: backend-1
+      MOA_LOG_LEVEL: INFO
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        max_attempts: 5
+
+  moa-backend-2:
+    build:
+      context: ../..
+      dockerfile: deploy/ha/Dockerfile.backend
+    environment:
+      <<: *backend_env
+      MOA_INSTANCE_ID: backend-2
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+      restart_policy:
+        condition: on-failure
+        max_attempts: 5
+
+  moa-backend-3:
+    build:
+      context: ../..
+      dockerfile: deploy/ha/Dockerfile.backend
+    environment:
+      <<: *backend_env
+      MOA_INSTANCE_ID: backend-3
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+      restart_policy:
+        condition: on-failure
+        max_attempts: 5
+
+  # ====== PostgreSQL Primary ======
+  postgres-primary:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: moa_gateway
+      POSTGRES_USER: moa
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    volumes:
+      - pg_primary_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moa -d moa_gateway"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      restart_policy:
+        condition: on-failure
+
+  # ====== PostgreSQL Replica (read-only) ======
+  postgres-replica:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: moa_gateway
+      POSTGRES_USER: moa
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pg_replica_data:/var/lib/postgresql/data
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U moa -d moa_gateway"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ====== Redis Sentinel ======
+  redis-master:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_master_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis-sentinel:
+    image: redis:7-alpine
+    command: >
+      sh -c "echo 'sentinel monitor mymaster redis-master 6379 2' > /tmp/sentinel.conf &&
+             echo 'sentinel down-after-milliseconds mymaster 5000' >> /tmp/sentinel.conf &&
+             echo 'sentinel failover-timeout mymaster 10000' >> /tmp/sentinel.conf &&
+             redis-sentinel /tmp/sentinel.conf"
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    ports:
+      - "26379:26379"
+
+  # ====== Monitoring Stack ======
+  prometheus:
+    image: prom/prometheus:v2.50.0
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:10.3.1
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+    volumes:
+      - ../monitoring/grafana_dashboard.json:/etc/grafana/provisioning/dashboards/moa.json
+      - grafana_data:/var/lib/grafana
+
+volumes:
+  pg_primary_data:
+  pg_replica_data:
+  redis_master_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

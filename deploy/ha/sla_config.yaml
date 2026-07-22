@@ -1,0 +1,81 @@
+# MoA Gateway Pro — SLA Configuration
+# Target: 99.99% availability (Four Nines)
+
+sla:
+  target_availability: 99.99
+  allowed_downtime_per_month_minutes: 4.3
+  measurement_window: 30d
+
+objectives:
+  # Latency
+  p50_latency_ms: 50
+  p95_latency_ms: 100
+  p99_latency_ms: 200
+  p999_latency_ms: 500
+
+  # Error rates
+  max_error_rate_percent: 0.01
+  max_5xx_rate_percent: 0.005
+
+  # Throughput
+  min_requests_per_second: 100
+  max_concurrent_connections: 10000
+
+recovery:
+  # Recovery Point Objective — max acceptable data loss
+  rpo_minutes: 60
+  # Recovery Time Objective — max acceptable recovery time
+  rto_minutes: 5
+
+  # Auto-recovery thresholds
+  auto_restart_on_oom: true
+  auto_failover_on_unhealthy: true
+  health_check_interval_seconds: 15
+  unhealthy_threshold: 3
+
+circuit_breaker:
+  failure_threshold: 5
+  recovery_timeout_seconds: 30
+  half_open_max_calls: 3
+  success_threshold: 2
+
+retry:
+  max_attempts: 3
+  base_delay_seconds: 0.5
+  max_delay_seconds: 30
+  retryable_status_codes: [429, 500, 502, 503, 504]
+
+graceful_shutdown:
+  timeout_seconds: 30
+  drain_connections: true
+
+alerts:
+  - name: high_error_rate
+    condition: "error_rate > 0.01%"
+    duration: 1m
+    severity: critical
+    action: page_oncall
+
+  - name: high_latency
+    condition: "p99_latency > 500ms"
+    duration: 5m
+    severity: warning
+    action: notify_slack
+
+  - name: availability_degraded
+    condition: "availability < 99.99%"
+    duration: 1m
+    severity: critical
+    action: page_oncall
+
+  - name: circuit_breaker_open
+    condition: "any_circuit_breaker == open"
+    duration: 0s
+    severity: warning
+    action: notify_slack
+
+  - name: failover_triggered
+    condition: "failover_event"
+    duration: 0s
+    severity: warning
+    action: notify_slack

@@ -1,0 +1,163 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "moa-gateway-pro"
+version = "1.8.1"
+description = "Industrial-grade multi-model collaboration gateway - one OpenAI key for all LLMs"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "Mavis", email = "Mavis@moa.dev"},
+]
+keywords = ["ai", "llm", "gateway", "moa", "mixture-of-agents"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "pydantic>=2.0",
+    "httpx>=0.25.0",
+    "pyyaml>=6.0",
+    "bcrypt>=4.1.0",
+    "python-jose[cryptography]>=3.3.0",
+    "python-multipart>=0.0.6",
+    "aiofiles>=23.2.0",
+]
+
+[project.scripts]
+# 顶级 CLI 命令(装包后可用:moa-gateway --help)
+moa-gateway = "moa_gateway.__main__:main"
+moa-mcp = "moa_gateway.mcp_server:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=4.1.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+    "pre-commit>=3.5.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Nurburgring-Zhang/moa-gateway-pro"
+Repository = "https://github.com/Nurburgring-Zhang/moa-gateway-pro.git"
+Issues = "https://github.com/Nurburgring-Zhang/moa-gateway-pro/issues"
+
+# ============ Ruff (linter + formatter) ============
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [
+    ".venv",
+    "build",
+    "dist",
+    "data",
+    "参考",
+    "extracted",
+    "zip",
+    "scripts/_*.py",  # one-off debug scripts
+]
+
+[tool.ruff.lint]
+# Strict but practical: catches real bugs, ignores pedantic style issues
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes (undefined names, unused imports)
+    "I",   # isort
+    "B",   # bugbear (common bugs)
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "PTH", # use pathlib
+    "ERA", # eradicate commented-out code
+    "PL",  # pylint
+]
+ignore = [
+    "E501",   # line too long (formatter handles it)
+    "B008",   # function call in default argument (FastAPI Depends pattern)
+    "PLR0913", # too many arguments (FastAPI handlers)
+    "PLR2004", # magic value (test files)
+    "SIM108",  # use ternary (sometimes clearer with if/else)
+    "PTH123",  # open() vs Path (allow builtin)
+    "UP007",   # Optional[X] -> X | None (pydantic v1 compat)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["B", "PLR2004", "SIM", "E402"]
+"scripts/test_*.py" = ["B", "PLR2004", "SIM", "E402", "PTH"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ============ Mypy (type checker) ============
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false  # too strict for current code, allow gradual typing
+disallow_incomplete_defs = false
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
+exclude = [
+    "tests/",
+    "scripts/_",
+    "scripts/test_",
+    "extracted/",
+    "参考/",
+    "data/",
+    "build/",
+    "dist/",
+]
+
+# ============ Pytest ============
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--showlocals",
+    "--tb=short",
+]
+testpaths = ["moa_gateway/capability/tests"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning:jose.*",
+    "ignore::PendingDeprecationWarning",
+]
+
+# ============ Coverage ============
+[tool.coverage.run]
+source = ["moa_gateway"]
+omit = [
+    "moa_gateway/capability/tests/*",
+    "scripts/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "def __repr__",
+    "\\.\\.\\.",
+]
+show_missing = true
+precision = 2

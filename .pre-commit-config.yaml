@@ -1,0 +1,39 @@
+# Pre-commit hooks — strict software engineering standards
+# Install: pre-commit install
+# Run manually: pre-commit run --all-files
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.21
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  - repo: local
+    hooks:
+      - id: no-tracked-secrets
+        name: "No tracked secrets (.fernet_key, .jwt_secret, .db)"
+        entry: bash -c 'git ls-files | grep -E "\.(fernet_key|jwt_secret|db|db-journal)$" && exit 1 || exit 0'
+        language: system
+        pass_filenames: false
+        types: [file]
+
+      - id: no-admin-default
+        name: "No admin_password='admin' default"
+        entry: bash -c '! grep -rn "admin_password.*['\''\"]admin['\''\"]" moa_gateway/ config.yaml 2>/dev/null'
+        language: system
+        pass_filenames: false

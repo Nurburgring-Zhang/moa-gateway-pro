@@ -1,0 +1,74 @@
+version: "3.8"
+
+# MoA Gateway Pro v1.7.3 — Industrial-grade multi-model orchestration
+# Production deployment with Docker Compose
+
+services:
+  moa-gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: moa-gateway-pro
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONIOENCODING=utf-8
+      - MOA_ADMIN_PASSWORD=${MOA_ADMIN_PASSWORD:-TestPass#2024}
+      - MOA_LOG_LEVEL=${MOA_LOG_LEVEL:-info}
+      # Provider keys (optional)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - ZHIPU_API_KEY=${ZHIPU_API_KEY:-}
+      - MOONSHOT_API_KEY=${MOONSHOT_API_KEY:-}
+      - QWEN_API_KEY=${QWEN_API_KEY:-}
+    volumes:
+      - moa_data:/app/data
+      - moa_logs:/app/data/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8088/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - moa-net
+    deploy:
+      resources:
+        limits:
+          cpus: "4"
+          memory: 4G
+        reservations:
+          cpus: "1"
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # Optional: Prometheus monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: moa-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - moa-net
+    profiles:
+      - monitoring
+
+volumes:
+  moa_data:
+    driver: local
+  moa_logs:
+    driver: local
+
+networks:
+  moa-net:
+    driver: bridge

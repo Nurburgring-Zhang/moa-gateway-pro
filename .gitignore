@@ -1,0 +1,164 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtualenv
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Test
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.cache
+coverage.xml
+*.cover
+
+# Runtime data
+data/
+data.bak/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Build
+build/
+dist/
+*.whl
+
+# MoA Gateway Pro
+*.zip
+.moa-gateway/
+worktrees/
+tmp/
+temp/
+
+# Capability generated
+.moat/
+.exempt.yaml
+
+# Reference projects (large, source-only)
+参考/extracted/
+参考/*.zip
+参考/分析/
+
+# OS
+.DS_Store
+desktop.ini
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Sensitive
+secrets/
+*.pem
+*.key
+.fernet_key
+.jwt_secret
+*.fernet_key
+*.jwt_secret
+
+# Generated docs
+docs/_build/
+
+# Temp scratch scripts (used during dev, not part of release)
+_*.py
+test_pat*.py
+debug_*.py
+dbg_*.py
+_dbg_*.py
+
+# Any test_*.py anywhere — neither top-level nor capability/tests/
+test_*.py
+moa_gateway/capability/tests/
+
+# All dev/debug/verify/fix/sim/diag scripts under scripts/
+scripts/audit_*.py
+scripts/check_*.py
+scripts/debug_*.py
+scripts/diag_*.py
+scripts/fix_*.py
+scripts/gen_*.py
+scripts/list_*.py
+scripts/patch_*.py
+scripts/server_*.py
+scripts/simulate_*.py
+scripts/t.py
+scripts/t[2-9].py
+scripts/verify_*.py
+scripts/deep_*.txt
+
+# Loose top-level dev files
+analyze_results.py
+find_bare_except.py
+start_test.py
+
+# Test output captures
+out_*.txt
+out.txt
+out20.txt
+endpoints_scan.json
+*.log
+
+# 本地测试用 binary (Redis/Prometheus executable)
+deploy/redis/
+deploy/pg/
+deploy/prometheus/
+deploy/node_exporter/
+deploy/*.zip
+deploy/*.exe
+deploy/*.dll
+deploy/*.pdb
+deploy/*.docx
+
+# 临时 pip list 快照
+_reqs.json
+_reqs.txt
+
+# bandit / pip_audit 中间输出
+bandit_report.json
+pip_audit_report.json
+
+# test files (v1.8.1+ 严格清理:zip & repo 都不包含)
+test_*.py
+test_*.json
+test_*.txt
+test_*.log
+**/test_*.py
+**/test_*.json
+**/test_*.txt
+**/test_*.log
+**/tests/
+scripts/test_*.py
+# test log files (mcp/bench etc)
+test_*.err
+test_*.log
+bench_*.log

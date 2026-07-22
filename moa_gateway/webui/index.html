@@ -1,0 +1,1975 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>MoA Gateway Pro — 控制台</title>
+<style>
+:root {
+  --bg: #0e1117;
+  --panel: #161b22;
+  --panel-2: #1c2129;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text-dim: #8b949e;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --yellow: #d29922;
+  --purple: #a371f7;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg); color: var(--text);
+  font-size: 14px;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button, input, select, textarea {
+  font-family: inherit; font-size: 14px;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 10px; outline: none;
+}
+button { cursor: pointer; transition: all 0.15s; }
+button:hover { background: #2d333b; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.primary:hover { background: #4493f8; }
+button.danger { background: var(--red); color: #fff; border-color: var(--red); }
+button.success { background: var(--green); color: #fff; border-color: var(--green); }
+input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+
+.layout { display: flex; min-height: 100vh; }
+.sidebar {
+  width: 220px; background: var(--panel);
+  border-right: 1px solid var(--border); padding: 16px 0;
+}
+.sidebar h2 { padding: 0 16px; font-size: 16px; margin: 0 0 16px;
+  display: flex; align-items: center; gap: 8px;
+}
+.sidebar h2 .logo { width: 28px; height: 28px; background: linear-gradient(135deg, #58a6ff, #a371f7);
+  border-radius: 6px; display: inline-flex; align-items: center; justify-content: center;
+  color: #fff; font-weight: bold;
+}
+.nav-item {
+  padding: 10px 16px; cursor: pointer; color: var(--text-dim);
+  display: flex; align-items: center; gap: 10px;
+  border-left: 3px solid transparent;
+}
+.nav-item:hover { background: var(--panel-2); color: var(--text); }
+.nav-item.active {
+  background: var(--panel-2); color: var(--text);
+  border-left-color: var(--accent);
+}
+.nav-item .icon { width: 18px; text-align: center; }
+
+.main { flex: 1; padding: 24px; max-width: 100%; overflow: auto; }
+.page { display: none; }
+.page.active { display: block; }
+.page-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 20px;
+}
+.page-title { font-size: 22px; font-weight: 600; margin: 0; }
+.page-sub { color: var(--text-dim); font-size: 13px; margin-top: 4px; }
+
+.card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 16px; margin-bottom: 16px;
+}
+.card-title { font-size: 14px; font-weight: 600; margin: 0 0 12px;
+  color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.stat-card { background: var(--panel-2); padding: 14px; border-radius: 6px;
+  border: 1px solid var(--border); }
+.stat-label { color: var(--text-dim); font-size: 12px; }
+.stat-value { font-size: 24px; font-weight: 600; margin-top: 4px; }
+.stat-value.green { color: var(--green); }
+.stat-value.red { color: var(--red); }
+.stat-value.yellow { color: var(--yellow); }
+
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+th { color: var(--text-dim); font-weight: 500; font-size: 12px; text-transform: uppercase; }
+tr:hover { background: var(--panel-2); }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 12px;
+  font-size: 11px; font-weight: 500; }
+.badge.green { background: rgba(63,185,80,0.2); color: var(--green); }
+.badge.red { background: rgba(248,81,73,0.2); color: var(--red); }
+.badge.yellow { background: rgba(210,153,34,0.2); color: var(--yellow); }
+.badge.gray { background: rgba(139,148,158,0.2); color: var(--text-dim); }
+.badge.purple { background: rgba(163,113,247,0.2); color: var(--purple); }
+
+.row { display: flex; gap: 12px; align-items: center; }
+.col { display: flex; flex-direction: column; gap: 6px; }
+.flex-1 { flex: 1; }
+.mt-2 { margin-top: 8px; }
+.mt-4 { margin-top: 16px; }
+.mb-2 { margin-bottom: 8px; }
+.mb-4 { margin-bottom: 16px; }
+.gap-2 { gap: 8px; }
+.text-dim { color: var(--text-dim); }
+.text-sm { font-size: 12px; }
+.mono { font-family: ui-monospace, SFMono-Regular, "Cascadia Code", monospace; }
+.copyable { cursor: copy; user-select: all; padding: 2px 6px; background: var(--panel-2);
+  border-radius: 4px; border: 1px dashed var(--border); }
+
+.modal-bg {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+  display: none; align-items: center; justify-content: center; z-index: 100;
+}
+.modal-bg.show { display: flex; }
+.modal {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; padding: 20px; min-width: 400px; max-width: 600px;
+  max-height: 90vh; overflow: auto;
+}
+.modal h3 { margin: 0 0 16px; }
+.modal .field { margin-bottom: 12px; }
+.modal label { display: block; color: var(--text-dim); font-size: 12px; margin-bottom: 4px; }
+.modal input, .modal select, .modal textarea { width: 100%; }
+.modal .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+pre.code {
+  background: #0d1117; border: 1px solid var(--border); border-radius: 6px;
+  padding: 12px; font-size: 12px; overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, "Cascadia Code", monospace;
+  max-height: 400px; white-space: pre-wrap; word-break: break-all;
+}
+
+.tab-bar { display: flex; gap: 4px; margin-bottom: 12px; border-bottom: 1px solid var(--border); }
+.tab { padding: 8px 16px; cursor: pointer; color: var(--text-dim);
+  border-bottom: 2px solid transparent; }
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.empty { text-align: center; padding: 40px; color: var(--text-dim); }
+.empty .icon { font-size: 40px; margin-bottom: 8px; }
+
+.toast {
+  position: fixed; top: 20px; right: 20px; z-index: 200;
+  padding: 10px 16px; border-radius: 6px; color: #fff;
+  animation: slideIn 0.3s ease-out;
+}
+.toast.success { background: var(--green); }
+.toast.error { background: var(--red); }
+@keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+.spinner {
+  display: inline-block; width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff;
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+  vertical-align: middle; margin-right: 6px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.spinner-inline {
+  display: inline-block; width: 16px; height: 16px;
+  border: 2px solid var(--accent); border-top-color: transparent;
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+  vertical-align: middle;
+}
+
+@media (max-width: 768px) {
+  .sidebar { display: none; }
+  .main { padding: 12px; }
+}
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <div class="sidebar">
+    <h2><span class="logo">M</span> MoA Gateway Pro</h2>
+    <div class="nav-item active" data-page="dashboard">
+      <span class="icon">📊</span> 仪表盘
+    </div>
+    <div class="nav-item" data-page="endpoints">
+      <span class="icon">🔌</span> 模型端点
+    </div>
+    <div class="nav-item" data-page="playground">
+      <span class="icon">💬</span> 试玩台
+    </div>
+    <div class="nav-item" data-page="keys">
+      <span class="icon">🔑</span> API 密钥
+    </div>
+    <div class="nav-item" data-page="logs">
+      <span class="icon">📜</span> 调用日志
+    </div>
+    <div class="nav-item" data-page="connect">
+      <span class="icon">🔗</span> 接入 Agent
+    </div>
+    <div class="nav-item" data-page="prompts">
+      <span class="icon">📝</span> Prompt 模板
+    </div>
+    <div class="nav-item" data-page="benchmark">
+      <span class="icon">📊</span> Benchmark
+    </div>
+    <div class="nav-item" data-page="settings">
+      <span class="icon">⚙️</span> 系统设置
+    </div>
+    <div class="nav-item" id="logout" style="margin-top:auto;position:absolute;bottom:16px;width:220px;">
+      <span class="icon">🚪</span> 退出登录
+    </div>
+  </div>
+
+  <div class="main">
+    <!-- Login -->
+    <div id="login-page" class="page active" style="max-width:400px;margin:80px auto;">
+      <div class="card" style="text-align:center;">
+        <h2 style="margin-top:0;">MoA Gateway Pro</h2>
+        <p class="text-dim">请登录管理控制台</p>
+        <div class="field" style="text-align:left;margin-top:20px;">
+          <label>用户名</label>
+          <input id="login-user" type="text" value="admin" style="width:100%;">
+        </div>
+        <div class="field" style="text-align:left;">
+          <label>密码</label>
+          <input id="login-pass" type="password" value="admin" style="width:100%;">
+        </div>
+        <button class="primary" id="login-btn" style="width:100%;margin-top:8px;">登录</button>
+        <p class="text-dim text-sm mt-2">首次登录后请修改默认密码</p>
+      </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="page-dashboard" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">仪表盘</h1>
+          <div class="page-sub">系统整体运行状态</div>
+        </div>
+        <button onclick="refreshDashboard()">🔄 刷新</button>
+      </div>
+
+      <div class="grid mb-4">
+        <div class="stat-card">
+          <div class="stat-label">总请求数</div>
+          <div class="stat-value" id="stat-total-requests">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">总 Token</div>
+          <div class="stat-value" id="stat-total-tokens">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">总成本 (USD)</div>
+          <div class="stat-value green" id="stat-total-cost">$0.00</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">平均延迟</div>
+          <div class="stat-value" id="stat-avg-latency">0 ms</div>
+        </div>
+      </div>
+
+      <div class="grid mb-4">
+        <div class="stat-card">
+          <div class="stat-label">已配置端点</div>
+          <div class="stat-value" id="stat-endpoints-total">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">已启用</div>
+          <div class="stat-value green" id="stat-endpoints-enabled">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">健康</div>
+          <div class="stat-value green" id="stat-endpoints-healthy">0</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">熔断中</div>
+          <div class="stat-value yellow" id="stat-endpoints-breaker">0</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">最近 7 天 — 按状态分布</h3>
+        <div id="by-status"></div>
+      </div>
+
+      <div class="card">
+        <h3 class="card-title">Top 模型 (按调用次数)</h3>
+        <table id="top-models-table">
+          <thead><tr><th>模型</th><th>调用次数</th><th>成本</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Endpoints -->
+    <div id="page-endpoints" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">模型端点</h1>
+          <div class="page-sub">增删改模型接入,可启用/禁用/重置熔断</div>
+        </div>
+        <div>
+          <button class="primary" onclick="showAddEndpoint()">+ 新增端点</button>
+          <button onclick="refreshEndpoints()">🔄 刷新</button>
+        </div>
+      </div>
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th><th>Provider</th><th>Model</th><th>Tier</th>
+              <th>权重</th><th>健康</th><th>熔断(秒)</th><th>调用</th><th>启用</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="endpoints-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Playground -->
+    <div id="page-playground" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">试玩台</h1>
+          <div class="page-sub">在线测试 MoA 协作效果</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="row mb-2 gap-2">
+          <label>模型:</label>
+          <select id="pg-model" style="min-width:280px;">
+            <option value="auto">auto(自动路由)</option>
+            <option value="fast">fast(单 lite)</option>
+            <option value="balanced" selected>balanced(MoA 并行 4 模型 + 旗舰聚合)</option>
+            <option value="quality">quality(MoA 5 模型 + 互审 2 轮)</option>
+            <option value="chinese_battalion">🇨🇳 chinese_battalion(OpenSquilla 国家队)</option>
+            <option value="compose_analyst">🔍 compose_analyst(多角度:可行/性能/安全/UX)</option>
+            <option value="judge">🧐 judge(单模型多轮反思)</option>
+            <option value="chain_deep">🔗 chain_deep(调研→分析→综述)</option>
+            <option value="pipeline">pipeline(planner→generator→evaluator)</option>
+          </select>
+          <span class="text-dim text-sm" id="pg-preset-desc" style="margin-left:8px;"></span>
+          <label>温度:</label>
+          <input id="pg-temp" type="number" value="0.6" step="0.1" min="0" max="2" style="width:80px;">
+          <label>最大 tokens:</label>
+          <input id="pg-maxtok" type="number" value="2048" style="width:100px;">
+        </div>
+        <div class="col">
+          <label class="text-dim text-sm">问题:</label>
+          <textarea id="pg-input" rows="6" style="width:100%;resize:vertical;"
+            placeholder="输入你的问题… 例:请分析分布式系统设计中的 CAP 权衡"></textarea>
+        </div>
+        <div class="row mt-2 gap-2">
+          <button class="primary" id="pg-send">🚀 发送</button>
+          <button onclick="clearPlayground()">清空</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3 class="card-title">最终答案</h3>
+        <div id="pg-result" class="text-dim" style="white-space:pre-wrap;">—</div>
+        <div id="pg-meta" class="text-dim text-sm mt-2"></div>
+      </div>
+      <div class="card" id="pg-refs-card" style="display:none;">
+        <h3 class="card-title">参考模型详情</h3>
+        <div id="pg-refs"></div>
+      </div>
+      <div class="card" id="pg-critics-card" style="display:none;">
+        <h3 class="card-title">互审员反馈</h3>
+        <div id="pg-critics"></div>
+      </div>
+    </div>
+
+    <!-- API Keys -->
+    <div id="page-keys" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">API 密钥</h1>
+          <div class="page-sub">生成可对外分发的网关 API Key,带 RPM / 每日 token 限额</div>
+        </div>
+        <button class="primary" onclick="showCreateKey()">+ 新建 Key</button>
+      </div>
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>Key ID</th><th>名称</th><th>RPM</th><th>每日 token</th>
+              <th>状态</th><th>创建时间</th><th>最后使用</th><th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="keys-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Logs -->
+    <div id="page-logs" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">调用日志</h1>
+          <div class="page-sub">最近请求,包括 MoA 编排详情</div>
+        </div>
+        <button onclick="refreshLogs()">🔄 刷新</button>
+      </div>
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>时间</th><th>请求 ID</th><th>API Key</th>
+              <th>Preset</th><th>Strategy</th><th>模型</th>
+              <th>Token</th><th>成本</th><th>延迟</th><th>状态</th>
+            </tr>
+          </thead>
+          <tbody id="logs-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Connect -->
+    <div id="page-connect" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">接入 Agent</h1>
+          <div class="page-sub">为各种 Agent / IDE 提供的接入配置 — 一键复制</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="tab-bar">
+          <div class="tab active" data-tab="curl">cURL</div>
+          <div class="tab" data-tab="python">Python</div>
+          <div class="tab" data-tab="hermes">Hermes</div>
+          <div class="tab" data-tab="openclaw">OpenClaw</div>
+          <div class="tab" data-tab="qoderwork">QoderWork</div>
+          <div class="tab" data-tab="ide">IDE (Cursor/Cline/Continue)</div>
+        </div>
+        <div id="tab-curl" class="tab-content">
+          <p class="text-dim text-sm">用 curl 调用 MoA Gateway,适合任何环境。</p>
+          <pre class="code" id="code-curl"></pre>
+          <button onclick="copyText('code-curl')">📋 复制</button>
+        </div>
+        <div id="tab-python" class="tab-content" style="display:none;">
+          <p class="text-dim text-sm">用 OpenAI 官方 Python SDK,改 base_url 即可。</p>
+          <pre class="code" id="code-python"></pre>
+          <button onclick="copyText('code-python')">📋 复制</button>
+        </div>
+        <div id="tab-hermes" class="tab-content" style="display:none;">
+          <p class="text-dim text-sm">Hermes Agent 配置 (v0.18.0 MoA)。</p>
+          <pre class="code" id="code-hermes"></pre>
+          <button onclick="copyText('code-hermes')">📋 复制</button>
+        </div>
+        <div id="tab-openclaw" class="tab-content" style="display:none;">
+          <p class="text-dim text-sm">OpenClaw 配置文件 (~/.openclaw/openclaw.json)。</p>
+          <pre class="code" id="code-openclaw"></pre>
+          <button onclick="copyText('code-openclaw')">📋 复制</button>
+        </div>
+        <div id="tab-qoderwork" class="tab-content" style="display:none;">
+          <p class="text-dim text-sm">QoderWork 接入步骤(图形界面,无配置文件)。</p>
+          <pre class="code" id="code-qoderwork"></pre>
+          <button onclick="copyText('code-qoderwork')">📋 复制</button>
+        </div>
+        <div id="tab-ide" class="tab-content" style="display:none;">
+          <p class="text-dim text-sm">Cursor / Cline / Continue.dev / Roo Code 通用配置。</p>
+          <pre class="code" id="code-ide"></pre>
+          <button onclick="copyText('code-ide')">📋 复制</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Prompts -->
+    <div id="page-prompts" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">📝 Prompt 模板管理</h1>
+          <div class="page-sub">查看 / 编辑 / 自定义 MoA 引擎使用的 prompt 模板</div>
+        </div>
+        <button class="primary" onclick="reloadPrompts()">🔄 重新加载</button>
+      </div>
+
+      <div class="row" style="gap:16px;align-items:flex-start;">
+        <!-- 左侧:模板列表 -->
+        <div class="card" style="flex:0 0 320px;max-height:calc(100vh - 200px);overflow:auto;">
+          <h3 class="card-title">模板列表 <span id="prompt-total" class="text-dim" style="font-size:12px;font-weight:400;"></span></h3>
+          <div class="field">
+            <input id="prompt-search" type="text" placeholder="搜索模板名..." oninput="filterPrompts()">
+          </div>
+          <div id="prompt-list"></div>
+          <div class="text-dim" style="font-size:11px;margin-top:8px;">
+            💡 用户自定义模板会覆盖同名默认模板,删除用户模板即可恢复默认。
+          </div>
+        </div>
+
+        <!-- 右侧:编辑器 -->
+        <div class="card" style="flex:1;display:flex;flex-direction:column;max-height:calc(100vh - 200px);">
+          <div class="row mb-2" style="justify-content:space-between;align-items:center;">
+            <div>
+              <h3 class="card-title" style="margin:0;">
+                <span id="prompt-editor-name">— 选择一个模板 —</span>
+              </h3>
+              <div id="prompt-editor-meta" class="text-dim" style="font-size:11px;margin-top:4px;"></div>
+            </div>
+            <div class="row" style="gap:6px;">
+              <button id="prompt-save-btn" class="primary" onclick="savePrompt()" disabled>💾 保存</button>
+              <button id="prompt-revert-btn" onclick="revertPrompt()" disabled>↩️ 重置</button>
+              <button id="prompt-delete-btn" onclick="deletePrompt()" disabled style="background:var(--danger,#e74c3c);color:#fff;">🗑️ 删除</button>
+            </div>
+          </div>
+          <textarea id="prompt-editor" style="flex:1;min-height:300px;font-family:'Cascadia Code','Fira Code',monospace;font-size:13px;line-height:1.5;padding:12px;border-radius:6px;background:var(--panel-2);color:var(--text);border:1px solid var(--border);resize:vertical;"
+                    placeholder="选择一个模板开始编辑,或直接粘贴新内容然后填写左侧模板名后保存..."
+                    oninput="onPromptEdit()"></textarea>
+          <div class="row mt-2" style="gap:8px;flex-wrap:wrap;">
+            <span class="text-dim" style="font-size:11px;">支持的占位符:</span>
+            <code class="text-dim" style="font-size:11px;">{user_query}</code>
+            <code class="text-dim" style="font-size:11px;">{reference_responses}</code>
+            <code class="text-dim" style="font-size:11px;">{original_messages}</code>
+            <code class="text-dim" style="font-size:11px;">{aspects}</code>
+            <code class="text-dim" style="font-size:11px;">{current_draft}</code>
+            <code class="text-dim" style="font-size:11px;">{role}</code>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Benchmark -->
+    <div id="page-benchmark" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">📊 Benchmark & 可视化</h1>
+          <div class="page-sub">Suite 跑分 / Cost Pareto / Layered 流程 — 论文级工业级能力可视化</div>
+        </div>
+      </div>
+
+      <div class="tab-bar" style="margin-bottom:16px;">
+        <div class="tab active" data-bench-tab="suite">📋 Benchmark Suite</div>
+        <div class="tab" data-bench-tab="pareto">📈 Cost Pareto</div>
+        <div class="tab" data-bench-tab="layered">🌊 Layered Flow</div>
+        <div class="tab" data-bench-tab="flask">🎯 FLASK 评分</div>
+      </div>
+
+      <!-- Tab 1: Benchmark Suite -->
+      <div id="bench-tab-suite" class="bench-tab-content">
+        <div class="row mb-2" style="gap:12px;align-items:center;">
+          <span class="text-dim" style="font-size:12px;">类别:</span>
+          <label style="font-size:12px;"><input type="checkbox" class="bench-cat" value="reasoning" checked> 推理</label>
+          <label style="font-size:12px;"><input type="checkbox" class="bench-cat" value="code" checked> 代码</label>
+          <label style="font-size:12px;"><input type="checkbox" class="bench-cat" value="chinese" checked> 中文</label>
+          <label style="font-size:12px;"><input type="checkbox" class="bench-cat" value="creative" checked> 创作</label>
+          <label style="font-size:12px;"><input type="checkbox" class="bench-cat" value="professional" checked> 专业</label>
+          <span style="margin-left:auto;"></span>
+          <span class="text-dim" style="font-size:12px;">每类题数:</span>
+          <input id="bench-limit" type="number" min="1" max="20" value="2" style="width:60px;">
+          <button class="primary" onclick="runBenchmarkSuite()">🚀 开始跑分</button>
+        </div>
+        <div id="bench-suite-summary"></div>
+        <div id="bench-suite-detail"></div>
+      </div>
+
+      <!-- Tab 2: Cost Pareto -->
+      <div id="bench-tab-pareto" class="bench-tab-content" style="display:none;">
+        <div class="card mb-2">
+          <h3 class="card-title">Cost Pareto 分析(论文 §3.4 Figure 5)</h3>
+          <div class="text-dim" style="font-size:12px;margin-bottom:8px;">
+            多个 prompt 在多个 preset 上的 cost vs quality 散点 + Pareto 前沿 + 推荐 preset
+          </div>
+          <div class="row" style="gap:12px;flex-wrap:wrap;align-items:center;">
+            <span class="text-dim" style="font-size:12px;">预设 prompt 集:</span>
+            <select id="pareto-prompts-preset" style="padding:4px 8px;">
+              <option value="default">默认(逻辑/代码/中文 各 2 题)</option>
+              <option value="reasoning">推理题 5 题</option>
+              <option value="code">代码题 5 题</option>
+            </select>
+            <span class="text-dim" style="font-size:12px;">preset:</span>
+            <input id="pareto-presets" type="text"
+                   value="fast,balanced,quality,chinese_battalion,chinese_battalion_lite"
+                   style="flex:1;min-width:200px;padding:4px 8px;">
+            <button class="primary" onclick="runCostPareto()">📊 分析</button>
+          </div>
+        </div>
+        <div id="bench-pareto-result"></div>
+      </div>
+
+      <!-- Tab 3: Layered Flow -->
+      <div id="bench-tab-layered" class="bench-tab-content" style="display:none;">
+        <div class="card mb-2">
+          <h3 class="card-title">Layered MoA 流程图(论文 §2.2 Figure 2)</h3>
+          <div class="text-dim" style="font-size:12px;margin-bottom:8px;">
+            选一个 layered preset,可视化 L1→L2→L3 的模型节点和层间数据流。
+            可选:实际跑一次,展示每层真实输出。
+          </div>
+          <div class="row" style="gap:12px;flex-wrap:wrap;align-items:center;">
+            <span class="text-dim" style="font-size:12px;">preset:</span>
+            <select id="layered-preset" style="padding:4px 8px;"></select>
+            <span class="text-dim" style="font-size:12px;">测试 query:</span>
+            <input id="layered-query" type="text" value="什么是 Transformer 架构?"
+                   style="flex:1;min-width:200px;padding:4px 8px;">
+            <button class="primary" onclick="runLayeredFlow()">▶️ 运行 + 显示流程</button>
+            <button onclick="renderLayeredDiagram()">🖼️ 仅画流程图</button>
+          </div>
+        </div>
+        <div id="bench-layered-result"></div>
+      </div>
+
+      <!-- Tab 4: FLASK -->
+      <div id="bench-tab-flask" class="bench-tab-content" style="display:none;">
+        <div class="card mb-2">
+          <h3 class="card-title">FLASK 12 维评分(论文 §3.2)</h3>
+          <div class="text-dim" style="font-size:12px;margin-bottom:8px;">
+            对单个回答做 12 维细粒度评分(robustness / correctness / factuality / etc.)
+          </div>
+          <div class="row" style="gap:12px;align-items:center;flex-wrap:wrap;">
+            <span class="text-dim" style="font-size:12px;">问题:</span>
+            <input id="flask-query" type="text" value="什么是 Transformer?"
+                   style="flex:1;min-width:200px;padding:4px 8px;">
+            <span class="text-dim" style="font-size:12px;">回答:</span>
+            <textarea id="flask-response" rows="3"
+                      style="flex:2;min-width:300px;padding:4px 8px;">Transformer 是一种基于自注意力机制的神经网络架构,由 Vaswani 等人在 2017 年的论文《Attention Is All You Need》中提出,广泛应用于 NLP 和 CV 任务。</textarea>
+            <button class="primary" onclick="runFlaskScore()">🎯 评分</button>
+          </div>
+        </div>
+        <div id="bench-flask-result"></div>
+      </div>
+    </div>
+
+    <!-- Settings -->
+    <div id="page-settings" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">系统设置</h1>
+          <div class="page-sub">修改管理员密码 / 查看系统信息</div>
+        </div>
+      </div>
+      <div class="card">
+        <h3 class="card-title">修改密码</h3>
+        <div class="field">
+          <label>当前密码</label>
+          <input id="old-pw" type="password">
+        </div>
+        <div class="field">
+          <label>新密码</label>
+          <input id="new-pw" type="password">
+        </div>
+        <button class="primary" onclick="changePassword()">保存</button>
+      </div>
+      <div class="card">
+        <h3 class="card-title">系统信息</h3>
+        <div class="row mb-2"><div class="text-dim" style="width:120px;">服务地址</div><div class="mono copyable" id="info-host"></div></div>
+        <div class="row mb-2"><div class="text-dim" style="width:120px;">版本</div><div class="mono">MoA Gateway Pro v1.0.0</div></div>
+        <div class="row mb-2"><div class="text-dim" style="width:120px;">Python</div><div class="mono" id="info-py"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modals -->
+<div class="modal-bg" id="modal-bg">
+  <div class="modal" id="modal-content"></div>
+</div>
+
+<div id="toast-container"></div>
+
+<script>
+let TOKEN = localStorage.getItem("moa_token") || "";
+
+// ========== Utilities ==========
+function $(s) { return document.querySelector(s); }
+function $$(s) { return document.querySelectorAll(s); }
+function api(path, opts = {}) {
+  opts.headers = Object.assign({
+    "Content-Type": "application/json",
+    "Authorization": "Bearer " + TOKEN,
+  }, opts.headers || {});
+  return fetch(path, opts).then(async r => {
+    if (!r.ok) {
+      const t = await r.text();
+      throw new Error(t || r.statusText);
+    }
+    const ct = r.headers.get("content-type") || "";
+    return ct.includes("json") ? r.json() : r.text();
+  });
+}
+function toast(msg, kind = "success") {
+  const t = document.createElement("div");
+  t.className = "toast " + kind;
+  t.textContent = msg;
+  $("#toast-container").appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+function copyText(id) {
+  const el = document.getElementById(id);
+  navigator.clipboard.writeText(el.textContent).then(
+    () => toast("已复制到剪贴板"),
+    () => toast("复制失败", "error")
+  );
+}
+function timeAgo(ts) {
+  if (!ts) return "-";
+  const d = (Date.now() / 1000 - ts);
+  if (d < 60) return Math.floor(d) + "s 前";
+  if (d < 3600) return Math.floor(d / 60) + "m 前";
+  if (d < 86400) return Math.floor(d / 3600) + "h 前";
+  return Math.floor(d / 86400) + "d 前";
+}
+function fmtTs(ts) {
+  if (!ts) return "-";
+  return new Date(ts * 1000).toLocaleString("zh-CN", { hour12: false });
+}
+
+// ========== Login ==========
+function showApp() {
+  $("#login-page").classList.remove("active");
+  $$(".page").forEach(p => p.classList.remove("active"));
+  $("#page-dashboard").classList.add("active");
+  refreshDashboard();
+}
+function showLogin() {
+  $("#login-page").classList.add("active");
+  $$(".page").forEach(p => p.classList.remove("active"));
+  TOKEN = "";
+  localStorage.removeItem("moa_token");
+}
+$("#login-btn").onclick = async () => {
+  const username = $("#login-user").value;
+  const password = $("#login-pass").value;
+  try {
+    const r = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    });
+    if (!r.ok) {
+      const t = await r.text();
+      throw new Error(t);
+    }
+    const d = await r.json();
+    TOKEN = d.token;
+    localStorage.setItem("moa_token", TOKEN);
+    toast("登录成功");
+    showApp();
+    // 修17: 默认密码检测,强制改密
+    if (d.user && d.user.must_change_password) {
+      showForceChangePasswordModal();
+    }
+  } catch (e) {
+    toast("登录失败: " + e.message, "error");
+  }
+};
+$("#login-pass").onkeypress = (e) => { if (e.key === "Enter") $("#login-btn").click(); };
+$("#logout").onclick = () => showLogin();
+
+function showForceChangePasswordModal() {
+  $("#modal-content").innerHTML = `
+    <h3 style="color:var(--yellow);">⚠ 检测到默认密码</h3>
+    <p class="text-dim">当前 admin 账号仍在使用出厂默认密码(admin/admin)。<br>
+    为了安全,<b>请立即修改密码</b>。修改后才能继续使用。</p>
+    <div class="field"><label>新密码 (8-72 字节)</label><input id="fc-new" type="password" autofocus></div>
+    <div class="field"><label>确认密码</label><input id="fc-confirm" type="password"></div>
+    <div class="actions">
+      <button class="primary" onclick="doForceChangePassword()">立即修改</button>
+      <button onclick="closeModal(); showLogoutConfirm()">退出登录</button>
+    </div>
+  `;
+  $("#modal-bg").classList.add("show");
+}
+function showLogoutConfirm() {
+  if (confirm("确定不修改密码就退出登录吗?(强烈不建议)")) {
+    showLogin();
+  } else {
+    showForceChangePasswordModal();
+  }
+}
+async function doForceChangePassword() {
+  const np = $("#fc-new").value;
+  const cp = $("#fc-confirm").value;
+  if (!np || np !== cp) { toast("两次密码不一致", "error"); return; }
+  if (np.length < 8) { toast("密码至少 8 字符", "error"); return; }
+  try {
+    await api("/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ old_password: "admin", new_password: np })
+    });
+    toast("密码已修改,请用新密码重新登录");
+    closeModal();
+    setTimeout(() => showLogin(), 800);
+  } catch (e) {
+    toast("修改失败: " + e.message, "error");
+  }
+}
+
+// ========== Navigation ==========
+$$(".nav-item[data-page]").forEach(item => {
+  item.onclick = () => {
+    $$(".nav-item").forEach(x => x.classList.remove("active"));
+    item.classList.add("active");
+    const page = item.dataset.page;
+    $$(".page").forEach(p => p.classList.remove("active"));
+    $("#page-" + page).classList.add("active");
+    if (page === "dashboard") refreshDashboard();
+    if (page === "endpoints") refreshEndpoints();
+    if (page === "keys") refreshKeys();
+    if (page === "logs") refreshLogs();
+    if (page === "connect") refreshConnect();
+    if (page === "settings") refreshSettings();
+    if (page === "prompts") reloadPrompts();
+    if (page === "benchmark") populateLayeredPresets();
+  };
+});
+
+// ========== Dashboard ==========
+async function refreshDashboard() {
+  try {
+    const [stats, health] = await Promise.all([
+      api("/api/stats?days=7"),
+      api("/api/health/detailed"),
+    ]);
+    $("#stat-total-requests").textContent = stats.total_requests;
+    $("#stat-total-tokens").textContent = stats.total_tokens.toLocaleString();
+    $("#stat-total-cost").textContent = "$" + stats.total_cost.toFixed(4);
+    $("#stat-avg-latency").textContent = Math.round(stats.avg_latency_ms) + " ms";
+    $("#stat-endpoints-total").textContent = health.total;
+    $("#stat-endpoints-enabled").textContent = health.enabled;
+    $("#stat-endpoints-healthy").textContent = health.healthy;
+    $("#stat-endpoints-breaker").textContent = health.in_breaker;
+    // by status
+    const bs = $("#by-status");
+    bs.innerHTML = (stats.by_status || []).map(s =>
+      `<div class="row mb-2">
+        <span class="badge ${s.status === 'ok' ? 'green' : 'red'}">${escapeHtml(s.status)}</span>
+        <span>${escapeHtml(String(s.n))} 次</span>
+       </div>`).join("") || '<div class="text-dim">暂无数据</div>';
+    // top models
+    const tmt = $("#top-models-table tbody");
+    tmt.innerHTML = (stats.top_models || []).map(m =>
+      `<tr><td class="mono">${escapeHtml(m.model)}</td><td>${escapeHtml(String(m.n))}</td><td>$${escapeHtml(m.cost.toFixed(4))}</td></tr>`
+    ).join("") || '<tr><td colspan="3" class="empty">暂无数据</td></tr>';
+  } catch (e) {
+    toast("加载失败: " + e.message, "error");
+    if (e.message.includes("401") || e.message.includes("Missing")) showLogin();
+  }
+}
+
+// ========== Endpoints ==========
+async function refreshEndpoints() {
+  try {
+    const h = await api("/api/health/detailed");
+    window._endpointCache = h.endpoints;  // 修22: 缓存供编辑使用
+    const tb = $("#endpoints-tbody");
+    if (!h.endpoints.length) {
+      tb.innerHTML = '<tr><td colspan="10" class="empty">还没添加端点。点击右上角"新增端点"开始。</td></tr>';
+      return;
+    }
+    tb.innerHTML = h.endpoints.map(ep => `
+      <tr>
+        <td class="mono">${escapeHtml(ep.id)}</td>
+        <td>${escapeHtml(ep.provider)}</td>
+        <td class="mono">${escapeHtml(ep.model)}</td>
+        <td><span class="badge ${tierColor(escapeHtml(ep.tier))}">${escapeHtml(ep.tier)}</span></td>
+        <td>${escapeHtml(String(ep.weight))}</td>
+        <td>${healthBadge(ep.health)}</td>
+        <td>${ep.cooldown_remaining > 0 ? `<span class="badge yellow">${escapeHtml(String(ep.cooldown_remaining))}s</span>` : '-'}</td>
+        <td>${escapeHtml(String(ep.total_calls))}<span class="text-dim text-sm"> / ${escapeHtml(String(ep.total_failures))}</span></td>
+        <td>${ep.enabled
+            ? '<span class="badge green">启用</span>'
+            : '<span class="badge gray">停用</span>'}</td>
+        <td>
+          <button onclick="showEditEndpoint('${encodeURIComponent(ep.id)}')">编辑</button>
+          <button onclick="toggleEndpoint('${encodeURIComponent(ep.id)}')">${ep.enabled ? '停用' : '启用'}</button>
+          ${ep.cooldown_remaining > 0
+            ? `<button class="success" onclick="resetBreaker('${encodeURIComponent(ep.id)}')">复位熔断</button>` : ''}
+          <button class="danger" onclick="deleteEndpoint('${encodeURIComponent(ep.id)}')">删除</button>
+        </td>
+      </tr>
+    `).join("");
+  } catch (e) {
+    toast("加载失败: " + e.message, "error");
+  }
+}
+function tierColor(t) {
+  return { free: "gray", lite: "green", standard: "green",
+           premium: "purple", flagship: "purple" }[t] || "gray";
+}
+function healthBadge(h) {
+  if (h === "healthy") return '<span class="badge green">healthy</span>';
+  if (h === "unhealthy") return '<span class="badge red">unhealthy</span>';
+  return '<span class="badge gray">' + h + '</span>';
+}
+function showAddEndpoint() {
+  $("#modal-content").innerHTML = `
+    <h3>新增模型端点</h3>
+    <div class="field"><label>ID (唯一)</label><input id="ep-id" placeholder="my-gpt-4o"></div>
+    <div class="field"><label>Provider</label>
+      <select id="ep-prov">
+        <option value="openai">openai</option>
+        <option value="deepseek">deepseek</option>
+        <option value="zhipu">zhipu (智谱)</option>
+        <option value="moonshot">moonshot (Kimi)</option>
+        <option value="qwen">qwen (通义)</option>
+        <option value="doubao">doubao (豆包)</option>
+        <option value="lingyi">lingyi (零一)</option>
+        <option value="baichuan">baichuan (百川)</option>
+        <option value="anthropic">anthropic (Claude)</option>
+        <option value="mistral">mistral</option>
+        <option value="openrouter">openrouter</option>
+        <option value="groq">groq</option>
+        <option value="custom">custom</option>
+      </select>
+    </div>
+    <div class="field"><label>模型名</label><input id="ep-model" placeholder="gpt-4o"></div>
+    <div class="field"><label>Tier</label>
+      <select id="ep-tier">
+        <option value="free">free</option>
+        <option value="lite">lite</option>
+        <option value="standard" selected>standard</option>
+        <option value="premium">premium</option>
+        <option value="flagship">flagship</option>
+      </select>
+    </div>
+    <div class="field"><label>API Base URL</label><input id="ep-base" placeholder="https://api.openai.com/v1"></div>
+    <div class="field"><label>API Key (加密存储;留空则保持已有)</label><input id="ep-key" type="password" placeholder="sk-..."></div>
+    <div class="field"><label>API Key 环境变量名(可选)</label><input id="ep-keyenv" placeholder="OPENAI_API_KEY"></div>
+    <div class="row gap-2">
+      <div class="field flex-1"><label>输入 $/1k</label><input id="ep-cin" type="number" step="0.0001" value="0.001"></div>
+      <div class="field flex-1"><label>输出 $/1k</label><input id="ep-cout" type="number" step="0.0001" value="0.002"></div>
+    </div>
+    <div class="row gap-2">
+      <div class="field flex-1"><label>max_tokens</label><input id="ep-mt" type="number" value="8192"></div>
+      <div class="field flex-1"><label>timeout (秒)</label><input id="ep-to" type="number" value="120"></div>
+      <div class="field flex-1"><label>weight</label><input id="ep-w" type="number" value="100"></div>
+    </div>
+    <div class="actions">
+      <button onclick="closeModal()">取消</button>
+      <button class="primary" onclick="saveEndpoint()">保存</button>
+    </div>
+  `;
+  $("#modal-bg").classList.add("show");
+}
+
+function showEditEndpoint(eid) {
+  // 修22: 编辑端点 — 预填当前值,Key 字段留空表示不动
+  const ep = (window._endpointCache || []).find(e => e.id === eid);
+  if (!ep) { toast("端点数据未缓存,请刷新页面", "error"); return; }
+  $("#modal-content").innerHTML = `
+    <h3>编辑端点: ${escapeHtml(eid)}</h3>
+    <div class="text-dim text-sm mb-2">修改后即时生效(配置订阅会自动重载)。API Key 留空则保持不变。</div>
+    <div class="field"><label>Provider</label><input id="ep-prov" value="${escapeHtml(ep.provider)}"></div>
+    <div class="field"><label>模型名</label><input id="ep-model" value="${escapeHtml(ep.model)}"></div>
+    <div class="field"><label>Tier</label>
+      <select id="ep-tier">
+        ${["free","lite","standard","premium","flagship"].map(t =>
+          `<option value="${t}" ${ep.tier===t?"selected":""}>${t}</option>`).join("")}
+      </select>
+    </div>
+    <div class="field"><label>API Base URL</label><input id="ep-base" value="${escapeHtml(ep.api_base || ep.base_url || '')}"></div>
+    <div class="field"><label>API Key (留空保持,填入则替换)</label><input id="ep-key" type="password" placeholder="sk-..."></div>
+    <div class="field"><label>API Key 环境变量名(可选)</label><input id="ep-keyenv" value="${escapeHtml(ep.api_key_env || '')}"></div>
+    <div class="row gap-2">
+      <div class="field flex-1"><label>输入 $/1k</label><input id="ep-cin" type="number" step="0.0001" value="${escapeHtml(String(ep.cost_per_1k_input || 0.001))}"></div>
+      <div class="field flex-1"><label>输出 $/1k</label><input id="ep-cout" type="number" step="0.0001" value="${escapeHtml(String(ep.cost_per_1k_output || 0.002))}"></div>
+    </div>
+    <div class="row gap-2">
+      <div class="field flex-1"><label>max_tokens</label><input id="ep-mt" type="number" value="${escapeHtml(String(ep.max_tokens || 8192))}"></div>
+      <div class="field flex-1"><label>timeout (秒)</label><input id="ep-to" type="number" value="${escapeHtml(String(ep.timeout || 120))}"></div>
+      <div class="field flex-1"><label>weight</label><input id="ep-w" type="number" value="${escapeHtml(String(ep.weight || 100))}"></div>
+    </div>
+    <div class="actions">
+      <button onclick="closeModal()">取消</button>
+      <button class="primary" onclick="saveEditEndpoint('${encodeURIComponent(eid)}')">保存修改</button>
+    </div>
+  `;
+  $("#modal-bg").classList.add("show");
+}
+
+async function saveEditEndpoint(eid) {
+  const data = {
+    endpoint_id: decodeURIComponent(eid),
+    provider: $("#ep-prov").value.trim(),
+    model: $("#ep-model").value.trim(),
+    tier: $("#ep-tier").value,
+    api_base: $("#ep-base").value.trim(),
+    api_key_plain: $("#ep-key").value.trim() || null,
+    api_key_env: $("#ep-keyenv").value.trim(),
+    cost_per_1k_input: parseFloat($("#ep-cin").value) || 0.001,
+    cost_per_1k_output: parseFloat($("#ep-cout").value) || 0.002,
+    max_tokens: parseInt($("#ep-mt").value) || 8192,
+    timeout: parseInt($("#ep-to").value) || 120,
+    weight: parseInt($("#ep-w").value) || 100,
+    enabled: true,
+    tags: [],
+  };
+  try {
+    await api("/api/endpoints", { method: "POST", body: JSON.stringify(data) });
+    toast("已更新");
+    closeModal();
+    refreshEndpoints();
+  } catch (e) {
+    toast("保存失败: " + e.message, "error");
+  }
+}
+async function saveEndpoint() {
+  const data = {
+    endpoint_id: $("#ep-id").value.trim(),
+    provider: $("#ep-prov").value,
+    model: $("#ep-model").value.trim(),
+    tier: $("#ep-tier").value,
+    api_base: $("#ep-base").value.trim(),
+    api_key_plain: $("#ep-key").value.trim() || null,
+    api_key_env: $("#ep-keyenv").value.trim(),
+    cost_per_1k_input: parseFloat($("#ep-cin").value) || 0.001,
+    cost_per_1k_output: parseFloat($("#ep-cout").value) || 0.002,
+    max_tokens: parseInt($("#ep-mt").value) || 8192,
+    timeout: parseInt($("#ep-to").value) || 120,
+    weight: parseInt($("#ep-w").value) || 100,
+    enabled: true,
+    tags: [],
+  };
+  if (!data.endpoint_id || !data.provider || !data.model) {
+    toast("ID / Provider / Model 必填", "error");
+    return;
+  }
+  try {
+    await api("/api/endpoints", { method: "POST", body: JSON.stringify(data) });
+    toast("已保存");
+    closeModal();
+    refreshEndpoints();
+  } catch (e) {
+    toast("保存失败: " + e.message, "error");
+  }
+}
+async function toggleEndpoint(eid) {
+  try { await api(`/api/endpoints/${eid}/toggle`, { method: "POST" });
+    toast("已切换"); refreshEndpoints();
+  } catch (e) { toast("失败: " + e.message, "error"); }
+}
+async function resetBreaker(eid) {
+  try { await api(`/api/endpoints/${eid}/reset-breaker`, { method: "POST" });
+    toast("熔断已复位"); refreshEndpoints();
+  } catch (e) { toast("失败: " + e.message, "error"); }
+}
+async function deleteEndpoint(eid) {
+  if (!confirm(`确认删除端点 ${eid}?`)) return;
+  try { await api(`/api/endpoints/${eid}`, { method: "DELETE" });
+    toast("已删除"); refreshEndpoints();
+  } catch (e) { toast("失败: " + e.message, "error"); }
+}
+function closeModal() { $("#modal-bg").classList.remove("show"); }
+$("#modal-bg").onclick = (e) => { if (e.target.id === "modal-bg") closeModal(); };
+
+// ========== Playground ==========
+$("#pg-send").onclick = async () => {
+  const input = $("#pg-input").value.trim();
+  if (!input) { toast("请输入问题", "error"); return; }
+  const model = $("#pg-model").value;
+  const temperature = parseFloat($("#pg-temp").value);
+  const max_tokens = parseInt($("#pg-maxtok").value);
+  $("#pg-result").innerHTML = '<span class="spinner-inline"></span> 生成中…';
+  $("#pg-meta").textContent = "";
+  $("#pg-refs-card").style.display = "none";
+  $("#pg-critics-card").style.display = "none";
+  $("#pg-send").disabled = true;
+  $("#pg-send").innerHTML = '<span class="spinner"></span> 发送中';
+  // preset 的别名 → 后端 preset 字段
+  const presetMap = {
+    "balanced": "balanced", "quality": "quality", "fast": "fast",
+    "chinese_battalion": "chinese_battalion",
+    "compose_analyst": "compose_analyst", "judge": "judge",
+    "chain_deep": "chain_deep", "pipeline": "pipeline",
+  };
+  const preset = presetMap[model] || (model === "auto" ? null : "fast");
+  try {
+    const r = await api("/v1/moa/execute", {
+      method: "POST",
+      body: JSON.stringify({
+        model,
+        messages: [{ role: "user", content: input }],
+        temperature,
+        max_tokens,
+        preset: preset,           // 显式传 preset 字段
+      })
+    });
+    $("#pg-result").textContent = r.final_content || r.aggregated_content;
+    $("#pg-meta").innerHTML = `
+      <span class="badge purple">${escapeHtml(r.preset)}</span>
+      <span class="badge gray">${escapeHtml(r.strategy)}</span>
+      <span>聚合器: <code>${escapeHtml(r.aggregator_model || '-')}</code></span>
+      <span>共识度: <b>${escapeHtml(((r.consensus_score || 0) * 100).toFixed(0))}%</b></span>
+      <span>成本: <b>$${escapeHtml((r.total_cost || 0).toFixed(4))}</b></span>
+      <span>延迟: <b>${escapeHtml(String(Math.round(r.total_latency_ms || 0)))}ms</b></span>
+      <span>迭代: <b>${escapeHtml(String(r.iterations))}</b></span>
+      ${r.chain_steps ? `<span>步骤: <b>${escapeHtml(String(r.chain_steps.length))}</b></span>` : ''}
+    `;
+    if (r.references && r.references.length > 0) {
+      $("#pg-refs-card").style.display = "block";
+      $("#pg-refs").innerHTML = r.references.map(ref => `
+        <div class="card mb-2" style="margin:0 0 8px;background:var(--panel-2);">
+          <div class="row mb-2">
+            <span class="mono">${escapeHtml(ref.model_id)}</span>
+            ${ref.success
+              ? '<span class="badge green">成功</span>'
+              : '<span class="badge red">失败</span>'}
+            <span class="text-dim text-sm">${escapeHtml((ref.latency_ms || 0).toFixed(0))}ms · $${escapeHtml((ref.cost || 0).toFixed(4))}</span>
+          </div>
+          <div class="text-sm" style="white-space:pre-wrap;color:var(--text-dim);">${escapeHtml(ref.preview || ref.error || '')}</div>
+        </div>
+      `).join("");
+    }
+    if (r.critics && r.critics.length > 0) {
+      $("#pg-critics-card").style.display = "block";
+      $("#pg-critics").innerHTML = r.critics.map(c => `
+        <div class="card mb-2" style="margin:0 0 8px;background:var(--panel-2);">
+          <div class="row mb-2">
+            <span class="mono">互审: ${escapeHtml(c.model_id)}</span>
+            <span class="text-dim text-sm">${escapeHtml((c.latency_ms || 0).toFixed(0))}ms</span>
+          </div>
+          <div>问题 ${escapeHtml(String(c.issues_count))} · 建议 ${escapeHtml(String(c.suggestions_count))}</div>
+        </div>
+      `).join("");
+    }
+  } catch (e) {
+    $("#pg-result").textContent = "❌ " + e.message;
+  } finally {
+    $("#pg-send").disabled = false;
+    $("#pg-send").innerHTML = "🚀 发送";
+  }
+};
+function clearPlayground() {
+  $("#pg-input").value = "";
+  $("#pg-result").textContent = "—";
+  $("#pg-meta").textContent = "";
+  $("#pg-refs-card").style.display = "none";
+  $("#pg-critics-card").style.display = "none";
+}
+function escapeHtml(s) {
+  return String(s || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+// ========== Keys ==========
+async function refreshKeys() {
+  try {
+    const ks = await api("/api/api-keys");
+    const tb = $("#keys-tbody");
+    if (!ks.length) { tb.innerHTML = '<tr><td colspan="8" class="empty">还没创建 API Key</td></tr>'; return; }
+    tb.innerHTML = ks.map(k => `
+      <tr>
+        <td class="mono">${escapeHtml(k.key_id)}</td>
+        <td>${escapeHtml(k.name)}</td>
+        <td>${escapeHtml(String(k.quota_rpm))}</td>
+        <td>${escapeHtml(k.quota_daily_tokens.toLocaleString())}</td>
+        <td>${k.enabled
+            ? '<span class="badge green">启用</span>'
+            : '<span class="badge gray">停用</span>'}</td>
+        <td class="text-dim text-sm">${fmtTs(k.created_at)}</td>
+        <td class="text-dim text-sm">${timeAgo(k.last_used)}</td>
+        <td><button class="danger" onclick="deleteKey('${encodeURIComponent(k.key_id)}')">删除</button></td>
+      </tr>
+    `).join("");
+  } catch (e) { toast("加载失败: " + e.message, "error"); }
+}
+function showCreateKey() {
+  $("#modal-content").innerHTML = `
+    <h3>新建 API Key</h3>
+    <div class="field"><label>名称</label><input id="k-name" placeholder="如: hermes-prod"></div>
+    <div class="row gap-2">
+      <div class="field flex-1"><label>RPM 限额</label><input id="k-rpm" type="number" value="60"></div>
+      <div class="field flex-1"><label>每日 token 限额</label><input id="k-dt" type="number" value="5000000"></div>
+    </div>
+    <p class="text-dim text-sm">⚠️ Key 只显示一次,请妥善保存。</p>
+    <div class="actions">
+      <button onclick="closeModal()">取消</button>
+      <button class="primary" onclick="doCreateKey()">创建</button>
+    </div>
+  `;
+  $("#modal-bg").classList.add("show");
+}
+async function doCreateKey() {
+  try {
+    const r = await api("/api/api-keys", {
+      method: "POST",
+      body: JSON.stringify({
+        name: $("#k-name").value.trim() || "unnamed",
+        quota_rpm: parseInt($("#k-rpm").value) || 60,
+        quota_daily_tokens: parseInt($("#k-dt").value) || 5000000,
+      })
+    });
+    $("#modal-content").innerHTML = `
+      <h3>✅ Key 已创建</h3>
+      <p>请复制以下 Key,<b>只显示一次</b>:</p>
+      <div class="copyable mono" id="new-key-text">${r.key}</div>
+      <p class="text-dim text-sm mt-2">Key ID: <code>${r.key_id}</code></p>
+      <div class="actions">
+        <button onclick="navigator.clipboard.writeText('${r.key}').then(()=>toast('已复制'))">📋 复制</button>
+        <button class="primary" onclick="closeModal()">完成</button>
+      </div>
+    `;
+    refreshKeys();
+  } catch (e) { toast("创建失败: " + e.message, "error"); }
+}
+async function deleteKey(kid) {
+  if (!confirm("确认删除?")) return;
+  try { await api(`/api/api-keys/${kid}`, { method: "DELETE" });
+    toast("已删除"); refreshKeys();
+  } catch (e) { toast("失败: " + e.message, "error"); }
+}
+
+// ========== Logs ==========
+async function refreshLogs() {
+  try {
+    const logs = await api("/api/logs?limit=200");
+    const tb = $("#logs-tbody");
+    if (!logs.length) { tb.innerHTML = '<tr><td colspan="10" class="empty">暂无日志</td></tr>'; return; }
+    tb.innerHTML = logs.map(l => `
+      <tr>
+        <td class="text-dim text-sm">${fmtTs(l.timestamp)}</td>
+        <td class="mono text-sm">${escapeHtml(l.request_id)}</td>
+        <td class="text-sm">${escapeHtml(l.api_key_id || '-')}</td>
+        <td>${l.preset ? `<span class="badge purple">${escapeHtml(l.preset)}</span>` : '-'}</td>
+        <td>${escapeHtml(l.strategy || '-')}</td>
+        <td class="mono text-sm">${escapeHtml(l.model_used || l.model_requested || '-')}</td>
+        <td>${escapeHtml(String(l.total_tokens))}</td>
+        <td>$${escapeHtml((l.cost || 0).toFixed(4))}</td>
+        <td>${escapeHtml(String(Math.round(l.latency_ms || 0)))}ms</td>
+        <td>${l.status === 'ok'
+            ? '<span class="badge green">ok</span>'
+            : '<span class="badge red">' + escapeHtml(String(l.error || l.status).slice(0, 200)) + '</span>'}</td>
+      </tr>
+    `).join("");
+  } catch (e) { toast("加载失败: " + e.message, "error"); }
+}
+
+// ========== Connect ==========
+async function refreshConnect() {
+  try {
+    const r = await api("/api/adapters/curl");
+    $("#code-curl").textContent = r.curl;
+    $("#code-python").textContent = r.python;
+    const full = await api("/api/adapters");
+    $("#code-hermes").textContent = JSON.stringify(full.hermes, null, 2);
+    $("#code-openclaw").textContent = JSON.stringify(full.openclaw, null, 2);
+    $("#code-qoderwork").textContent = full.qoderwork;
+    $("#code-ide").textContent = JSON.stringify(full.ide, null, 2);
+  } catch (e) { toast("加载失败: " + e.message, "error"); }
+}
+$$(".tab[data-tab]").forEach(t => {
+  t.onclick = () => {
+    $$(".tab[data-tab]").forEach(x => x.classList.remove("active"));
+    t.classList.add("active");
+    const which = t.dataset.tab;
+    $$(".tab-content").forEach(c => c.style.display = "none");
+    $("#tab-" + which).style.display = "block";
+  };
+});
+
+// ========== Settings ==========
+async function refreshSettings() {
+  $("#info-host").textContent = location.origin;
+}
+async function changePassword() {
+  const oldpw = $("#old-pw").value;
+  const newpw = $("#new-pw").value;
+  if (!oldpw || !newpw) { toast("请填写完整", "error"); return; }
+  try {
+    await api("/api/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ old_password: oldpw, new_password: newpw })
+    });
+    toast("密码已修改,请重新登录");
+    setTimeout(() => showLogin(), 800);
+  } catch (e) { toast("修改失败: " + e.message, "error"); }
+}
+
+// ========== Prompt 模板管理 ==========
+let _promptsCache = [];
+let _currentPromptName = null;
+let _originalContent = null;
+
+async function reloadPrompts() {
+  try {
+    const data = await api("/v1/moa/prompts");
+    _promptsCache = data.templates || [];
+    $("#prompt-total").textContent = `(共 ${data.total} 个)`;
+    renderPromptList();
+    // 清空编辑器
+    if (!_currentPromptName) {
+      $("#prompt-editor").value = "";
+      $("#prompt-editor-name").textContent = "— 选择一个模板 —";
+      $("#prompt-editor-meta").textContent = "";
+      setEditorEnabled(false);
+    }
+  } catch (e) { toast("加载模板列表失败: " + e.message, "error"); }
+}
+
+function renderPromptList() {
+  const list = $("#prompt-list");
+  const search = ($("#prompt-search").value || "").toLowerCase();
+  const filtered = _promptsCache.filter(t =>
+    !search || t.name.toLowerCase().includes(search)
+  );
+  if (filtered.length === 0) {
+    list.innerHTML = '<div class="text-dim" style="padding:8px;font-size:12px;">无匹配模板</div>';
+    return;
+  }
+  list.innerHTML = filtered.map(t => {
+    const isUser = t.source === "user";
+    const isBuiltin = t.source === "builtin";
+    const badge = isUser ? '<span style="color:#2ecc71;font-size:10px;">● 用户</span>'
+                : isBuiltin ? '<span style="color:#95a5a6;font-size:10px;">● 内置</span>'
+                : '<span style="color:#3498db;font-size:10px;">● 默认</span>';
+    const active = (t.name === _currentPromptName) ? ' active' : '';
+    return `<div class="prompt-item${active}" data-name="${t.name}"
+                 style="padding:8px;border-radius:4px;cursor:pointer;margin-bottom:2px;
+                        border:1px solid ${active ? 'var(--accent,#3498db)' : 'transparent'};
+                        background:${active ? 'var(--panel-2)' : 'transparent'};">
+              <div style="display:flex;justify-content:space-between;align-items:center;">
+                <span class="mono" style="font-size:12px;">${t.name}</span>
+                ${badge}
+              </div>
+              <div class="text-dim" style="font-size:10px;margin-top:2px;">${t.size}B</div>
+            </div>`;
+  }).join("");
+  // 绑定点击
+  $$("#prompt-list .prompt-item").forEach(el => {
+    el.onclick = () => loadPrompt(el.dataset.name);
+  });
+}
+
+function filterPrompts() {
+  renderPromptList();
+}
+
+async function loadPrompt(name) {
+  try {
+    const data = await api(`/v1/moa/prompts/${encodeURIComponent(name)}`);
+    _currentPromptName = name;
+    _originalContent = data.content;
+    $("#prompt-editor").value = data.content;
+    $("#prompt-editor-name").textContent = name;
+    // 元信息
+    const meta = _promptsCache.find(t => t.name === name);
+    if (meta) {
+      const src = meta.source === "user" ? "用户自定义"
+                : meta.source === "builtin" ? "内置(只读)"
+                : "默认";
+      $("#prompt-editor-meta").innerHTML = `来源: <b>${src}</b> · ${meta.size}B${meta.path ? ' · <span class="mono">' + meta.path + '</span>' : ''}`;
+    }
+    setEditorEnabled(true);
+    $("#prompt-save-btn").disabled = true;
+    $("#prompt-revert-btn").disabled = false;
+    $("#prompt-delete-btn").disabled = (meta && meta.source !== "user");
+    renderPromptList(); // refresh active state
+  } catch (e) { toast("加载模板失败: " + e.message, "error"); }
+}
+
+function onPromptEdit() {
+  // 启用"保存"按钮(若内容有变化)
+  const cur = $("#prompt-editor").value;
+  const dirty = (cur !== _originalContent);
+  $("#prompt-save-btn").disabled = !dirty;
+}
+
+function setEditorEnabled(enabled) {
+  $("#prompt-editor").disabled = !enabled;
+  $("#prompt-save-btn").disabled = !enabled;
+  $("#prompt-revert-btn").disabled = !enabled;
+  if (!enabled) $("#prompt-delete-btn").disabled = true;
+}
+
+async function savePrompt() {
+  if (!_currentPromptName) { toast("请先选择一个模板", "error"); return; }
+  const content = $("#prompt-editor").value;
+  if (!content.trim()) { toast("内容不能为空", "error"); return; }
+  try {
+    const data = await api(`/v1/moa/prompts/${encodeURIComponent(_currentPromptName)}`, {
+      method: "PUT",
+      body: JSON.stringify({ content }),
+    });
+    toast(`✓ 已保存: ${data.name} (${data.size}B)`);
+    _originalContent = content;
+    $("#prompt-save-btn").disabled = true;
+    await reloadPrompts(); // 刷新列表(source=user)
+    // 重新选中
+    const item = $$("#prompt-list .prompt-item").find(el => el.dataset.name === _currentPromptName);
+    if (item) item.click();
+  } catch (e) { toast("保存失败: " + e.message, "error"); }
+}
+
+function revertPrompt() {
+  if (!_originalContent) return;
+  $("#prompt-editor").value = _originalContent;
+  $("#prompt-save-btn").disabled = true;
+  toast("已恢复到原始内容");
+}
+
+async function deletePrompt() {
+  if (!_currentPromptName) return;
+  const meta = _promptsCache.find(t => t.name === _currentPromptName);
+  if (!meta || meta.source !== "user") {
+    toast("只能删除用户自定义模板", "error");
+    return;
+  }
+  if (!confirm(`确定删除用户自定义模板 "${_currentPromptName}"?  恢复为系统默认。`)) return;
+  try {
+    await api(`/v1/moa/prompts/${encodeURIComponent(_currentPromptName)}`, {
+      method: "DELETE",
+    });
+    toast(`✓ 已删除: ${_currentPromptName}`);
+    _currentPromptName = null;
+    _originalContent = null;
+    $("#prompt-editor").value = "";
+    $("#prompt-editor-name").textContent = "— 选择一个模板 —";
+    $("#prompt-editor-meta").textContent = "";
+    setEditorEnabled(false);
+    await reloadPrompts();
+  } catch (e) { toast("删除失败: " + e.message, "error"); }
+}
+
+// ========== Benchmark 页面 ==========
+// tab 切换
+$$(".tab[data-bench-tab]").forEach(t => {
+  t.onclick = () => {
+    $$(".tab[data-bench-tab]").forEach(x => x.classList.remove("active"));
+    t.classList.add("active");
+    const which = t.dataset.benchTab;
+    $$(".bench-tab-content").forEach(c => c.style.display = "none");
+    $("#bench-tab-" + which).style.display = "block";
+    if (which === "layered") populateLayeredPresets();
+  };
+});
+
+// 加载所有 preset(给 layered tab 用)
+let _allPresets = [];
+async function populateLayeredPresets() {
+  try {
+    const data = await api("/v1/moa/presets");
+    _allPresets = data.presets || [];
+    const sel = $("#layered-preset");
+    if (sel) {
+      sel.innerHTML = _allPresets.map(p =>
+        `<option value="${p.name}">${p.name} [${p.strategy}] ${p.layers_count ? '(' + p.layers_count + '层)' : ''}</option>`
+      ).join("");
+    }
+  } catch (e) { toast("加载 preset 失败: " + e.message, "error"); }
+}
+
+// =================== Tab 1: Benchmark Suite ===================
+async function runBenchmarkSuite() {
+  const cats = [...$$(".bench-cat:checked")].map(c => c.value);
+  if (cats.length === 0) { toast("至少选一个类别", "error"); return; }
+  const limit = parseInt($("#bench-limit").value) || 2;
+  const category = cats.length === 5 ? "all" : cats.join(",");
+  $("#bench-suite-summary").innerHTML = `<div class="card"><div class="text-dim" style="text-align:center;padding:20px;">⏳ 跑分中,请稍候... <span class="text-dim" style="font-size:11px;">(可能需 30-120 秒)</span></div></div>`;
+  $("#bench-suite-detail").innerHTML = "";
+  try {
+    const data = await api("/v1/moa/benchmark", {
+      method: "POST",
+      body: JSON.stringify({
+        presets: ["fast", "balanced", "quality", "chinese_battalion"],
+        category,
+        limit,
+      })
+    });
+    renderBenchmarkSummary(data);
+    renderBenchmarkDetail(data);
+  } catch (e) {
+    $("#bench-suite-summary").innerHTML = `<div class="card"><div style="color:var(--danger,#e74c3c);">❌ 跑分失败: ${e.message}</div></div>`;
+  }
+}
+
+function renderBenchmarkSummary(data) {
+  const summary = data.summary || {};
+  const presets = Object.keys(summary);
+  if (presets.length === 0) {
+    $("#bench-suite-summary").innerHTML = `<div class="card"><div class="text-dim">无结果</div></div>`;
+    return;
+  }
+  // 计算各 preset 的 avg_score 找出最高
+  let html = `<div class="card"><h3 class="card-title">📊 总览</h3>`;
+  html += `<div style="display:grid;grid-template-columns:repeat(${Math.min(presets.length, 4)}, 1fr);gap:12px;">`;
+  for (const p of presets) {
+    const s = summary[p];
+    if (s.error) {
+      html += `<div style="padding:12px;background:var(--panel-2);border-radius:6px;text-align:center;">
+        <div class="text-dim" style="font-size:11px;">${p}</div>
+        <div style="color:var(--danger);font-size:13px;margin-top:6px;">❌ ${s.error.substring(0, 80)}</div>
+      </div>`;
+      continue;
+    }
+    const scoreColor = s.avg_flask_score >= 80 ? "var(--success,#2ecc71)"
+                     : s.avg_flask_score >= 60 ? "var(--warning,#f39c12)"
+                     : "var(--danger,#e74c3c)";
+    html += `<div style="padding:12px;background:var(--panel-2);border-radius:6px;">
+      <div class="text-dim" style="font-size:11px;">${p}</div>
+      <div style="font-size:24px;font-weight:bold;color:${scoreColor};margin-top:4px;">${s.avg_flask_score ? s.avg_flask_score.toFixed(1) : "—"}</div>
+      <div class="text-dim" style="font-size:10px;margin-top:2px;">FLASK 平均 (0-100)</div>
+      <div style="font-size:11px;margin-top:6px;">成功率 <b>${(s.success_rate * 100).toFixed(0)}%</b> · 成本 <b>$${s.total_cost.toFixed(4)}</b></div>
+      <div class="text-dim" style="font-size:10px;">平均延迟 ${s.avg_latency_ms.toFixed(0)} ms</div>
+    </div>`;
+  }
+  html += `</div></div>`;
+  $("#bench-suite-summary").innerHTML = html;
+}
+
+function renderBenchmarkDetail(data) {
+  const results = data.results || {};
+  const presets = Object.keys(results);
+  const prompts = data.prompts || [];
+  let html = `<div class="card"><h3 class="card-title">📋 每题明细</h3>`;
+  // 表格:每行一题,每列一个 preset
+  html += `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">`;
+  html += `<thead><tr><th style="text-align:left;padding:8px;border-bottom:1px solid var(--border);min-width:180px;">题目</th>`;
+  for (const p of presets) html += `<th style="padding:8px;border-bottom:1px solid var(--border);text-align:center;">${p}</th>`;
+  html += `</tr></thead><tbody>`;
+  for (const prompt of prompts) {
+    html += `<tr>`;
+    html += `<td style="padding:8px;border-bottom:1px solid var(--border);vertical-align:top;">
+              <div style="font-size:11px;color:var(--accent,#3498db);">${prompt.category}</div>
+              <div style="margin-top:2px;">${prompt.text.substring(0, 80)}${prompt.text.length > 80 ? '...' : ''}</div>
+            </td>`;
+    for (const preset of presets) {
+      const items = results[preset];
+      const item = Array.isArray(items) ? items.find(i => i.prompt_id === prompt.id) : null;
+      if (!item || item.error) {
+        html += `<td style="padding:8px;border-bottom:1px solid var(--border);text-align:center;color:var(--danger);">❌</td>`;
+      } else {
+        const score = item.flask_avg;
+        const scoreColor = score >= 80 ? "var(--success,#2ecc71)"
+                         : score >= 60 ? "var(--warning,#f39c12)"
+                         : score > 0 ? "var(--text-dim,#95a5a6)"
+                         : "var(--text-dim,#95a5a6)";
+        html += `<td style="padding:8px;border-bottom:1px solid var(--border);text-align:center;">
+          <div style="font-size:18px;font-weight:bold;color:${scoreColor};">${score ? score.toFixed(1) : "—"}</div>
+          <div class="text-dim" style="font-size:10px;">$${item.cost.toFixed(4)} · ${item.latency_ms}ms</div>
+          ${item.strategy ? `<div class="text-dim" style="font-size:9px;">[${item.strategy}]</div>` : ''}
+        </td>`;
+      }
+    }
+    html += `</tr>`;
+  }
+  html += `</tbody></table></div></div>`;
+  $("#bench-suite-detail").innerHTML = html;
+}
+
+// =================== Tab 2: Cost Pareto ===================
+async function runCostPareto() {
+  const promptsPreset = $("#pareto-prompts-preset").value;
+  const promptMap = {
+    "default": [
+      "什么是 Transformer 架构?",
+      "用 Python 写一个快速排序",
+      "请写一段李白风格的诗",
+      "什么是 OAuth 2.0?",
+      "实现 LRU Cache,要求 O(1)",
+      "请用一句话解释毛泽东思想",
+    ],
+    "reasoning": [
+      "小红有 8 个苹果,小明有 5 个,小红给小明 3 个,谁多?多几个?",
+      "A 是 B 的父亲,B 是 C 的母亲,D 是 C 的姐妹,E 是 D 的什么人?",
+      "有 3 个开关对应 3 个灯泡,只进一次房间,如何确定对应关系?",
+      "如果所有玫瑰都是花,有些花会凋谢,是否所有玫瑰都会凋谢?",
+      "1+2+3+...+100 等于多少?用最快的算法。",
+    ],
+    "code": [
+      "用 Python 写二分查找",
+      "写 SQL 找每个部门工资最高的员工",
+      "Python 实现 LRU Cache",
+      "JS 实现 Promise.all",
+      "用 Python 写一个线程安全的队列",
+    ],
+  };
+  const prompts = promptMap[promptsPreset] || promptMap["default"];
+  const presets = $("#pareto-presets").value.split(",").map(s => s.trim()).filter(Boolean);
+  if (presets.length < 2) { toast("至少填 2 个 preset", "error"); return; }
+  $("#bench-pareto-result").innerHTML = `<div class="card"><div class="text-dim" style="text-align:center;padding:20px;">⏳ 分析中,请稍候...</div></div>`;
+  try {
+    const data = await api("/v1/moa/cost-pareto", {
+      method: "POST",
+      body: JSON.stringify({ prompts, presets })
+    });
+    renderCostPareto(data);
+  } catch (e) {
+    $("#bench-pareto-result").innerHTML = `<div class="card"><div style="color:var(--danger);">❌ 分析失败: ${e.message}</div></div>`;
+  }
+}
+
+function renderCostPareto(data) {
+  const points = data.pareto_points || [];
+  const frontier = data.pareto_frontier || [];
+  const recommended = data.recommended;
+  // SVG 画散点图
+  const width = 720, height = 420;
+  const padL = 60, padR = 30, padT = 30, padB = 50;
+  const innerW = width - padL - padR;
+  const innerH = height - padT - padB;
+  // 数据范围
+  const validPoints = points.filter(p => !p.error);
+  const costs = validPoints.map(p => p.avg_cost);
+  const scores = validPoints.map(p => p.avg_score);
+  const maxCost = Math.max(...costs, 0.001) * 1.1;
+  const minCost = 0;
+  const maxScore = Math.max(...scores, 100);
+  const minScore = Math.min(...scores, 0) - 5;
+  const x = c => padL + (c - minCost) / (maxCost - minCost) * innerW;
+  const y = s => padT + innerH - (s - minScore) / (maxScore - minScore) * innerH;
+  // 构建 SVG
+  let svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg" style="background:var(--panel-2);border-radius:6px;border:1px solid var(--border);">`;
+  // 背景网格
+  for (let i = 0; i <= 5; i++) {
+    const yPos = padT + i * innerH / 5;
+    const scoreVal = maxScore - i * (maxScore - minScore) / 5;
+    svg += `<line x1="${padL}" y1="${yPos}" x2="${width - padR}" y2="${yPos}" stroke="var(--border)" stroke-width="1" opacity="0.3"/>`;
+    svg += `<text x="${padL - 8}" y="${yPos + 4}" fill="var(--text-dim)" font-size="10" text-anchor="end">${scoreVal.toFixed(0)}</text>`;
+  }
+  for (let i = 0; i <= 5; i++) {
+    const xPos = padL + i * innerW / 5;
+    const costVal = i * (maxCost - minCost) / 5;
+    svg += `<line x1="${xPos}" y1="${padT}" x2="${xPos}" y2="${padT + innerH}" stroke="var(--border)" stroke-width="1" opacity="0.3"/>`;
+    svg += `<text x="${xPos}" y="${padT + innerH + 18}" fill="var(--text-dim)" font-size="10" text-anchor="middle">$${costVal.toFixed(4)}</text>`;
+  }
+  // 轴标签
+  svg += `<text x="${width / 2}" y="${height - 8}" fill="var(--text)" font-size="12" text-anchor="middle">平均成本 (USD)</text>`;
+  svg += `<text x="15" y="${height / 2}" fill="var(--text)" font-size="12" text-anchor="middle" transform="rotate(-90 15 ${height/2})">FLASK 平均分 (0-100)</text>`;
+  // Pareto frontier 线
+  if (frontier.length > 1) {
+    const frontPoints = validPoints.filter(p => frontier.includes(p.preset));
+    frontPoints.sort((a, b) => a.avg_cost - b.avg_cost);
+    let pathStr = "";
+    for (let i = 0; i < frontPoints.length; i++) {
+      const px = x(frontPoints[i].avg_cost);
+      const py = y(frontPoints[i].avg_score);
+      pathStr += (i === 0 ? "M" : "L") + `${px} ${py} `;
+    }
+    svg += `<path d="${pathStr}" fill="none" stroke="var(--accent,#3498db)" stroke-width="2" stroke-dasharray="5,3" opacity="0.7"/>`;
+  }
+  // 数据点
+  for (const p of validPoints) {
+    const px = x(p.avg_cost);
+    const py = y(p.avg_score);
+    const isFront = frontier.includes(p.preset);
+    const isRec = p.preset === recommended;
+    const color = isRec ? "var(--success,#2ecc71)" : isFront ? "var(--accent,#3498db)" : "var(--text-dim,#95a5a6)";
+    const radius = isRec ? 9 : isFront ? 7 : 5;
+    svg += `<circle cx="${px}" cy="${py}" r="${radius}" fill="${color}" stroke="#fff" stroke-width="2"/>`;
+    svg += `<text x="${px + 12}" y="${py + 4}" fill="var(--text)" font-size="11" font-weight="${isRec ? 'bold' : 'normal'}">${p.preset}${isRec ? ' ⭐' : ''}</text>`;
+  }
+  svg += `</svg>`;
+  // 详情表
+  let html = `<div class="card"><h3 class="card-title">📈 Cost vs Quality(Pareto 前沿)</h3>`;
+  html += `<div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">`;
+  html += `<div style="flex:1;min-width:400px;">${svg}</div>`;
+  html += `<div style="flex:1;min-width:300px;">
+    <div class="text-dim" style="font-size:12px;margin-bottom:8px;">
+      💡 蓝虚线 = Pareto 前沿,⭐ 绿点 = 推荐 preset
+    </div>
+    <div style="font-size:12px;line-height:1.8;">
+      <b>Pareto 前沿:</b> ${frontier.join(" → ")}<br>
+      <b>推荐 preset:</b> <span style="color:var(--success,#2ecc71);">${recommended || "无"}</span><br>
+      <b>${data.prompts_count}</b> prompts × <b>${data.presets_tested.length}</b> presets
+    </div>
+    <table style="width:100%;margin-top:12px;border-collapse:collapse;font-size:11px;">
+      <thead><tr style="background:var(--panel);">
+        <th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);">preset</th>
+        <th style="text-align:right;padding:6px;border-bottom:1px solid var(--border);">cost</th>
+        <th style="text-align:right;padding:6px;border-bottom:1px solid var(--border);">score</th>
+        <th style="text-align:right;padding:6px;border-bottom:1px solid var(--border);">latency</th>
+      </tr></thead><tbody>`;
+  for (const p of points) {
+    if (p.error) {
+      html += `<tr><td style="padding:6px;">${p.preset}</td><td colspan="3" style="padding:6px;color:var(--danger);">${p.error.substring(0, 40)}</td></tr>`;
+    } else {
+      html += `<tr>
+        <td style="padding:6px;">${p.preset === recommended ? '<b>⭐</b> ' : ''}${p.preset}</td>
+        <td style="text-align:right;padding:6px;">$${p.avg_cost.toFixed(4)}</td>
+        <td style="text-align:right;padding:6px;">${p.avg_score.toFixed(1)}</td>
+        <td style="text-align:right;padding:6px;">${p.avg_latency_ms.toFixed(0)}ms</td>
+      </tr>`;
+    }
+  }
+  html += `</tbody></table></div></div></div>`;
+  $("#bench-pareto-result").innerHTML = html;
+}
+
+// =================== Tab 3: Layered Flow ===================
+async function renderLayeredDiagram() {
+  const presetName = $("#layered-preset").value;
+  const data = _allPresets.find(p => p.name === presetName);
+  if (!data) { toast("请先选 preset", "error"); return; }
+  $("#bench-layered-result").innerHTML = renderLayeredSVG(data, null);
+}
+
+function renderLayeredSVG(preset, execResult) {
+  // preset.strategy / preset.layers_count / preset.reference_models / preset.aggregator
+  const strategy = preset.strategy;
+  const layerCount = preset.layers_count || 1;
+  const refs = preset.reference_models || [];
+  const aggregator = preset.aggregator;
+
+  // 决定层结构
+  let layers = [];
+  if (strategy === "layered") {
+    // 真分层: L1 -> L2 -> L3
+    for (let i = 1; i <= layerCount; i++) {
+      if (i === 1) {
+        // L1 用 references
+        layers.push({
+          name: `L${i}`,
+          label: `第 ${i} 层 · Proposers`,
+          models: refs.map(r => r.id).filter(Boolean),
+        });
+      } else if (i < layerCount) {
+        // L2..L(n-1) 复用 L1 模型
+        layers.push({
+          name: `L${i}`,
+          label: `第 ${i} 层 · Aggregators`,
+          models: refs.map(r => r.id).filter(Boolean),
+        });
+      } else {
+        // 最后一层用 aggregator
+        layers.push({
+          name: `L${i}`,
+          label: `第 ${i} 层 · Final Aggregator`,
+          models: aggregator ? [aggregator] : refs.slice(-1).map(r => r.id),
+        });
+      }
+    }
+  } else {
+    // 单层并行
+    layers.push({
+      name: "L1",
+      label: "并行参考模型",
+      models: refs.map(r => r.id).filter(Boolean),
+    });
+    if (aggregator) {
+      layers.push({
+        name: "AGG",
+        label: "聚合器",
+        models: [aggregator],
+      });
+    }
+  }
+
+  // 画 SVG
+  const width = 760;
+  const layerH = 110;
+  const modelW = 110, modelH = 50;
+  const padX = 20, padY = 40;
+  const totalH = padY * 2 + layers.length * layerH + (layers.length - 1) * 30;
+
+  let svg = `<svg width="${width}" height="${totalH}" xmlns="http://www.w3.org/2000/svg" style="background:var(--panel-2);border-radius:6px;border:1px solid var(--border);">`;
+  // 标题
+  svg += `<text x="${width/2}" y="20" fill="var(--text)" font-size="14" text-anchor="middle" font-weight="bold">${preset.name} · ${strategy}${layerCount > 1 ? ` (${layerCount} 层)` : ''}</text>`;
+  // 画每层
+  for (let li = 0; li < layers.length; li++) {
+    const layer = layers[li];
+    const yTop = padY + li * (layerH + 30);
+    // 层标签
+    svg += `<rect x="${padX}" y="${yTop}" width="${width - padX*2}" height="${layerH}" fill="var(--panel)" stroke="var(--border)" stroke-width="1" rx="6"/>`;
+    svg += `<text x="${padX + 10}" y="${yTop + 20}" fill="var(--text-dim)" font-size="11">${layer.label}</text>`;
+    // 模型节点
+    const models = layer.models.length > 0 ? layer.models : ["(无)"];
+    const totalModelW = models.length * modelW + (models.length - 1) * 12;
+    const startX = (width - totalModelW) / 2;
+    for (let mi = 0; mi < models.length; mi++) {
+      const mx = startX + mi * (modelW + 12);
+      const my = yTop + 35;
+      const colorMap = {
+        "L1": "#3498db", "L2": "#9b59b6", "L3": "#e74c3c", "L4": "#e67e22",
+        "L5": "#f39c12", "AGG": "#27ae60"
+      };
+      const fillColor = colorMap[layer.name] || "#95a5a6";
+      svg += `<rect x="${mx}" y="${my}" width="${modelW}" height="${modelH}" fill="${fillColor}" stroke="#fff" stroke-width="2" rx="4" opacity="0.85"/>`;
+      svg += `<text x="${mx + modelW/2}" y="${my + 22}" fill="#fff" font-size="11" text-anchor="middle" font-weight="bold">${models[mi].substring(0, 12)}</text>`;
+      svg += `<text x="${mx + modelW/2}" y="${my + 38}" fill="#fff" font-size="9" text-anchor="middle" opacity="0.8">${layer.name}</text>`;
+    }
+    // 连接到下一层
+    if (li < layers.length - 1) {
+      const arrowY1 = yTop + layerH;
+      const arrowY2 = yTop + layerH + 30;
+      svg += `<path d="M${width/2} ${arrowY1} L${width/2} ${arrowY2 - 6}" stroke="var(--accent,#3498db)" stroke-width="2" fill="none" marker-end="url(#arrowhead)"/>`;
+      // 标注
+      svg += `<text x="${width/2 + 8}" y="${arrowY1 + 14}" fill="var(--text-dim)" font-size="9">前层全部输出</text>`;
+    }
+  }
+  // 箭头定义
+  svg = svg.replace('<text x="${width/2}"', `<defs><marker id="arrowhead" markerWidth="10" markerHeight="7" refX="8" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="var(--accent,#3498db)"/></marker></defs><text x="${width/2}"`);
+  svg += `</svg>`;
+  return svg;
+}
+
+async function runLayeredFlow() {
+  const presetName = $("#layered-preset").value;
+  const query = $("#layered-query").value || "什么是 Transformer 架构?";
+  if (!presetName) { toast("请选 preset", "error"); return; }
+  $("#bench-layered-result").innerHTML = `<div class="card"><div class="text-dim" style="text-align:center;padding:20px;">⏳ 运行中...</div></div>`;
+  try {
+    // 1. 画流程图
+    const preset = _allPresets.find(p => p.name === presetName);
+    let html = `<div class="card"><h3 class="card-title">🌊 流程图 · ${presetName}</h3>`;
+    html += renderLayeredSVG(preset, null);
+    html += `</div>`;
+    // 2. 实际跑
+    const res = await api("/v1/moa/execute", {
+      method: "POST",
+      body: JSON.stringify({
+        model: "moa",
+        messages: [{ role: "user", content: query }],
+        preset: presetName,
+      })
+    });
+    html += `<div class="card">
+      <h3 class="card-title">📋 执行结果</h3>
+      <div class="row mb-2" style="gap:12px;flex-wrap:wrap;">
+        <span class="text-dim" style="font-size:11px;">strategy: <b>${res.strategy}</b></span>
+        ${res.layers_count ? `<span class="text-dim" style="font-size:11px;">layers: <b>${res.layers_count}</b></span>` : ''}
+        <span class="text-dim" style="font-size:11px;">references: <b>${(res.references || []).length}</b></span>
+        <span class="text-dim" style="font-size:11px;">cost: <b>$${(res.total_cost || 0).toFixed(4)}</b></span>
+        <span class="text-dim" style="font-size:11px;">latency: <b>${(res.total_latency_ms || 0).toFixed(0)}ms</b></span>
+        <span class="text-dim" style="font-size:11px;">aggregator: <b>${res.aggregator_model || "—"}</b></span>
+        ${res.winner_model ? `<span class="text-dim" style="font-size:11px;">winner: <b style="color:var(--success);">${res.winner_model}</b></span>` : ''}
+      </div>`;
+    // 每层真实输出
+    if (res.layer_outputs && Object.keys(res.layer_outputs).length > 0) {
+      html += `<h4 style="margin-top:12px;font-size:13px;">各层输出:</h4>`;
+      for (const [layerName, outputs] of Object.entries(res.layer_outputs)) {
+        html += `<details style="margin-top:6px;border:1px solid var(--border);border-radius:4px;padding:6px;">
+          <summary style="cursor:pointer;font-size:12px;font-weight:bold;color:var(--accent,#3498db);">▶ ${layerName} (${outputs.length} 个模型)</summary>
+          <div style="margin-top:6px;">`;
+        for (const o of outputs) {
+          html += `<div style="padding:6px;margin-bottom:4px;background:var(--panel-2);border-radius:4px;font-size:11px;">
+            <span class="text-dim">${o.model}</span> · <span style="color:var(--accent);">$${(o.cost || 0).toFixed(4)}</span>
+            <div style="margin-top:4px;">${escapeHtml(o.content).substring(0, 300)}${o.content.length > 300 ? '...' : ''}</div>
+          </div>`;
+        }
+        html += `</div></details>`;
+      }
+    }
+    // 最终答案
+    html += `<h4 style="margin-top:12px;font-size:13px;">最终答案:</h4>
+      <div style="padding:10px;background:var(--panel-2);border-radius:4px;font-size:12px;line-height:1.6;max-height:300px;overflow:auto;">
+        ${escapeHtml(res.final_content || res.aggregated_content || "(空)")}
+      </div>`;
+    html += `</div>`;
+    $("#bench-layered-result").innerHTML = html;
+  } catch (e) {
+    $("#bench-layered-result").innerHTML = `<div class="card"><div style="color:var(--danger);">❌ 运行失败: ${e.message}</div></div>`;
+  }
+}
+
+// =================== Tab 4: FLASK 评分 ===================
+async function runFlaskScore() {
+  const query = $("#flask-query").value.trim();
+  const response = $("#flask-response").value.trim();
+  if (!query || !response) { toast("问题和回答都必填", "error"); return; }
+  $("#bench-flask-result").innerHTML = `<div class="card"><div class="text-dim" style="text-align:center;padding:20px;">⏳ 评分中...</div></div>`;
+  try {
+    const data = await api("/v1/moa/flask", {
+      method: "POST",
+      body: JSON.stringify({ query, response })
+    });
+    renderFlaskResult(data);
+  } catch (e) {
+    $("#bench-flask-result").innerHTML = `<div class="card"><div style="color:var(--danger);">❌ 评分失败: ${e.message}</div></div>`;
+  }
+}
+
+function renderFlaskResult(data) {
+  if (data.error) {
+    $("#bench-flask-result").innerHTML = `<div class="card"><div style="color:var(--danger);">❌ ${data.error}</div></div>`;
+    return;
+  }
+  const scores = data.scores || {};
+  const dims = Object.keys(scores);
+  if (dims.length === 0) {
+    $("#bench-flask-result").innerHTML = `<div class="card">
+      <h3 class="card-title">🎯 FLASK 评分</h3>
+      <div class="text-dim" style="margin-top:8px;">Judge 模型未返回有效 JSON。</div>
+      <pre style="margin-top:8px;padding:8px;background:var(--panel-2);border-radius:4px;font-size:11px;max-height:300px;overflow:auto;">${escapeHtml((data.raw_response || "").substring(0, 800))}</pre>
+    </div>`;
+    return;
+  }
+  // 画雷达图(SVG)
+  const cx = 200, cy = 200, radius = 130;
+  const angleStep = (Math.PI * 2) / dims.length;
+  let svg = `<svg width="400" height="400" xmlns="http://www.w3.org/2000/svg" style="background:var(--panel-2);border-radius:6px;">`;
+  // 网格圆
+  for (let r = 1; r <= 5; r++) {
+    const rRatio = r / 5;
+    let pathStr = "";
+    for (let i = 0; i < dims.length; i++) {
+      const angle = i * angleStep - Math.PI / 2;
+      const px = cx + Math.cos(angle) * radius * rRatio;
+      const py = cy + Math.sin(angle) * radius * rRatio;
+      pathStr += (i === 0 ? "M" : "L") + `${px} ${py} `;
+    }
+    pathStr += "Z";
+    svg += `<path d="${pathStr}" fill="none" stroke="var(--border)" stroke-width="1" opacity="0.4"/>`;
+  }
+  // 轴线 + 标签
+  for (let i = 0; i < dims.length; i++) {
+    const angle = i * angleStep - Math.PI / 2;
+    const lx = cx + Math.cos(angle) * (radius + 25);
+    const ly = cy + Math.sin(angle) * (radius + 25);
+    svg += `<line x1="${cx}" y1="${cy}" x2="${cx + Math.cos(angle) * radius}" y2="${cy + Math.sin(angle) * radius}" stroke="var(--border)" stroke-width="1" opacity="0.3"/>`;
+    svg += `<text x="${lx}" y="${ly}" fill="var(--text-dim)" font-size="10" text-anchor="middle">${dims[i].substring(0, 10)}</text>`;
+  }
+  // 数据多边形
+  let polyPath = "";
+  for (let i = 0; i < dims.length; i++) {
+    const v = scores[dims[i]].score_1_5 || 0;
+    const angle = i * angleStep - Math.PI / 2;
+    const px = cx + Math.cos(angle) * radius * (v / 5);
+    const py = cy + Math.sin(angle) * radius * (v / 5);
+    polyPath += (i === 0 ? "M" : "L") + `${px} ${py} `;
+  }
+  polyPath += "Z";
+  svg += `<path d="${polyPath}" fill="var(--accent,#3498db)" fill-opacity="0.3" stroke="var(--accent,#3498db)" stroke-width="2"/>`;
+  // 数据点
+  for (let i = 0; i < dims.length; i++) {
+    const v = scores[dims[i]].score_1_5 || 0;
+    const angle = i * angleStep - Math.PI / 2;
+    const px = cx + Math.cos(angle) * radius * (v / 5);
+    const py = cy + Math.sin(angle) * radius * (v / 5);
+    svg += `<circle cx="${px}" cy="${py}" r="4" fill="var(--accent,#3498db)" stroke="#fff" stroke-width="2"/>`;
+  }
+  svg += `</svg>`;
+  // 详情表
+  let table = `<table style="width:100%;border-collapse:collapse;font-size:12px;">`;
+  table += `<thead><tr style="background:var(--panel);"><th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);">维度</th><th style="text-align:right;padding:6px;border-bottom:1px solid var(--border);">分数</th><th style="text-align:left;padding:6px;border-bottom:1px solid var(--border);">理由</th></tr></thead><tbody>`;
+  for (const dim of dims) {
+    const v = scores[dim];
+    const s = v.score_1_5 || 0;
+    const color = s >= 4 ? "var(--success)" : s >= 3 ? "var(--warning)" : "var(--danger)";
+    table += `<tr>
+      <td style="padding:6px;border-bottom:1px solid var(--border);"><b>${dim}</b></td>
+      <td style="text-align:right;padding:6px;color:${color};font-weight:bold;border-bottom:1px solid var(--border);">${s}/5</td>
+      <td style="padding:6px;border-bottom:1px solid var(--border);font-size:11px;color:var(--text-dim);">${escapeHtml(v.reason || "")}</td>
+    </tr>`;
+  }
+  table += `</tbody></table>`;
+  let html = `<div class="card">
+    <h3 class="card-title">🎯 FLASK 评分 · ${dims.length} 维度</h3>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
+      <div style="flex:0 0 400px;">${svg}</div>
+      <div style="flex:1;min-width:300px;">
+        <div style="font-size:24px;font-weight:bold;margin-bottom:12px;">
+          综合分: <span style="color:var(--accent);">${data.average_0_100 ? data.average_0_100.toFixed(1) : '—'}</span>
+          <span class="text-dim" style="font-size:14px;">/ 100</span>
+        </div>
+        <div class="text-dim" style="font-size:11px;margin-bottom:8px;">Judge: ${data.judge_model} · 成本 $${(data.judge_cost || 0).toFixed(4)}</div>
+        ${table}
+      </div>
+    </div>
+  </div>`;
+  $("#bench-flask-result").innerHTML = html;
+}
+
+// HTML 转义(防 XSS)
+function escapeHtml(s) {
+  if (s == null) return "";
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+// ========== Init ==========
+if (TOKEN) {
+  api("/api/auth/me").then(() => showApp()).catch(() => showLogin());
+} else {
+  showLogin();
+}
+setInterval(() => {
+  if (!$("#page-dashboard").classList.contains("active") &&
+      !$("#page-endpoints").classList.contains("active")) return;
+}, 15000);
+</script>
+</body>
+</html>

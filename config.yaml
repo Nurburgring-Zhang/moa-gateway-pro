@@ -1,0 +1,507 @@
+server:
+  host: 0.0.0.0
+  port: 8910
+  workers: 1
+  log_level: INFO
+  # SEC-010: CORS 配置警告
+  # ━━ 生产环境必须修改 ━━
+  # '*' 仅适用于开发环境。生产部署时必须替换为精确的域名，如:
+  # cors_origins: ["https://your-domain.com", "https://admin.your-domain.com"]
+  # 否则将存在跨站请求伪造 (CSRF) 和数据泄露风险。
+  cors_origins:
+  - '*'
+storage:
+  db_path: data/config.db
+  log_retention_days: 30
+  # ━━ 数据库后端配置 ━━
+  # 默认 SQLite (零配置,适合开发/测试):
+  #   database_url: ""  (使用 db_path)
+  # PostgreSQL (生产环境,高并发):
+  #   database_url: "postgresql+psycopg2://moa:password@localhost:5432/moa_gateway"
+  # 或通过环境变量: export DATABASE_URL="postgresql+psycopg2://..."
+  database_url: ""
+  # 连接池参数 (仅 PostgreSQL 生效)
+  db_pool_size: 20
+  db_max_overflow: 10
+  db_pool_timeout: 30
+  db_pool_recycle: 3600
+auth:
+  gateway_api_keys:
+  - demo-key-please-change
+  admin_username: admin
+  # 修26: 安全加固 — 启动前必须显式设置,不能用默认 'admin' / 空
+  # 推荐用环境变量覆盖: export MOA_ADMIN_PASSWORD='YourStrong#Pass1'
+  admin_password: ''
+  jwt_secret: ''
+  jwt_expire_minutes: 1440
+models:
+- id: deepseek-v3
+  provider: deepseek
+  model: deepseek-chat
+  tier: standard
+  api_base: https://api.deepseek.com/v1
+  api_key_env: DEEPSEEK_API_KEY
+  cost_per_1k_input: 0.0005
+  cost_per_1k_output: 0.001
+  max_tokens: 8192
+  timeout: 120
+  weight: 100
+  enabled: true
+  tags:
+  - cn
+  - openai-compat
+  api_key: ''
+- id: deepseek-r1
+  provider: deepseek
+  model: deepseek-reasoner
+  tier: premium
+  api_base: https://api.deepseek.com/v1
+  api_key_env: DEEPSEEK_API_KEY
+  cost_per_1k_input: 0.0004
+  cost_per_1k_output: 0.008
+  max_tokens: 16384
+  timeout: 180
+  weight: 100
+  enabled: true
+  tags:
+  - cn
+  - reasoning
+  - openai-compat
+  api_key: ''
+- id: glm-4-flash
+  provider: zhipu
+  model: glm-4-flash
+  tier: lite
+  api_base: https://open.bigmodel.cn/api/paas/v4
+  api_key_env: ZHIPU_API_KEY
+  cost_per_1k_input: 0.0001
+  cost_per_1k_output: 0.0001
+  max_tokens: 8192
+  timeout: 60
+  weight: 100
+  enabled: true
+  tags:
+  - cn
+  - openai-compat
+  api_key: ''
+- id: glm-4-plus
+  provider: zhipu
+  model: glm-4-plus
+  tier: premium
+  api_base: https://open.bigmodel.cn/api/paas/v4
+  api_key_env: ZHIPU_API_KEY
+  cost_per_1k_input: 0.0007
+  cost_per_1k_output: 0.0007
+  max_tokens: 8192
+  timeout: 120
+  weight: 100
+  enabled: true
+  tags:
+  - cn
+  - openai-compat
+  api_key: ''
+- id: moonshot-v1-8k
+  provider: moonshot
+  model: moonshot-v1-8k
+  tier: standard
+  api_base: https://api.moonshot.cn/v1
+  api_key_env: MOONSHOT_API_KEY
+  cost_per_1k_input: 0.0006
+  cost_per_1k_output: 0.0006
+  max_tokens: 8192
+  timeout: 120
+  weight: 100
+  enabled: true
+  tags:
+  - cn
+  - openai-compat
+  api_key: ''
+- id: qwen-turbo
+  provider: qwen
+  model: qwen-turbo
+  tier: lite
+  api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
+  api_key_env: QWEN_API_KEY
+  cost_per_1k_input: 0.0003
+  cost_per_1k_output: 0.0003
+  max_tokens: 8192
+  timeout: 60
+  weight: 100
+  enabled: true
+  tags:
+  - cn
+  - openai-compat
+  api_key: ''
+- id: qwen-plus
+  provider: qwen
+  model: qwen-plus
+  tier: standard
+  api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
+  api_key_env: QWEN_API_KEY
+  cost_per_1k_input: 0.0008
+  cost_per_1k_output: 0.0008
+  max_tokens: 32768
+  timeout: 120
+  weight: 100
+  enabled: true
+  tags:
+  - cn
+  - openai-compat
+  api_key: ''
+- id: qwen-max
+  provider: qwen
+  model: qwen-max
+  tier: premium
+  api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
+  api_key_env: QWEN_API_KEY
+  cost_per_1k_input: 0.002
+  cost_per_1k_output: 0.006
+  max_tokens: 32768
+  timeout: 180
+  weight: 100
+  enabled: true
+  tags:
+  - cn
+  - openai-compat
+  api_key: ''
+- id: doubao-pro
+  provider: doubao
+  model: doubao-pro-32k
+  tier: standard
+  api_base: https://ark.cn-beijing.volces.com/api/v3
+  api_key_env: DOUBAO_API_KEY
+  cost_per_1k_input: 0.0008
+  cost_per_1k_output: 0.001
+  max_tokens: 32768
+  timeout: 120
+  weight: 100
+  enabled: true
+  tags:
+  - cn
+  - openai-compat
+  api_key: ''
+- id: yi-large
+  provider: lingyi
+  model: yi-large
+  tier: premium
+  api_base: https://api.lingyiwanwu.com/v1
+  api_key_env: LINGYI_API_KEY
+  cost_per_1k_input: 0.0008
+  cost_per_1k_output: 0.0008
+  max_tokens: 16384
+  timeout: 120
+  weight: 100
+  enabled: true
+  tags:
+  - cn
+  - openai-compat
+  api_key: ''
+- id: baichuan4
+  provider: baichuan
+  model: Baichuan4
+  tier: standard
+  api_base: https://api.baichuan-ai.com/v1
+  api_key_env: BAICHUAN_API_KEY
+  cost_per_1k_input: 0.0006
+  cost_per_1k_output: 0.0006
+  max_tokens: 8192
+  timeout: 120
+  weight: 100
+  enabled: true
+  tags:
+  - cn
+  - openai-compat
+  api_key: ''
+- id: gpt-4o-mini
+  provider: openai
+  model: gpt-4o-mini
+  tier: lite
+  api_base: https://api.openai.com/v1
+  api_key_env: OPENAI_API_KEY
+  cost_per_1k_input: 0.00015
+  cost_per_1k_output: 0.0006
+  max_tokens: 16384
+  timeout: 60
+  weight: 100
+  enabled: true
+  tags:
+  - intl
+  - openai-compat
+  api_key: ''
+- id: gpt-4o
+  provider: openai
+  model: gpt-4o
+  tier: premium
+  api_base: https://api.openai.com/v1
+  api_key_env: OPENAI_API_KEY
+  cost_per_1k_input: 0.0025
+  cost_per_1k_output: 0.0075
+  max_tokens: 16384
+  timeout: 120
+  weight: 100
+  enabled: true
+  tags:
+  - intl
+  - openai-compat
+  api_key: ''
+- id: claude-haiku
+  provider: anthropic
+  model: claude-3-5-haiku-latest
+  tier: lite
+  api_base: https://api.anthropic.com
+  api_key_env: ANTHROPIC_API_KEY
+  cost_per_1k_input: 0.0008
+  cost_per_1k_output: 0.004
+  max_tokens: 8192
+  timeout: 60
+  weight: 100
+  enabled: true
+  tags:
+  - intl
+  - anthropic
+  api_key: ''
+- id: claude-sonnet
+  provider: anthropic
+  model: claude-3-5-sonnet-latest
+  tier: premium
+  api_base: https://api.anthropic.com
+  api_key_env: ANTHROPIC_API_KEY
+  cost_per_1k_input: 0.003
+  cost_per_1k_output: 0.015
+  max_tokens: 8192
+  timeout: 120
+  weight: 100
+  enabled: true
+  tags:
+  - intl
+  - anthropic
+  api_key: ''
+- id: mistral-large
+  provider: mistral
+  model: mistral-large-latest
+  tier: premium
+  api_base: https://api.mistral.ai/v1
+  api_key_env: MISTRAL_API_KEY
+  cost_per_1k_input: 0.002
+  cost_per_1k_output: 0.006
+  max_tokens: 32768
+  timeout: 120
+  weight: 100
+  enabled: true
+  tags:
+  - intl
+  - openai-compat
+  api_key: ''
+routing:
+  thresholds:
+    trivial_length: 10
+    simple_length: 50
+    medium_length: 200
+    complex_length: 500
+  tier_mapping:
+    trivial: free
+    simple: lite
+    medium: standard
+    complex: premium
+    expert: flagship
+  max_cost_per_request: 1.0
+  max_retries: 3
+moa:
+  enabled: true
+  default_preset: balanced
+  reference_models: 4
+  aggregator: ''
+  critic_rounds: 1
+  reference_timeout: 60
+  aggregator_timeout: 120
+  consensus_threshold: 0.35
+  presets:
+    fast:
+      enabled: true
+      strategy: single
+      reference_count: 1
+      aggregator: ''
+      critic_rounds: 0
+      reference_temperature: 0.5
+      aggregator_temperature: 0.5
+      tier: lite
+      description: 单 lite 模型,最快最便宜
+    balanced:
+      enabled: true
+      strategy: parallel
+      reference_count: 4
+      aggregator_tier: premium
+      critic_rounds: 1
+      reference_temperature: 0.6
+      aggregator_temperature: 0.4
+      description: 4 模型并行 + 旗舰聚合 + 1 互审
+    quality:
+      enabled: true
+      strategy: parallel
+      reference_count: 5
+      aggregator_tier: flagship
+      critic_rounds: 2
+      reference_temperature: 0.6
+      aggregator_temperature: 0.3
+      description: 5 模型 + 旗舰聚合 + 2 互审
+    chinese_battalion:
+      enabled: true
+      strategy: parallel
+      reference_models:
+      - id: deepseek-v3
+        role: ''
+      - id: glm-4-plus
+        role: ''
+      - id: moonshot-v1-8k
+        role: ''
+      - id: qwen-plus
+        role: ''
+      aggregator: glm-4-plus
+      aggregator_tier: premium
+      critic_rounds: 1
+      reference_temperature: 0.6
+      aggregator_temperature: 0.4
+      description: OpenSquilla v0.5.0 风格:4 国产模型并行 + 国产聚合,零国外旗舰
+      max_tokens: 4096
+    compose_analyst:
+      enabled: true
+      strategy: compose
+      reference_count: 4
+      aggregator_tier: premium
+      critic_rounds: 0
+      reference_temperature: 0.6
+      aggregator_temperature: 0.4
+      description: 4 模型分工:feasibility / performance / security / ux
+      max_tokens: 4096
+    judge:
+      enabled: true
+      strategy: judge
+      aggregator_tier: premium
+      critic_rounds: 3
+      reference_temperature: 0.5
+      aggregator_temperature: 0.3
+      description: 单模型多轮反思,适合预算紧张但需要质量的场景
+      max_tokens: 4096
+    chain_deep:
+      enabled: true
+      strategy: chain
+      stages:
+      - name: research
+        tier: standard
+      - name: analyze
+        tier: premium
+      - name: summarize
+        tier: premium
+      reference_temperature: 0.6
+      aggregator_temperature: 0.4
+      description: 3 步串行 MoA,适合长链路调研分析
+      max_tokens: 4096
+    pipeline:
+      enabled: true
+      strategy: pipeline
+      stages:
+      - name: planner
+        tier: premium
+      - name: generator
+        tier: standard
+      - name: evaluator
+        tier: premium
+      description: planner → generator → evaluator 单线流程
+      max_tokens: 4096
+    chinese_battalion_layered:
+      enabled: true
+      strategy: layered
+      reference_count: 4
+      reference_models:
+      - id: deepseek-v3
+        role: ''
+      - id: glm-4-plus
+        role: ''
+      - id: moonshot-v1-8k
+        role: ''
+      - id: qwen-plus
+        role: ''
+      aggregator: glm-4-plus
+      aggregator_tier: premium
+      layer_count: 3
+      reference_temperature: 0.6
+      aggregator_temperature: 0.4
+      description: Together AI MoA 3 层架构:4 国产 L1 并行 → L2 同批模型聚合 → L3 旗舰聚合
+      max_tokens: 4096
+    chinese_battalion_lite:
+      enabled: true
+      strategy: layered
+      reference_count: 3
+      reference_models:
+      - id: deepseek-v3
+        role: ''
+      - id: qwen-plus
+        role: ''
+      - id: glm-4-plus
+        role: ''
+      aggregator: glm-4-plus
+      aggregator_tier: premium
+      layer_count: 2
+      reference_temperature: 0.6
+      aggregator_temperature: 0.4
+      description: Together AI MoA-Lite:2 层 MoA,1.8% 提升 + 成本最优
+      max_tokens: 4096
+    qwen_single_proposer:
+      enabled: true
+      strategy: single_proposer
+      reference_count: 4
+      reference_models:
+      - id: qwen-plus
+        role: ''
+      aggregator: qwen-plus
+      aggregator_tier: premium
+      reference_temperature: 0.7
+      description: Single-Proposer:Qwen-Plus 高温采样 4 次再聚合(论文对照组)
+      max_tokens: 4096
+    ranker_qwen110b:
+      enabled: true
+      strategy: ranker
+      reference_count: 4
+      aggregator: qwen-max
+      aggregator_tier: premium
+      reference_temperature: 0.6
+      description: LLM Ranker baseline:并行 4 参考 + 旗舰选最佳(论文 §3.3 对照组)
+      max_tokens: 4096
+health:
+  interval_seconds: 30
+  timeout_seconds: 10
+  failure_threshold: 3
+  cooldown_seconds: 60
+  healthy_recheck: 120
+ratelimit:
+  enabled: true
+  per_key_rpm: 60
+  per_key_daily_tokens: 5000000
+  strategy: sliding-window
+observability:
+  log_dir: data/logs
+  log_json: false
+  metrics_enabled: true
+  trace_enabled: false
+
+# ========== Audit Logging (RBAC) ==========
+audit:
+  enabled: true
+  format: json
+  output: file
+  path: data/logs/audit.jsonl
+  retention_days: 90
+
+# ========== Cache System ==========
+cache:
+  enabled: true
+  exact_max_size: 10000
+  exact_ttl: 3600
+  similarity_threshold: 0.95
+  semantic_max_size: 5000
+  semantic_ttl: 86400
+  redis_url: null
+  redis_prefix: "moa:cache:"
+  null_entry_ttl: 30
+  ttl_jitter_pct: 0.1
+  skip_streaming: true
