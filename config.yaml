@@ -473,6 +473,14 @@ health:
   failure_threshold: 3
   cooldown_seconds: 60
   healthy_recheck: 120
+  # Task #43: API health management system
+  enabled: true
+  probe_interval_new: 600
+  probe_interval_healthy: 1800
+  probe_interval_degraded: 300
+  probe_interval_unhealthy: 180
+  purge_threshold_days: 7
+  probe_timeout: 15
 ratelimit:
   enabled: true
   per_key_rpm: 60
@@ -505,3 +513,99 @@ cache:
   null_entry_ttl: 30
   ttl_jitter_pct: 0.1
   skip_streaming: true
+
+# === Discovery System ===
+discovery:
+  enabled: true
+  refresh_interval_hours: 24
+  auto_configure: true
+  first_run_delay_seconds: 60
+  platforms: []
+  api_keys:
+    groq: ""
+    openrouter: ""
+    gemini: ""
+    mistral: ""
+    cohere: ""
+    deepseek: ""
+    nvidia_nim: ""
+    huggingface: ""
+    siliconflow: ""
+    zhipu: ""
+    cerebras: ""
+    sambanova: ""
+    github_models: ""
+    cloudflare_ai: ""
+    chutes: ""
+    # Domestic AI model companies
+    moonshot: ""
+    baichuan: ""
+    lingyiwanwu: ""
+    stepfun: ""
+    minimax: ""
+    baai: ""
+    qwen: ""
+    # Domestic IT giants / cloud
+    baidu_ernie: ""
+    hunyuan: ""
+    hw_pangu: ""
+    doubao: ""
+    iflytek: ""
+    sensetime: ""
+    tiangong: ""
+    # Domestic API aggregators
+    modelscope: ""
+    # Domestic telecom operators
+    china_mobile_wuyan: ""
+    china_telecom_xingchen: ""
+    china_unicom_yuanjing: ""
+    # Multimodal specialists
+    kling: ""
+    cogview: ""
+    wanx: ""
+    minimax_music: ""
+    tiangong_music: ""
+  multimodal_enabled: true
+
+# === Prompt Templates ===
+prompt_templates:
+  enabled: true
+  custom_dir: "~/.moa-gateway/prompts"
+  categories:
+    - programming
+    - writing
+    - analysis
+    - translation
+    - summarization
+    - creative
+    - qa
+
+# === Parameter Templates ===
+param_templates:
+  enabled: true
+
+# === Agent Loop ===
+agent_loop:
+  default_loop: react
+  max_iterations: 10
+  default_tools:
+    - web_search
+    - code_execute
+    - file_read
+    - file_list
+    - analyze_data
+
+# === Benchmark System ===
+benchmark:
+  enabled: true
+  interval_seconds: 3600
+  max_concurrent: 5
+  probe_timeout: 30
+
+# === Optimizer System ===
+optimizer:
+  enabled: true
+  daily_optimization: true
+  max_experiments: 50
+  convergence_threshold: 0.95
+  test_cases_per_round: 3

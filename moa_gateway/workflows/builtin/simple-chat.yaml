@@ -1,0 +1,14 @@
+name: "simple-chat"
+description: "Simple single-step chat workflow"
+version: "1.0"
+
+steps:
+  - id: "respond"
+    type: "chat"
+    inputs:
+      model: "auto"
+      messages:
+        - role: "user"
+          content: "{{user_input}}"
+    outputs:
+      - "response"

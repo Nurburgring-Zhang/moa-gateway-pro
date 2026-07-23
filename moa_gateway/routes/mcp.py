@@ -11,15 +11,16 @@ Provides:
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from ..auth import require_api_key
-from ..mcp import MCPServer, ToolRegistry, GuardrailEngine, JSONRPCRequest
+from ..mcp import GuardrailEngine, JSONRPCRequest, MCPServer, ToolRegistry
 from ..mcp.builtin_tools import register_builtin_tools
-from ..mcp.transport import SSETransport, HTTPTransport
+from ..mcp.external_registry import ExternalMCPServer, get_external_mcp_registry
+from ..mcp.transport import HTTPTransport, SSETransport
 
 logger = logging.getLogger(__name__)
 
@@ -175,3 +176,72 @@ async def register_external_server(
             server_entry["status"] = f"error: {e}"
 
     return server_entry
+
+
+# ==================== External MCP Server Registry ====================
+
+
+@router.get("/v1/mcp/external/servers")
+async def list_external_mcp_servers(key_info: dict[str, Any] = Depends(require_api_key)):
+    """List all registered external MCP servers (registry-based)."""
+    registry = get_external_mcp_registry()
+    servers = registry.list_servers()
+    return {"servers": servers, "total": len(servers)}
+
+
+@router.post("/v1/mcp/external/servers")
+async def register_external_mcp_server(
+    body: dict[str, Any],
+    key_info: dict[str, Any] = Depends(require_api_key),
+):
+    """Register a new external MCP server via the registry.
+
+    Body: {"name": "...", "command": "npx", "args": [...], "transport": "stdio",
+           "url": "", "env": {}, "enabled": true, "auto_discover": true}
+    """
+    role = key_info.get("role", "readonly")
+    if role not in ("admin", "operator"):
+        raise HTTPException(status_code=403, detail="Only admin/operator can register MCP servers")
+
+    name = body.get("name", "")
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+
+    registry = get_external_mcp_registry()
+    server = ExternalMCPServer(
+        name=name,
+        command=body.get("command", ""),
+        args=body.get("args", []),
+        env=body.get("env", {}),
+        transport=body.get("transport", "stdio"),
+        url=body.get("url", ""),
+        enabled=body.get("enabled", True),
+        auto_discover=body.get("auto_discover", True),
+    )
+    registry.register(server)
+    return {"status": "registered", "name": name, "server": registry.list_servers()[-1]}
+
+
+@router.delete("/v1/mcp/external/servers/{name}")
+async def unregister_external_mcp_server(
+    name: str,
+    key_info: dict[str, Any] = Depends(require_api_key),
+):
+    """Unregister an external MCP server by name."""
+    role = key_info.get("role", "readonly")
+    if role not in ("admin", "operator"):
+        raise HTTPException(status_code=403, detail="Only admin/operator can unregister MCP servers")
+
+    registry = get_external_mcp_registry()
+    if not registry.get_server(name):
+        raise HTTPException(status_code=404, detail=f"Server '{name}' not found")
+    registry.unregister(name)
+    return {"status": "unregistered", "name": name}
+
+
+@router.get("/v1/mcp/external/tools")
+async def list_external_discovered_tools(key_info: dict[str, Any] = Depends(require_api_key)):
+    """List all tools discovered from external MCP servers."""
+    registry = get_external_mcp_registry()
+    tools = registry.get_all_discovered_tools()
+    return {"tools": tools, "total": len(tools)}

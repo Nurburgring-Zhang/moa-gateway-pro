@@ -215,6 +215,20 @@ CREATE TABLE IF NOT EXISTS ratelimit_tokens (
     tokens INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (api_key_id, day)
 );
+
+CREATE TABLE IF NOT EXISTS purge_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    endpoint_id TEXT NOT NULL,
+    purged_at TEXT NOT NULL,
+    days_unavailable INTEGER DEFAULT 0,
+    last_error TEXT,
+    error_type_counts TEXT,
+    success_rate_at_purge REAL DEFAULT 0,
+    status_at_purge TEXT,
+    created_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_purge_records_eid ON purge_records(endpoint_id);
 """
 
 
@@ -833,6 +847,46 @@ class Storage:
         with self.conn() as c:
             cur = c.execute("DELETE FROM admin_users WHERE id = ?", (user_id,))
             return cur.rowcount > 0
+
+
+    # ========== Purge Records (Task #43) ==========
+    def save_purge_record(self, record: dict) -> None:
+        """Persist a purge record for audit trail."""
+        import json
+        with self.conn() as c:
+            c.execute(
+                "INSERT INTO purge_records "
+                "(endpoint_id, purged_at, days_unavailable, last_error, "
+                " error_type_counts, success_rate_at_purge, status_at_purge, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    record.get("endpoint_id", ""),
+                    record.get("purged_at", ""),
+                    record.get("days_unavailable", 0),
+                    record.get("last_error"),
+                    json.dumps(record.get("error_type_counts", {}), ensure_ascii=False),
+                    record.get("success_rate_at_purge", 0),
+                    record.get("status_at_purge", ""),
+                    time.time(),
+                ),
+            )
+
+    def list_purge_records(self, limit: int = 100) -> list[dict]:
+        """List purge records for audit/history."""
+        import json
+        with self.conn() as c:
+            rows = c.execute(
+                "SELECT * FROM purge_records ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            result = []
+            for r in rows:
+                d = dict(r)
+                if d.get("error_type_counts"):
+                    with suppress(Exception):
+                        d["error_type_counts"] = json.loads(d["error_type_counts"])
+                result.append(d)
+            return result
 
 
 def get_storage() -> Storage:

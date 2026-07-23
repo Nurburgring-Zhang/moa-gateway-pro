@@ -179,6 +179,23 @@ def cmd_check(args):
     sys.exit(0 if all_ok else 1)
 
 
+
+def cmd_discover(args):
+    "Discover free model APIs (Task #35)"
+    if args.list:
+        from moa_gateway.discovery.free_model_catalog import get_all_platforms
+        platforms = get_all_platforms()
+        for p in platforms:
+            print(f"  {p.platform_id:20s} {p.base_url:50s} auth={p.auth_type}")
+    elif args.run:
+        import asyncio
+        from moa_gateway.discovery.discovery_engine import FreeModelDiscoveryEngine
+        engine = FreeModelDiscoveryEngine()
+        models = asyncio.run(engine.discover_all())
+        print(f"Discovered {len(models)} free models")
+    else:
+        print("Use --list or --run. See: start.py discover --help")
+
 def main():
     p = argparse.ArgumentParser(
         description="MoA Gateway Pro - 工业级多模型协作网关",
@@ -215,6 +232,10 @@ def main():
     sub.add_parser("version")
     sub.add_parser("check")
 
+    p_discover = sub.add_parser("discover", help="Discover free model APIs")
+    p_discover.add_argument("--list", action="store_true", help="List known platforms")
+    p_discover.add_argument("--run", action="store_true", help="Run discovery now")
+
     args = p.parse_args()
     cmd = args.cmd or "serve"
 
@@ -238,6 +259,8 @@ def main():
         return cmd_mcp(args)
     elif cmd == "check":
         return cmd_check(args)
+    elif cmd == "discover":
+        return cmd_discover(args)
     else:
         p.print_help()
         return 1

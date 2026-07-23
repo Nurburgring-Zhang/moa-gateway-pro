@@ -121,7 +121,7 @@ class MCPServer:
             )
 
         try:
-            result = await handler(**arguments)
+            result = await handler(arguments)
             # Post-guardrail
             result = await self.guardrails.post_call(tool_name, result, user)
             # Format result

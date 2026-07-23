@@ -304,6 +304,18 @@ class MoAOrchestrator:
                 await self._run_ranker(
                     result, messages, tools, preset_cfg, agg_id, ref_temp, max_tok, start
                 )
+            elif strat in (
+                "cost_first",
+                "latency_first",
+                "diversity_moa",
+                "capability_aware",
+                "adaptive_ensemble",
+            ):
+                # Task #45: Strategy-based model selection
+                await self._run_strategy_based(
+                    result, messages, tools, preset_cfg, strat,
+                    ref_n, agg_id, ref_temp, agg_temp, max_tok, start,
+                )
             else:  # parallel
                 await self._run_parallel(
                     result,
@@ -847,6 +859,138 @@ class MoAOrchestrator:
         if not aggregator:
             aggregator = self.pool.select_one(ModelTier(preset_cfg.aggregator_tier))
         return ref_endpoints, aggregator
+
+    async def _run_strategy_based(
+        self,
+        result: MoAResult,
+        messages,
+        tools,
+        preset_cfg: MoAPresetConfig,
+        strategy_name: str,
+        ref_n: int,
+        aggregator_id: str | None,
+        ref_temp: float,
+        agg_temp: float,
+        max_tokens: int,
+        start: float,
+    ):
+        """Task #45: Run MOA with a pluggable strategy for model selection."""
+        from .moa_strategies import get_strategy, build_candidates
+        from .benchmark import get_benchmark_engine, get_capability_probe
+        from .health import get_health_checker
+
+        strat = get_strategy(strategy_name)
+        if strat is None:
+            result.strategy = "parallel"
+            await self._run_parallel(
+                result, messages, tools, preset_cfg,
+                ref_n, aggregator_id, preset_cfg.critic_rounds,
+                ref_temp, agg_temp, max_tokens, start,
+            )
+            return
+
+        result.strategy = strategy_name
+
+        bench = get_benchmark_engine()
+        cap = get_capability_probe()
+        hc = get_health_checker()
+
+        candidates = build_candidates(
+            model_pool=self.pool,
+            benchmark_engine=bench,
+            capability_probe=cap,
+            health_checker=hc,
+        )
+
+        if not candidates:
+            raise RuntimeError(f"no candidates available for strategy '{strategy_name}'")
+
+        # Determine context for capability_aware strategy
+        context = {}
+        if strategy_name == "capability_aware":
+            query_text = messages[-1].get("content", "").lower() if messages else ""
+            if any(kw in query_text for kw in ("code", "function", "python", "javascript")):
+                context["task_type"] = "code_generation"
+            elif any(kw in query_text for kw in ("poem", "story", "creative", "write a")):
+                context["task_type"] = "creative_writing"
+            elif any(kw in query_text for kw in ("json", "data", "analyze", "summary")):
+                context["task_type"] = "data_analysis"
+            elif any(kw in query_text for kw in ("translate", "french", "spanish", "japanese")):
+                context["task_type"] = "multilingual"
+            else:
+                context["task_type"] = "reasoning"
+
+        selected_ids = strat.select_models(candidates, context=context, n=ref_n or 3)
+
+        ref_endpoints = []
+        for eid in selected_ids:
+            ep = self.pool.endpoints.get(eid)
+            if ep:
+                ref_endpoints.append(ep)
+
+        if not ref_endpoints:
+            ref_endpoints, _ = self._resolve_models(preset_cfg, ref_n, aggregator_id)
+
+        if not ref_endpoints:
+            raise RuntimeError(f"strategy '{strategy_name}' selected no models")
+
+        aggregator_ep = None
+        if aggregator_id and self.pool.endpoints.get(aggregator_id):
+            aggregator_ep = self.pool.endpoints[aggregator_id]
+        if not aggregator_ep:
+            aggregator_ep = ref_endpoints[0]
+        result.aggregator_model = aggregator_ep.id
+
+        ref_results = await self._run_references(ref_endpoints, messages, ref_temp, max_tokens)
+        result.references = ref_results
+
+        ok_count = sum(1 for r in ref_results if r.success)
+        if ok_count == 0:
+            ref_results = [
+                ReferenceResult(
+                    model_id="system",
+                    content="[all reference models failed, answer based on general knowledge]",
+                    success=True,
+                )
+            ]
+            result.references = ref_results
+
+        # Build aligned response and endpoint_id lists (only successful results)
+        ref_pairs = [(r.model_id, r.content) for r in ref_results if r.success]
+        ref_contents = [c for _, c in ref_pairs]
+        ref_endpoint_ids = [eid for eid, _ in ref_pairs]
+        selected_candidates = [c for c in candidates if c.endpoint_id in selected_ids]
+
+        try:
+            strat_aggregated = strat.aggregate(ref_contents, selected_candidates, selected_ids=ref_endpoint_ids)
+        except Exception:
+            strat_aggregated = ""
+
+        if strat_aggregated and strat_aggregated.strip():
+            result.aggregated_content = strat_aggregated
+        else:
+            agg_messages = self._build_aggregator_messages(messages, ref_results)
+            agg_resp = await self._call_with_fallback(
+                aggregator_ep, agg_messages, tools, agg_temp, max_tokens
+            )
+            result.aggregated_content = agg_resp["content"]
+            result.total_cost += agg_resp["cost"]
+            if agg_resp.get("used_model_id"):
+                result.aggregator_model = agg_resp["used_model_id"]
+            result.fallback_used = agg_resp.get("fallback_used", False)
+
+        consensus = self._calculate_consensus(ref_results)
+        result.consensus_score = consensus
+
+        if strategy_name == "adaptive_ensemble" and hasattr(strat, "update_weights"):
+            for r in ref_results:
+                qs = 1.0 if r.success else 0.0
+                if r.success and len(r.content) > 200:
+                    qs = 1.2
+                strat.update_weights(r.model_id, r.success, qs)
+
+        result.final_content = result.aggregated_content
+        result.total_cost += sum(r.cost for r in ref_results)
 
     def _pick_endpoint_for_ref(self, ref_cfg: ReferenceModelConfig) -> ModelEndpoint | None:
         """根据 ReferenceModelConfig 选一个 endpoint"""

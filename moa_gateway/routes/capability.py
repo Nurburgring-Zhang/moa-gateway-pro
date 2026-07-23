@@ -2896,7 +2896,7 @@ async def capability_checkpoint(
 # ========== Wave 12 Capability Endpoints (5 new) ==========
 
 @router.post("/v1/capability/audit")
-async def capability_audit(
+async def capability_audit_cache(
     body: CreateAuditRequest,
     key_info: dict[str, Any] = Depends(require_api_key),
 ):
@@ -2919,16 +2919,16 @@ async def capability_audit(
                 metadata=body.get("metadata", {}),
             )
             # 模块级单例(避免每次请求 new 一个)
-            if not hasattr(capability_audit, "_cache"):
-                capability_audit._cache = AuditCache(
+            if not hasattr(capability_audit_cache, "_cache"):
+                capability_audit_cache._cache = AuditCache(
                     max_size=int(body.get("max_size", 10000)),
                     ttl_seconds=int(body.get("ttl_seconds", 86400)),
                 )
-            cache = capability_audit._cache
+            cache = capability_audit_cache._cache
             eid = cache.record(ev)
             return {"recorded": True, "event_id": eid}
         elif action == "query":
-            cache = getattr(capability_audit, "_cache", None)
+            cache = getattr(capability_audit_cache, "_cache", None)
             if not cache:
                 return {"items": [], "count": 0}
             items = cache.query(
@@ -2939,12 +2939,12 @@ async def capability_audit(
             )
             return {"items": [e.__dict__ for e in items], "count": len(items)}
         elif action == "stats":
-            cache = getattr(capability_audit, "_cache", None)
+            cache = getattr(capability_audit_cache, "_cache", None)
             if not cache:
                 return {"stats": {}, "count": 0}
             return {"stats": cache.stats(), "count": cache.count()}
         elif action == "cleanup":
-            cache = getattr(capability_audit, "_cache", None)
+            cache = getattr(capability_audit_cache, "_cache", None)
             if not cache:
                 return {"removed": 0}
             removed = cache.cleanup()

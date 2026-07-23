@@ -165,11 +165,21 @@ class MoAConfig(BaseModel):
 
 
 class HealthConfig(BaseModel):
+    """Health check and API health management configuration."""
+    # Legacy health check settings (used by ModelPool._health_check_loop)
     interval_seconds: int = 30
     timeout_seconds: int = 10
     failure_threshold: int = 3
     cooldown_seconds: int = 60
     healthy_recheck: int = 120
+    # API health management system (Task #43)
+    enabled: bool = True
+    probe_interval_new: int = 600        # newly discovered API: every 10 min
+    probe_interval_healthy: int = 1800   # healthy API: every 30 min
+    probe_interval_degraded: int = 300   # degraded API: every 5 min
+    probe_interval_unhealthy: int = 180  # unhealthy API: every 3 min
+    purge_threshold_days: int = 7        # purge after 7 days of unavailability
+    probe_timeout: int = 15              # probe request timeout (seconds)
 
 
 class RateLimitConfig(BaseModel):
@@ -184,6 +194,10 @@ class ObservabilityConfig(BaseModel):
     log_json: bool = False
     metrics_enabled: bool = True
     trace_enabled: bool = False
+    # P1-6: Test report configuration
+    test_report_enabled: bool = True
+    test_report_max_traces: int = 1000
+    test_report_storage_dir: str = "data/reports"
 
 
 
@@ -202,6 +216,61 @@ class CacheConfig(BaseModel):
     ttl_jitter_pct: float = Field(default=0.1, ge=0.0, le=0.5)
     skip_streaming: bool = True
 
+
+
+class DiscoveryConfig(BaseModel):
+    "Free model discovery system configuration."
+
+    enabled: bool = True
+    refresh_interval_hours: int = 24
+    auto_configure: bool = True
+    first_run_delay_seconds: int = 60
+    platforms: list[str] = Field(default_factory=list)
+    api_keys: dict[str, str] = Field(default_factory=dict)
+
+
+
+
+class BenchmarkConfig(BaseModel):
+    """Performance benchmark and capability probe configuration."""
+
+    enabled: bool = True
+    interval_seconds: int = 3600
+    max_concurrent: int = 5
+    probe_timeout: int = 30
+
+
+class PromptTemplatesConfig(BaseModel):
+    "Prompt template system configuration."
+
+    enabled: bool = True
+    custom_dir: str = "~/.moa-gateway/prompts"
+    categories: list[str] = Field(default_factory=lambda: ["programming", "writing", "analysis", "translation", "summarization", "creative", "qa"])
+
+
+class ParamTemplatesConfig(BaseModel):
+    "Parameter template system configuration."
+
+    enabled: bool = True
+
+
+class AgentLoopConfig(BaseModel):
+    "Agent loop configuration."
+
+    default_loop: str = "react"
+    max_iterations: int = 10
+    default_tools: list[str] = Field(default_factory=lambda: ["web_search", "code_execute", "file_read", "file_list", "analyze_data"])
+
+
+class OptimizerConfig(BaseModel):
+    """MOA auto-optimiser configuration."""
+    enabled: bool = True
+    daily_optimization: bool = True
+    max_experiments: int = 50
+    convergence_threshold: float = 0.95
+    test_cases_per_round: int = 3
+
+
 class Settings(BaseModel):
     """全局配置 — root model"""
 
@@ -215,6 +284,14 @@ class Settings(BaseModel):
     ratelimit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     cache: CacheConfig = Field(default_factory=CacheConfig)
+
+    # === Discovery & Template System ===
+    discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
+    prompt_templates: PromptTemplatesConfig = Field(default_factory=PromptTemplatesConfig)
+    param_templates: ParamTemplatesConfig = Field(default_factory=ParamTemplatesConfig)
+    agent_loop: AgentLoopConfig = Field(default_factory=AgentLoopConfig)
+    benchmark: BenchmarkConfig = Field(default_factory=BenchmarkConfig)
+    optimizer: OptimizerConfig = Field(default_factory=OptimizerConfig)
 
 
 def _ensure_jwt_secret(cfg: Settings) -> Settings:
@@ -262,6 +339,11 @@ def load_settings(config_path: Path | None = None) -> Settings:
         logger.warning("Config file %s not found, using defaults", config_path)
 
     cfg = Settings(**raw)
+    # Task #35: Expand ~ in prompt_templates.custom_dir
+    if cfg.prompt_templates.custom_dir:
+        cfg.prompt_templates.custom_dir = os.path.expanduser(
+            cfg.prompt_templates.custom_dir
+        )
     # 修26: 安全加固 — auth.admin_password 留空时强制用 env var 兜底
     # 优先级:env MOA_ADMIN_PASSWORD > yaml admin_password
     env_pw = os.environ.get("MOA_ADMIN_PASSWORD", "").strip()

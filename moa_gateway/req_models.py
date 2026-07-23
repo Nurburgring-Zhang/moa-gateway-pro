@@ -915,6 +915,15 @@ class CreateAgentWorkflowRunRequest(_ModelBase):
     input: Any | None = Field(None, description="输入")
     name: Any | None = Field(None, description="名称")
 
+class CreateAgentRunLoopRequest(_ModelBase):
+    """Request body for POST /v1/agent/run-loop."""
+
+    loop_name: Any | None = Field(None, description="Loop type: react | plan_execute")
+    max_iterations: Any | None = Field(None, description="Max loop iterations")
+    messages: Any | None = Field(None, description="Conversation messages")
+    tools: Any | None = Field(None, description="Tool names to enable")
+
+
 
 # ============ Model registry ============
 
@@ -1004,4 +1013,5 @@ ENDPOINT_MODELS: dict[str, type[BaseModel]] = {
     "/v1/agent/dispatch_batch": CreateAgentDispatchBatchRequest,
     "/v1/agent/workflow/register": CreateAgentWorkflowRegisterRequest,
     "/v1/agent/workflow/run": CreateAgentWorkflowRunRequest,
+    "/v1/agent/run-loop": CreateAgentRunLoopRequest,
 }

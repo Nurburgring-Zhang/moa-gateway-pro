@@ -1,0 +1,47 @@
+templates:
+  code_generation:
+    temperature: 0.2
+    top_p: 0.1
+    max_tokens: 2048
+    description: Code generation, refactoring
+  precise_qa:
+    temperature: 0.1
+    top_p: 0.1
+    max_tokens: 512
+    description: Precise factual Q and A
+  creative_writing:
+    temperature: 0.7
+    top_p: 0.8
+    max_tokens: 4096
+    description: Creative writing, storytelling
+  chat:
+    temperature: 0.5
+    top_p: 0.5
+    max_tokens: 1024
+    description: General chat conversation
+  translation:
+    temperature: 0.3
+    top_p: 0.3
+    max_tokens: 2048
+    description: Translation, localization
+  summarization:
+    temperature: 0.3
+    top_p: 0.3
+    max_tokens: 1024
+    description: Summarization, meeting notes
+  moa_aggregation:
+    temperature: 0.3
+    top_p: 0.3
+    max_tokens: 2048
+    description: MOA aggregation step
+  analysis:
+    temperature: 0.3
+    top_p: 0.2
+    max_tokens: 2048
+    description: Data analysis, logical reasoning
+
+model_overrides:
+  anthropic:
+    top_k: 40
+  google_gemini:
+    top_k: 40

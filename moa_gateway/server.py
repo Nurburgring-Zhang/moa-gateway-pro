@@ -24,11 +24,34 @@ from .audit import setup_audit_logging
 from .cache.manager import get_cache_manager
 from .config import get_settings
 from .model_pool import get_model_pool
+from .health import init_health_system, shutdown_health_system
+from .benchmark import init_benchmark_system, shutdown_benchmark_system
+from .discovery import DiscoveryScheduler, FreeModelDiscoveryEngine, AutoConfigurator
 from .observability import Metrics, ObservabilityMiddleware, setup_logging
 from .storage import get_storage
 from .ha import graceful, health_checker
 
 logger = logging.getLogger(__name__)
+
+
+async def _daily_purge_loop(purge_manager) -> None:
+    """Background loop: daily purge check for dead endpoints."""
+    import time as _time
+    last_purge = 0.0
+    while True:
+        try:
+            now = _time.time()
+            if now - last_purge > 86400:
+                purged = await purge_manager.check_and_purge()
+                if purged:
+                    logger.info('Daily purge: removed %d dead endpoints', len(purged))
+                last_purge = now
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning('Daily purge loop error: %s', e)
+            await asyncio.sleep(300)
 
 
 # ========== FastAPI App ==========
@@ -84,10 +107,91 @@ def create_app() -> FastAPI:
         await pool.start()
         logger.info("Model pool started: %d endpoints", len(pool.endpoints))
 
+        # Task #43: Initialize API health management system
+        api_health_checker, probe_engine, purge_manager = init_health_system(
+            model_pool=pool,
+            storage=get_storage(),
+        )
+        logger.info("Health management system initialized")
+
+        # Start monitoring all existing endpoints
+        endpoint_ids = list(pool.endpoints.keys())
+        if settings.health.enabled and endpoint_ids:
+            await probe_engine.start_all(endpoint_ids)
+            logger.info("Started health monitoring for %d endpoints", len(endpoint_ids))
+
+        # Task #44: Initialize benchmark and capability system (P2-5: respect enabled flag)
+        bench_engine = None
+        cap_probe = None
+        if settings.benchmark.enabled:
+            bench_engine, cap_probe = init_benchmark_system(
+                model_pool=pool,
+                health_checker=api_health_checker,
+            )
+            await bench_engine.start()
+            await cap_probe.start()
+            # P2-6: Wire benchmark/capability cleanup into PurgeManager
+            purge_manager.set_cleanup_targets(
+                benchmark_engine=bench_engine,
+                capability_probe=cap_probe,
+            )
+            logger.info("Benchmark system initialized (engine + capability probe)")
+        else:
+            logger.info("Benchmark system disabled by config")
+
+        # Task #45: Initialize MoaOptimizer (P2-5: respect enabled flag)
+        optimizer = None
+        if settings.optimizer.enabled:
+            from .moa_optimizer import MoaOptimizer
+            optimizer = MoaOptimizer(
+                benchmark_engine=bench_engine,
+                capability_probe=cap_probe,
+                health_checker=api_health_checker,
+                model_pool=pool,
+            )
+            from .routes import optimizer as _opt_mod
+            _opt_mod._optimizer_singleton = optimizer
+            logger.info("MoaOptimizer initialized")
+        else:
+            logger.info("MoaOptimizer disabled by config")
+
+        # P1-1: Instantiate and start DiscoveryScheduler
+        discovery_scheduler = None
+        if settings.discovery.enabled:
+            discovery_engine = FreeModelDiscoveryEngine()
+            configurator = AutoConfigurator(pool=pool, storage=get_storage())
+            discovery_scheduler = DiscoveryScheduler(
+                engine=discovery_engine,
+                configurator=configurator,
+                probe_engine=probe_engine,
+                purge_manager=purge_manager,
+                benchmark_engine=bench_engine,
+                capability_probe=cap_probe,
+                optimizer=optimizer,
+            )
+            await discovery_scheduler.start(
+                interval_hours=settings.discovery.refresh_interval_hours
+            )
+            logger.info(
+                "DiscoveryScheduler started (interval=%dh)",
+                settings.discovery.refresh_interval_hours,
+            )
+        else:
+            logger.info("Discovery system disabled by config")
+
+        # Start daily purge check task
+        purge_task = asyncio.create_task(_daily_purge_loop(purge_manager))
+
         cleanup_task = asyncio.create_task(_background_cleanup_loop())
 
         # Initialize cache system
         await get_cache_manager().initialize()
+
+        # Initialize test report generator (P1-6)
+        from .observability.test_report import init_report_generator
+        report_storage = os.path.join("data", "reports")
+        init_report_generator(storage_dir=report_storage)
+        logger.info("Test report generator initialized (storage=%s)", report_storage)
 
         # HA: Mark instance as ready to receive traffic
         health_checker.mark_ready()
@@ -106,6 +210,18 @@ def create_app() -> FastAPI:
             pass
 
         logger.info("MoA Gateway Pro shutting down…")
+        # Task #43: Shutdown health management system
+        await shutdown_health_system()
+        # P1-1: Stop DiscoveryScheduler
+        if discovery_scheduler is not None:
+            await discovery_scheduler.stop()
+        # Task #44: Shutdown benchmark system
+        await shutdown_benchmark_system()
+        try:
+            purge_task.cancel()
+            await purge_task
+        except (asyncio.CancelledError, Exception):
+            pass
         # HA: Wait for active requests to drain
         await graceful.shutdown()
         await pool.stop()
@@ -273,6 +389,10 @@ def create_app() -> FastAPI:
         models_router,
         webui_router,
         compliance_router,
+        workflow_router,
+        observability_router,
+        benchmark_router,
+        optimizer_router,
     )
 
     app.include_router(health_router)
@@ -287,6 +407,10 @@ def create_app() -> FastAPI:
     app.include_router(agent_router)
     app.include_router(webui_router)
     app.include_router(compliance_router)
+    app.include_router(workflow_router)
+    app.include_router(observability_router)
+    app.include_router(benchmark_router)
+    app.include_router(optimizer_router)
 
     return app
 

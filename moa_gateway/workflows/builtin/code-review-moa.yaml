@@ -1,0 +1,36 @@
+name: "code-review-moa"
+description: "Multi-model code review workflow — analyze, security check, and synthesize"
+version: "1.0"
+
+steps:
+  - id: "analyze"
+    type: "moa"
+    inputs:
+      prompt: "Analyze the following code for quality, readability, and best practices:\n\n{{code_snippet}}"
+      strategy: "parallel"
+      models: ["auto"]
+      preset: "balanced"
+    outputs:
+      - "analysis"
+
+  - id: "security_check"
+    type: "chat"
+    depends_on: ["analyze"]
+    inputs:
+      model: "auto"
+      messages:
+        - role: "system"
+          content: "You are a security expert. Review the code for vulnerabilities."
+        - role: "user"
+          content: "Review this analysis for security concerns:\n\n{{steps.analyze.output}}"
+    outputs:
+      - "security_review"
+
+  - id: "synthesize"
+    type: "moa"
+    depends_on: ["analyze", "security_check"]
+    inputs:
+      prompt: "Synthesize a final code review report combining:\n\nAnalysis: {{steps.analyze.output}}\n\nSecurity: {{steps.security_check.output}}"
+      preset: "quality"
+    outputs:
+      - "final_report"

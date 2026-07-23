@@ -272,6 +272,10 @@ class ModelPool:
         self.endpoints[eid] = ep
         return ep
 
+    def get_endpoint(self, eid: str) -> ModelEndpoint | None:
+        """Get a model endpoint by ID (for health probe integration)."""
+        return self.endpoints.get(eid)
+
     def remove_endpoint(self, eid: str) -> bool:
         ok = self.storage.delete_endpoint(eid)
         ep = self.endpoints.pop(eid, None)

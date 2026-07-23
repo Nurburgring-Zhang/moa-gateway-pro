@@ -40,6 +40,7 @@ dependencies = [
 # 顶级 CLI 命令(装包后可用:moa-gateway --help)
 moa-gateway = "moa_gateway.__main__:main"
 moa-mcp = "moa_gateway.mcp_server:main"
+moa = "moa_gateway.cli.main:main"
 
 [project.optional-dependencies]
 dev = [
