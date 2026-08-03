@@ -19,7 +19,7 @@ aiosqlite==0.20.0
 
 # 宸ュ叿
 PyYAML==6.0.2
-rich==13.9.4            # CLI 杈撳嚭缇庡寲
+rich==15.0.0            # CLI 杈撳嚭缇庡寲
 typer==0.12.5           # CLI 宸ュ叿
 tenacity==9.0.0         # 閲嶈瘯閫€閬?
 python-jose[cryptography]>=3.4.0   # JWT - SEC-003: 鍗囩骇淇 CVE-2024-33663
