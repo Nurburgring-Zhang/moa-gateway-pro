@@ -403,7 +403,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="MoA Gateway Pro",
-        version="1.6.6",
+        version="2.0.0",
         description="工业级多模型协作网关 — 一份 OpenAI Key 接入所有大模型",
         lifespan=lifespan,
     )

@@ -62,4 +62,4 @@ def test_version_consistency():
     """Verify version is consistent across modules."""
     from moa_gateway import __version__
 
-    assert __version__ == "1.9.0"
+    assert __version__ == "2.0.0"

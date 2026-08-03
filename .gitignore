@@ -171,3 +171,18 @@ node_modules/
 !tests/
 !tests/*.py
 !tests/conftest.py
+
+# Audit and temporary reports
+*_REPORT.md
+*_REPORT.txt
+AUDIT_*.txt
+SCAN_REPORT.*
+
+# Lint output
+ruff_output.json
+
+# Top-level dev scripts
+analyze.py
+
+# Error files
+*.err

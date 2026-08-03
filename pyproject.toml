@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "moa-gateway-pro"
-version = "1.9.0"
+version = "2.0.0"
 description = "Industrial-grade multi-model collaboration gateway - one OpenAI key for all LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
