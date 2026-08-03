@@ -1,11 +1,11 @@
 """Key Rotation Management — seamless key versioning."""
+
 from __future__ import annotations
 
 import os
 import secrets
 import time
 from dataclasses import dataclass
-from typing import List, Optional
 
 
 @dataclass
@@ -15,7 +15,7 @@ class KeyVersion:
     key_id: str
     key_value: str
     created_at: float
-    expires_at: Optional[float]
+    expires_at: float | None
     is_primary: bool
 
     def to_dict(self) -> dict:
@@ -30,11 +30,9 @@ class KeyVersion:
 class KeyRotationManager:
     """Key rotation manager — supports dual-key transition period."""
 
-    def __init__(self, storage_path: Optional[str] = None):
-        self._storage_path = storage_path or os.getenv(
-            "MOA_KEY_STORE", "data/key_versions.json"
-        )
-        self._keys: List[KeyVersion] = []
+    def __init__(self, storage_path: str | None = None):
+        self._storage_path = storage_path or os.getenv("MOA_KEY_STORE", "data/key_versions.json")
+        self._keys: list[KeyVersion] = []
         self._rotation_interval = int(os.getenv("MOA_KEY_ROTATION_DAYS", "90")) * 86400
 
     def generate_key(self, purpose: str = "api") -> KeyVersion:
@@ -54,22 +52,18 @@ class KeyRotationManager:
         self._keys.append(key)
         return key
 
-    def get_primary_key(self) -> Optional[KeyVersion]:
+    def get_primary_key(self) -> KeyVersion | None:
         """Get current primary key."""
         for k in self._keys:
             if k.is_primary and (not k.expires_at or k.expires_at > time.time()):
                 return k
         return None
 
-    def get_all_valid_keys(self) -> List[KeyVersion]:
+    def get_all_valid_keys(self) -> list[KeyVersion]:
         """Get all valid keys (including grace period)."""
         now = time.time()
         grace_period = 86400  # 24-hour grace
-        return [
-            k
-            for k in self._keys
-            if not k.expires_at or k.expires_at + grace_period > now
-        ]
+        return [k for k in self._keys if not k.expires_at or k.expires_at + grace_period > now]
 
     def should_rotate(self) -> bool:
         """Check if key rotation is needed."""
@@ -84,9 +78,7 @@ class KeyRotationManager:
         now = time.time()
         grace = 7 * 86400  # 7-day grace
         before = len(self._keys)
-        self._keys = [
-            k for k in self._keys if not k.expires_at or k.expires_at + grace > now
-        ]
+        self._keys = [k for k in self._keys if not k.expires_at or k.expires_at + grace > now]
         return before - len(self._keys)
 
     def get_status(self) -> dict:

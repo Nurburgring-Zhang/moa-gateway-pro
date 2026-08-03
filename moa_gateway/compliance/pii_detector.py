@@ -1,9 +1,9 @@
 """PII Detection and Redaction — protect personal privacy data."""
+
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import List
 
 
 @dataclass
@@ -32,12 +32,12 @@ class PIIDetector:
         "jwt_token": r"\beyJ[A-Za-z0-9_\-]+\.eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\b",
     }
 
-    def __init__(self, enabled_types: List[str] | None = None):
+    def __init__(self, enabled_types: list[str] | None = None):
         self._types = enabled_types or list(self.PATTERNS.keys())
 
-    def detect(self, text: str) -> List[PIIMatch]:
+    def detect(self, text: str) -> list[PIIMatch]:
         """Detect PII in text."""
-        matches: List[PIIMatch] = []
+        matches: list[PIIMatch] = []
         for pii_type in self._types:
             pattern = self.PATTERNS.get(pii_type)
             if not pattern:

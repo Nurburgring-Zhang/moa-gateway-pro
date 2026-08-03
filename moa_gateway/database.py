@@ -147,13 +147,15 @@ def get_async_engine(url: str = ""):
 
         # PostgreSQL 连接池参数
         if async_url.startswith("postgresql"):
-            engine_kwargs.update({
-                "pool_size": POOL_CONFIG["pool_size"],
-                "max_overflow": POOL_CONFIG["max_overflow"],
-                "pool_timeout": POOL_CONFIG["pool_timeout"],
-                "pool_recycle": POOL_CONFIG["pool_recycle"],
-                "pool_pre_ping": POOL_CONFIG["pool_pre_ping"],
-            })
+            engine_kwargs.update(
+                {
+                    "pool_size": POOL_CONFIG["pool_size"],
+                    "max_overflow": POOL_CONFIG["max_overflow"],
+                    "pool_timeout": POOL_CONFIG["pool_timeout"],
+                    "pool_recycle": POOL_CONFIG["pool_recycle"],
+                    "pool_pre_ping": POOL_CONFIG["pool_pre_ping"],
+                }
+            )
 
         _async_engine = create_async_engine(async_url, **engine_kwargs)
         return _async_engine
@@ -260,6 +262,7 @@ class PostgreSQLBackend:
         pg_sql = self._convert_ddl(sql)
         with self._engine.connect() as conn:
             from sqlalchemy import text
+
             for statement in self._split_statements(pg_sql):
                 statement = statement.strip()
                 if statement:
@@ -276,6 +279,7 @@ class PostgreSQLBackend:
     def _convert_ddl(sql: str) -> str:
         """SQLite DDL → PostgreSQL DDL 转换"""
         import re
+
         # AUTOINCREMENT → SERIAL (PostgreSQL 使用 SERIAL 自增)
         result = re.sub(
             r"INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT",
@@ -340,6 +344,7 @@ class _PGConnectionWrapper:
     def executescript(self, sql: str):
         """执行多语句脚本"""
         from sqlalchemy import text
+
         for stmt in PostgreSQLBackend._split_statements(sql):
             if stmt.strip():
                 self._conn.execute(text(stmt))
@@ -480,6 +485,7 @@ class DatabaseEngine:
         else:
             if db_path is None:
                 from .config import DATA_DIR, get_settings
+
                 settings = get_settings()
                 db_path = DATA_DIR / settings.storage.db_path
             backend = SQLiteBackend(db_path)
@@ -518,6 +524,7 @@ def get_database_info() -> dict[str, Any]:
     if is_postgres(url):
         # 脱敏: 隐藏密码
         import re
+
         sanitized = re.sub(r"://[^:]+:[^@]+@", "://***:***@", url)
         return {
             "backend": "postgresql",

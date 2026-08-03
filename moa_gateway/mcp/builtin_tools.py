@@ -11,6 +11,7 @@
   - run_agent_loop       : Start agent loop (requires LLM callback)
   - search_web           : Web search via agent skill
 """
+
 from __future__ import annotations
 
 import logging

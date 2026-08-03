@@ -3,6 +3,7 @@
 Periodically sends standard requests to each healthy endpoint, measures
 latency and token throughput, and assigns a performance tier (S/A/B/C).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -128,7 +129,9 @@ class BenchmarkEngine:
         },
         # Medium: reasoning test
         {
-            "messages": [{"role": "user", "content": "What is 15 * 23? Reply with just the number."}],
+            "messages": [
+                {"role": "user", "content": "What is 15 * 23? Reply with just the number."}
+            ],
             "max_tokens": 10,
         },
         # Heavy: generation test

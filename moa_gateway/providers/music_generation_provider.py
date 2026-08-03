@@ -58,7 +58,11 @@ class MiniMaxMusicProvider(MusicGenerationProvider):
         task_data = data.get("data", data)
         status = task_data.get("status", "UNKNOWN")
         music_url = task_data.get("music_url") or task_data.get("audio_url")
-        return {"status": status, "music_url": music_url, "error": task_data.get("error") if status == "FAILED" else None}
+        return {
+            "status": status,
+            "music_url": music_url,
+            "error": task_data.get("error") if status == "FAILED" else None,
+        }
 
 
 class TiangongMusicProvider(MusicGenerationProvider):
@@ -89,4 +93,8 @@ class TiangongMusicProvider(MusicGenerationProvider):
         task_data = data.get("data", data)
         status = task_data.get("status", "UNKNOWN")
         music_url = task_data.get("music_url") or task_data.get("audio_url")
-        return {"status": status, "music_url": music_url, "error": task_data.get("error") if status == "FAILED" else None}
+        return {
+            "status": status,
+            "music_url": music_url,
+            "error": task_data.get("error") if status == "FAILED" else None,
+        }

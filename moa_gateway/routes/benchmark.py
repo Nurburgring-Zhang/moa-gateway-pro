@@ -8,6 +8,7 @@ Provides REST endpoints for:
 - Capability-based endpoint filtering
 - Manual capability probe triggers
 """
+
 from __future__ import annotations
 
 import logging
@@ -15,13 +16,13 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from ..auth import require_api_key
 from ..benchmark import (
     Capability,
     PerformanceTier,
     get_benchmark_engine,
     get_capability_probe,
 )
-from ..auth import require_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,9 @@ router = APIRouter(tags=["benchmark"])
 
 
 @router.get("/v1/benchmark")
-async def get_benchmark_overview() -> dict[str, Any]:
+async def get_benchmark_overview(
+    key_info: dict[str, Any] = Depends(require_api_key),
+) -> dict[str, Any]:
     """Get performance tier overview for all endpoints."""
     engine = get_benchmark_engine()
     if engine is None:
@@ -43,7 +46,10 @@ async def get_benchmark_overview() -> dict[str, Any]:
 
 
 @router.get("/v1/benchmark/tier/{tier}")
-async def get_endpoints_by_tier(tier: str) -> dict[str, Any]:
+async def get_endpoints_by_tier(
+    tier: str,
+    key_info: dict[str, Any] = Depends(require_api_key),
+) -> dict[str, Any]:
     """Filter endpoints by performance tier (S/A/B/C)."""
     try:
         perf_tier = PerformanceTier(tier.upper())
@@ -51,7 +57,7 @@ async def get_endpoints_by_tier(tier: str) -> dict[str, Any]:
         raise HTTPException(
             status_code=400,
             detail=f"Invalid tier '{tier}'. Must be one of: S, A, B, C",
-        )
+        ) from None
     engine = get_benchmark_engine()
     if engine is None:
         return {"tier": perf_tier.value, "endpoints": []}
@@ -75,7 +81,9 @@ async def run_benchmark_all(key_info: dict[str, Any] = Depends(require_api_key))
 
 
 @router.post("/v1/benchmark/{endpoint_id}/run")
-async def run_benchmark_one(endpoint_id: str, key_info: dict[str, Any] = Depends(require_api_key)) -> dict[str, Any]:
+async def run_benchmark_one(
+    endpoint_id: str, key_info: dict[str, Any] = Depends(require_api_key)
+) -> dict[str, Any]:
     """Manually trigger benchmark for a single endpoint."""
     engine = get_benchmark_engine()
     if engine is None:
@@ -91,7 +99,10 @@ async def run_benchmark_one(endpoint_id: str, key_info: dict[str, Any] = Depends
 
 
 @router.get("/v1/benchmark/{endpoint_id}")
-async def get_endpoint_benchmark(endpoint_id: str) -> dict[str, Any]:
+async def get_endpoint_benchmark(
+    endpoint_id: str,
+    key_info: dict[str, Any] = Depends(require_api_key),
+) -> dict[str, Any]:
     """Get detailed benchmark metrics for a specific endpoint."""
     engine = get_benchmark_engine()
     if engine is None:
@@ -109,7 +120,9 @@ async def get_endpoint_benchmark(endpoint_id: str) -> dict[str, Any]:
 
 
 @router.get("/v1/capabilities")
-async def get_capabilities_overview() -> dict[str, Any]:
+async def get_capabilities_overview(
+    key_info: dict[str, Any] = Depends(require_api_key),
+) -> dict[str, Any]:
     """Get capability overview for all endpoints."""
     probe = get_capability_probe()
     if probe is None:
@@ -120,6 +133,7 @@ async def get_capabilities_overview() -> dict[str, Any]:
 @router.get("/v1/capabilities/filter/by-capability")
 async def filter_by_capability(
     capability: str = Query(..., description="Capability to filter by"),
+    key_info: dict[str, Any] = Depends(require_api_key),
 ) -> dict[str, Any]:
     """Filter endpoints by capability."""
     try:
@@ -129,7 +143,7 @@ async def filter_by_capability(
         raise HTTPException(
             status_code=400,
             detail=f"Invalid capability '{capability}'. Must be one of: {valid}",
-        )
+        ) from None
     probe = get_capability_probe()
     if probe is None:
         return {"capability": cap.value, "endpoints": []}
@@ -138,7 +152,9 @@ async def filter_by_capability(
 
 
 @router.post("/v1/capabilities/run")
-async def run_capability_probe_all(key_info: dict[str, Any] = Depends(require_api_key)) -> dict[str, Any]:
+async def run_capability_probe_all(
+    key_info: dict[str, Any] = Depends(require_api_key),
+) -> dict[str, Any]:
     """Manually trigger capability probe for all healthy endpoints."""
     probe = get_capability_probe()
     if probe is None:
@@ -151,7 +167,10 @@ async def run_capability_probe_all(key_info: dict[str, Any] = Depends(require_ap
 
 
 @router.get("/v1/capabilities/{endpoint_id}")
-async def get_endpoint_capabilities(endpoint_id: str) -> dict[str, Any]:
+async def get_endpoint_capabilities(
+    endpoint_id: str,
+    key_info: dict[str, Any] = Depends(require_api_key),
+) -> dict[str, Any]:
     """Get detailed capabilities for a specific endpoint."""
     probe = get_capability_probe()
     if probe is None:

@@ -6,17 +6,16 @@ Enhanced with Warp/Terax-style Block I/O (P1-5):
 - /blocks command: view interaction history
 - /export command: export session as JSON
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any
 from uuid import uuid4
-
 
 # ============ Block I/O System (P1-5) ============
 
@@ -57,7 +56,7 @@ class ChatBlock:
     status: BlockStatus = BlockStatus.SUCCESS
     timestamp: datetime = field(default_factory=datetime.now)
     metadata: dict[str, Any] = field(default_factory=dict)
-    children: list["ChatBlock"] = field(default_factory=list)
+    children: list[ChatBlock] = field(default_factory=list)
 
     def render(self, rich: bool = False) -> str:
         """Render block as displayable text.
@@ -80,11 +79,11 @@ class ChatBlock:
             type_colors = {
                 BlockType.USER_INPUT: "\033[36m",  # cyan
                 BlockType.AI_RESPONSE: "\033[32m",  # green
-                BlockType.TOOL_CALL: "\033[33m",   # yellow
+                BlockType.TOOL_CALL: "\033[33m",  # yellow
                 BlockType.TOOL_RESULT: "\033[33m",  # yellow
-                BlockType.ERROR: "\033[31m",        # red
-                BlockType.SYSTEM: "\033[90m",       # gray
-                BlockType.WORKFLOW: "\033[35m",     # magenta
+                BlockType.ERROR: "\033[31m",  # red
+                BlockType.SYSTEM: "\033[90m",  # gray
+                BlockType.WORKFLOW: "\033[35m",  # magenta
             }
             color = type_colors.get(self.type, "")
             reset = "\033[0m"
@@ -137,7 +136,7 @@ class BlockManager:
         """
         self._blocks.append(block)
         if len(self._blocks) > self._max_blocks:
-            self._blocks = self._blocks[-self._max_blocks:]
+            self._blocks = self._blocks[-self._max_blocks :]
         return block.id
 
     def update_block(self, block_id: str, **kwargs: Any) -> bool:
@@ -150,9 +149,7 @@ class BlockManager:
                 return True
         return False
 
-    def get_blocks(
-        self, block_type: BlockType | None = None
-    ) -> list[ChatBlock]:
+    def get_blocks(self, block_type: BlockType | None = None) -> list[ChatBlock]:
         """Get blocks, optionally filtered by type."""
         if block_type is None:
             return list(self._blocks)
@@ -162,9 +159,9 @@ class BlockManager:
         """Search blocks by substring in title or content."""
         query_lower = query.lower()
         return [
-            b for b in self._blocks
-            if query_lower in b.title.lower()
-            or query_lower in b.content.lower()
+            b
+            for b in self._blocks
+            if query_lower in b.title.lower() or query_lower in b.content.lower()
         ]
 
     def render_history(self, last_n: int = 10) -> str:
@@ -234,7 +231,9 @@ class ChatREPL:
 
     def run(self):
         print(f"MoA Gateway Pro Chat (model={self.model})")
-        print("Commands: /model <name>, /moa, /clear, /history, /workflow, /discover, /ai, /blocks, /export, /quit")
+        print(
+            "Commands: /model <name>, /moa, /clear, /history, /workflow, /discover, /ai, /blocks, /export, /quit"
+        )
         print("AI Suggestion: # <natural language description>")
         print()
 
@@ -246,23 +245,27 @@ class ChatREPL:
 
                 # Check for # prefix (Warp-style AI suggestion)
                 if line.startswith("#"):
-                    self._blocks.add_block(ChatBlock(
-                        id=str(uuid4()),
-                        type=BlockType.USER_INPUT,
-                        title="AI Suggestion",
-                        content=line,
-                    ))
+                    self._blocks.add_block(
+                        ChatBlock(
+                            id=str(uuid4()),
+                            type=BlockType.USER_INPUT,
+                            title="AI Suggestion",
+                            content=line,
+                        )
+                    )
                     self._handle_ai_suggestion(line[1:].strip())
                     continue
 
                 # Check for / prefix (Terax-style slash commands)
                 if line.startswith("/"):
-                    self._blocks.add_block(ChatBlock(
-                        id=str(uuid4()),
-                        type=BlockType.USER_INPUT,
-                        title="Command",
-                        content=line,
-                    ))
+                    self._blocks.add_block(
+                        ChatBlock(
+                            id=str(uuid4()),
+                            type=BlockType.USER_INPUT,
+                            title="Command",
+                            content=line,
+                        )
+                    )
                     self._handle_command(line)
                     continue
 
@@ -285,7 +288,7 @@ class ChatREPL:
                 status=BlockStatus.FAILURE,
             )
             self._blocks.add_block(error_block)
-            print(f"Unknown command: {cmd.split()[0]}  (try /help)")
+            print(f"Unknown command: {cmd.split(maxsplit=1)[0]}  (try /help)")
             return
 
         handler = result["handler"]
@@ -382,7 +385,7 @@ class ChatREPL:
             print(f"  {i}. {s['full_command']}")
             print(f"     Confidence: {s['confidence']:.0%} -- {s['explanation']}")
 
-        print(f"\nTo execute, run the command in your terminal.")
+        print("\nTo execute, run the command in your terminal.")
         print()
 
     def _handle_workflow(self, args: str):
@@ -459,12 +462,14 @@ class ChatREPL:
         self.history.append({"role": "user", "content": message})
 
         # Create USER_INPUT block
-        user_block_id = self._blocks.add_block(ChatBlock(
-            id=str(uuid4()),
-            type=BlockType.USER_INPUT,
-            title="User Message",
-            content=message,
-        ))
+        user_block_id = self._blocks.add_block(
+            ChatBlock(
+                id=str(uuid4()),
+                type=BlockType.USER_INPUT,
+                title="User Message",
+                content=message,
+            )
+        )
 
         headers = {"Content-Type": "application/json"}
         if self.api_key:
@@ -503,47 +508,49 @@ class ChatREPL:
                         or str(data)[:500]
                     )
                 else:
-                    content = (
-                        data.get("choices", [{}])[0]
-                        .get("message", {})
-                        .get("content", "")
-                    )
+                    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
                 print(content)
                 self.history.append({"role": "assistant", "content": content})
 
                 # Create AI_RESPONSE block
-                self._blocks.add_block(ChatBlock(
-                    id=str(uuid4()),
-                    type=BlockType.AI_RESPONSE,
-                    title="AI Response",
-                    content=content,
-                    metadata={
-                        "model": self.model,
-                        "moa_mode": self.moa_mode,
-                        "status_code": r.status_code,
-                    },
-                ))
+                self._blocks.add_block(
+                    ChatBlock(
+                        id=str(uuid4()),
+                        type=BlockType.AI_RESPONSE,
+                        title="AI Response",
+                        content=content,
+                        metadata={
+                            "model": self.model,
+                            "moa_mode": self.moa_mode,
+                            "status_code": r.status_code,
+                        },
+                    )
+                )
             else:
                 error_msg = f"Error {r.status_code}: {r.text[:200]}"
                 print(error_msg)
-                self._blocks.add_block(ChatBlock(
-                    id=str(uuid4()),
-                    type=BlockType.ERROR,
-                    title="HTTP Error",
-                    content=error_msg,
-                    status=BlockStatus.FAILURE,
-                    metadata={"status_code": r.status_code},
-                ))
+                self._blocks.add_block(
+                    ChatBlock(
+                        id=str(uuid4()),
+                        type=BlockType.ERROR,
+                        title="HTTP Error",
+                        content=error_msg,
+                        status=BlockStatus.FAILURE,
+                        metadata={"status_code": r.status_code},
+                    )
+                )
         except Exception as e:
             error_msg = f"Error: {e}"
             print(error_msg)
-            self._blocks.add_block(ChatBlock(
-                id=str(uuid4()),
-                type=BlockType.ERROR,
-                title="Connection Error",
-                content=error_msg,
-                status=BlockStatus.FAILURE,
-            ))
+            self._blocks.add_block(
+                ChatBlock(
+                    id=str(uuid4()),
+                    type=BlockType.ERROR,
+                    title="Connection Error",
+                    content=error_msg,
+                    status=BlockStatus.FAILURE,
+                )
+            )
 
 
 if __name__ == "__main__":

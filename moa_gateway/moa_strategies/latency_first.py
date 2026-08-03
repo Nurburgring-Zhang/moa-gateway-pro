@@ -1,9 +1,10 @@
 """Latency-first strategy: select the fastest models based on benchmark data."""
+
 from __future__ import annotations
 
 from typing import Any
 
-from .base import ModelCandidate, MoaStrategy
+from .base import MoaStrategy, ModelCandidate
 
 _PERF_RANK = {"S": 0, "A": 1, "B": 2, "C": 3}
 
@@ -28,10 +29,7 @@ class LatencyFirstStrategy(MoaStrategy):
         context: dict[str, Any] | None = None,
         n: int = 3,
     ) -> list[str]:
-        healthy = [
-            c for c in candidates
-            if c.health_status not in ("unhealthy", "dead")
-        ]
+        healthy = [c for c in candidates if c.health_status not in ("unhealthy", "dead")]
         if not healthy:
             healthy = list(candidates)
 

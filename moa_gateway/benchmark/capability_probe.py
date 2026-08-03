@@ -4,11 +4,11 @@ Probes each endpoint with targeted test requests to discover which
 capabilities a model actually supports (code, reasoning, json_mode,
 function_call, streaming, etc.).
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -24,15 +24,15 @@ logger = logging.getLogger(__name__)
 class Capability(Enum):
     """Model capability tags."""
 
-    TEXT = "text"                  # basic text chat
-    CODE = "code"                  # code generation
-    REASONING = "reasoning"        # logical reasoning
-    VISION = "vision"              # image understanding
+    TEXT = "text"  # basic text chat
+    CODE = "code"  # code generation
+    REASONING = "reasoning"  # logical reasoning
+    VISION = "vision"  # image understanding
     FUNCTION_CALL = "function_call"  # function/tool calling
-    JSON_MODE = "json_mode"         # JSON output mode
-    MULTILINGUAL = "multilingual"   # multi-language support
-    CREATIVE = "creative"          # creative writing
-    STREAMING = "streaming"         # streaming response
+    JSON_MODE = "json_mode"  # JSON output mode
+    MULTILINGUAL = "multilingual"  # multi-language support
+    CREATIVE = "creative"  # creative writing
+    STREAMING = "streaming"  # streaming response
 
 
 @dataclass
@@ -97,9 +97,7 @@ class CapabilityProbe:
                 "validate": self._validate_code,
             },
             Capability.REASONING: {
-                "messages": [
-                    {"role": "user", "content": "If A>B, B>C, is A>C? Reply yes or no."}
-                ],
+                "messages": [{"role": "user", "content": "If A>B, B>C, is A>C? Reply yes or no."}],
                 "max_tokens": 100,
                 "validate": self._validate_reasoning,
             },
@@ -276,14 +274,8 @@ class CapabilityProbe:
         await _probe_one(Capability.TEXT, self.CAPABILITY_TESTS[Capability.TEXT])
 
         # Test remaining capabilities in parallel
-        other_tests = {
-            k: v
-            for k, v in self.CAPABILITY_TESTS.items()
-            if k != Capability.TEXT
-        }
-        await asyncio.gather(
-            *[_probe_one(k, v) for k, v in other_tests.items()]
-        )
+        other_tests = {k: v for k, v in self.CAPABILITY_TESTS.items() if k != Capability.TEXT}
+        await asyncio.gather(*[_probe_one(k, v) for k, v in other_tests.items()])
 
         # If text failed, still mark it as supported (models always support basic text)
         if Capability.TEXT not in result.capabilities:
@@ -472,9 +464,7 @@ class CapabilityProbe:
         if hasattr(self._model_pool, "endpoints"):
             all_ids = list(self._model_pool.endpoints.keys())
         elif hasattr(self._model_pool, "list_endpoints"):
-            all_ids = [
-                e.id if hasattr(e, "id") else e for e in self._model_pool.list_endpoints()
-            ]
+            all_ids = [e.id if hasattr(e, "id") else e for e in self._model_pool.list_endpoints()]
         else:
             return {}
 
@@ -555,9 +545,7 @@ class CapabilityProbe:
 
     def get_endpoints_by_capability(self, capability: Capability) -> list[str]:
         """Filter endpoints by capability."""
-        return [
-            eid for eid, r in self._results.items() if capability in r.capabilities
-        ]
+        return [eid for eid, r in self._results.items() if capability in r.capabilities]
 
     def get_summary(self) -> dict[str, Any]:
         """Return aggregate capability summary."""

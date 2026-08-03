@@ -3,13 +3,13 @@
 Stores performance metrics and capability results in separate JSON files
 under the data/ directory, avoiding modifications to storage.py.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
 import pathlib
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -31,9 +31,7 @@ class MetricsStore:
         capabilities_path: str | None = None,
     ):
         self._metrics_path = pathlib.Path(metrics_path or self.DEFAULT_METRICS_PATH)
-        self._capabilities_path = pathlib.Path(
-            capabilities_path or self.DEFAULT_CAPABILITIES_PATH
-        )
+        self._capabilities_path = pathlib.Path(capabilities_path or self.DEFAULT_CAPABILITIES_PATH)
 
     # ========== Performance Metrics ==========
 

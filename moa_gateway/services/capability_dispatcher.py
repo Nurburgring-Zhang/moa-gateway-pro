@@ -206,7 +206,7 @@ class CapabilityDispatcher(ServiceBase):
             try:
                 mod = importlib.import_module(f"moa_gateway.capability.{module}")
             except ImportError as e:
-                raise ValueError(f"capability module '{module}' not found: {e}")
+                raise ValueError(f"capability module '{module}' not found: {e}") from e
             # The actual function selection is endpoint-specific.
             # This is a passthrough — body is forwarded.
             # Implementation: server.py endpoints do their own work;

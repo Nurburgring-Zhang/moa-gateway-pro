@@ -3,23 +3,101 @@
 All capability endpoints are stateless utility functions exposed via the gateway.
 Each implements a specific AI orchestration primitive.
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from ..auth import require_admin, require_api_key
-from ..storage import get_storage
-from ..req_models import *  # noqa: F403,F401
 from .._helpers import err_500
+from ..auth import require_admin, require_api_key
+from ..req_models import (  # noqa: E501
+    CreateAcceptanceRequest,
+    CreateActionPolicyRequest,
+    CreateAnthropicCompatRequest,
+    CreateArtifactRequest,
+    CreateAuditRequest,
+    CreateAutoConvergeRequest,
+    CreateBrainstormRequest,
+    CreateBubbleRequest,
+    CreateCalculateMaxTokensRequest,
+    CreateCanaryRequest,
+    CreateChannelsRequest,
+    CreateCheckpointRequest,
+    CreateConfigRequest,
+    CreateConflictArbitrateRequest,
+    CreateConsumptionIntelRequest,
+    CreateContextCleanRequest,
+    CreateConvergentDetectRequest,
+    CreateCostEstimateRequest,
+    CreateCrossIterRequest,
+    CreateDistillRequest,
+    CreateEloRequest,
+    CreateEmbeddingsRequest,
+    CreateEnsembleVoteRequest,
+    CreateEstimateCostRequest,
+    CreateFeedbackIterRequest,
+    CreateFlaskRequest,
+    CreateFrozenRequest,
+    CreateFuzzyDedupRequest,
+    CreateGateL0Request,
+    CreateGoalEvalRequest,
+    CreateGraceRequest,
+    CreateGroupThinkCheckRequest,
+    CreateHookEventsRequest,
+    CreateImportanceScoreRequest,
+    CreateInFlightRequest,
+    CreateInputFingerprintRequest,
+    CreateLlmMergeRequest,
+    CreateMetaPromptRequest,
+    CreateMoaEngineRequest,
+    CreateMoaNLayerRequest,
+    CreateModelEntryRequest,
+    CreateMultiModeSynthRequest,
+    CreateMxRequest,
+    CreatePerProviderRlRequest,
+    CreatePlanActRequest,
+    CreatePromptFeaturesRequest,
+    CreateProviderHealthRequest,
+    CreateQuorumCheckRequest,
+    CreateQuotaCheckRequest,
+    CreateQuotaRecordRequest,
+    CreateRagSearchRequest,
+    CreateReferenceRouterRequest,
+    CreateRequestDedupRequest,
+    CreateRerankRequest,
+    CreateRouteRequest,
+    CreateScorePanelRequest,
+    CreateSecretScanRequest,
+    CreateSectionViabilityRequest,
+    CreateSelfHealRequest,
+    CreateSemanticSearchRequest,
+    CreateSessionLockRequest,
+    CreateShouldRebalanceRequest,
+    CreateStreamAggregateRequest,
+    CreateSubagentCommsRequest,
+    CreateTaskTreeRequest,
+    CreateTierPromoRequest,
+    CreateTierRecalibrateRequest,
+    CreateTokenBucketRequest,
+    CreateToolReplayRequest,
+    CreateToolScreeningRequest,
+    CreateTraceRequest,
+    CreateTurboquantRequest,
+    CreateVersionRequest,
+    CreateWrapOutputRequest,
+)
+from ..storage import get_storage
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["capability"])
+
 
 # ========== v1.5 Capability Endpoints (从 10 项目迁移) ==========
 @router.post("/v1/capability/secret-scan")
@@ -38,6 +116,7 @@ async def capability_secret_scan(
     result = scan_path(p)
     blocked = should_block(result, body.get("fail_on", 3)) and not body.get("no_block", False)
     return {**result.to_dict(), "blocked": blocked}
+
 
 @router.post("/v1/capability/group-think-check")
 async def capability_group_think_check(
@@ -68,6 +147,7 @@ async def capability_group_think_check(
     )
     return v.to_dict()
 
+
 @router.post("/v1/capability/ensemble-vote")
 async def capability_ensemble_vote(
     body: CreateEnsembleVoteRequest,
@@ -85,6 +165,7 @@ async def capability_ensemble_vote(
     result = ensemble_vote(votes, method=body.get("method", "weighted"))
     return result.to_dict()
 
+
 @router.post("/v1/capability/should-rebalance")
 async def capability_should_rebalance(
     body: CreateShouldRebalanceRequest,
@@ -100,6 +181,7 @@ async def capability_should_rebalance(
 
     stats = {k: TierStat(**v) for k, v in body.get("stats", {}).items()}
     return {"should_rebalance": should_rebalance(stats, body.get("config", {}))}
+
 
 @router.post("/v1/capability/cost-estimate")
 async def capability_cost_estimate(
@@ -127,6 +209,7 @@ async def capability_cost_estimate(
         return {"report": format_report(est), "estimate": est.to_dict()}
     return est.to_dict()
 
+
 @router.post("/v1/capability/gate-l0")
 async def capability_gate_l0(
     body: CreateGateL0Request,
@@ -138,6 +221,7 @@ async def capability_gate_l0(
     from ..capability.gate_l0 import gate
 
     return gate(body.get("query", "")).to_dict()
+
 
 @router.post("/v1/capability/score-panel")
 async def capability_score_panel(
@@ -153,6 +237,7 @@ async def capability_score_panel(
         query=body.get("query", ""),
         answer=body.get("answer", ""),
     ).to_dict()
+
 
 @router.get("/v1/capability/models")
 async def capability_models(
@@ -175,6 +260,7 @@ async def capability_models(
     )
     return {"count": len(models), "models": [m.to_dict() for m in models]}
 
+
 @router.post("/v1/capability/calculate-max-tokens")
 async def capability_calculate_max_tokens(
     body: CreateCalculateMaxTokensRequest,
@@ -195,6 +281,7 @@ async def capability_calculate_max_tokens(
         ),
     }
 
+
 @router.post("/v1/capability/estimate-cost")
 async def capability_estimate_cost(
     body: CreateEstimateCostRequest,
@@ -210,6 +297,7 @@ async def capability_estimate_cost(
         body.get("input_tokens", 1000),
         body.get("output_tokens", 500),
     )
+
 
 # ========== v1.5.1 Capability Endpoints — Wave 1 (HIGH 优先级) ==========
 @router.post("/v1/capability/quota-check")
@@ -236,6 +324,7 @@ async def capability_quota_check(
     }
     return result
 
+
 @router.post("/v1/capability/quota-record")
 async def capability_quota_record(
     body: CreateQuotaRecordRequest,
@@ -251,6 +340,7 @@ async def capability_quota_record(
         "windows": {name: w.__dict__ for name, w in state.windows.items()},
         "last_updated": state.last_updated,
     }
+
 
 @router.post("/v1/capability/moa-n-layer")
 async def capability_moa_n_layer(
@@ -282,9 +372,7 @@ async def capability_moa_n_layer(
     if not proposers:
         raise HTTPException(400, "proposers must be non-empty")
     if len(aggregators) != 3:
-        raise HTTPException(
-            400, f"3-layer MoA needs exactly 3 aggregators, got {len(aggregators)}"
-        )
+        raise HTTPException(400, f"3-layer MoA needs exactly 3 aggregators, got {len(aggregators)}")
     try:
         result = await run_three_layer_moa(
             body.get("query", ""),
@@ -297,8 +385,9 @@ async def capability_moa_n_layer(
         raise
 
     except Exception as e:
-        raise err_500(e, "MoA run failed")
+        raise err_500(e, "MoA run failed") from e
     return result
+
 
 @router.post("/v1/capability/convergent-detect")
 async def capability_convergent_detect(
@@ -329,6 +418,7 @@ async def capability_convergent_detect(
         ]
     return summary
 
+
 @router.post("/v1/capability/action-policy")
 async def capability_action_policy(
     body: CreateActionPolicyRequest,
@@ -347,6 +437,7 @@ async def capability_action_policy(
     policy = ActionPolicy(rules)
     verdict = pre_action_check(body.get("command", ""), policy)
     return verdict.__dict__
+
 
 @router.post("/v1/capability/embeddings")
 async def capability_embeddings(
@@ -379,6 +470,7 @@ async def capability_embeddings(
         },
     }
 
+
 @router.post("/v1/capability/semantic-search")
 async def capability_semantic_search(
     body: CreateSemanticSearchRequest,
@@ -409,6 +501,7 @@ async def capability_semantic_search(
         ],
     }
 
+
 # ========== v1.5.2 Capability Endpoints — Wave 2 (HIGH 优先级) ==========
 @router.post("/v1/capability/prompt-features")
 async def capability_prompt_features(
@@ -436,6 +529,7 @@ async def capability_prompt_features(
         "use_pro_model": should_use_pro_model(feats),
     }
 
+
 @router.post("/v1/capability/provider-health")
 async def capability_provider_health(
     body: CreateProviderHealthRequest,
@@ -458,12 +552,12 @@ async def capability_provider_health(
     ranked = rank_providers(scores)
     return {
         "scores": {
-            k: {"score": v.score, "tier": v.tier, "reasons": v.reasons}
-            for k, v in scores.items()
+            k: {"score": v.score, "tier": v.tier, "reasons": v.reasons} for k, v in scores.items()
         },
         "ranked": [{"provider": p, "score": s} for p, s in ranked],
         "recommend": recommend(scores, body.get("prefer_tier")),
     }
+
 
 @router.post("/v1/capability/context-clean")
 async def capability_context_clean(
@@ -485,6 +579,7 @@ async def capability_context_clean(
         "messages": to_openai_format(cleaned),
         "stats": stats.__dict__,
     }
+
 
 @router.post("/v1/capability/self-heal")
 async def capability_self_heal(
@@ -520,13 +615,9 @@ async def capability_self_heal(
         elif action == "check_recovery":
             result_actions = [check_recovery(state, body["endpoint_id"], at)]
         elif action == "promote":
-            result_actions = [
-                promote(state, body["endpoint_id"], body.get("reason", "manual"), at)
-            ]
+            result_actions = [promote(state, body["endpoint_id"], body.get("reason", "manual"), at)]
         elif action == "demote":
-            result_actions = [
-                demote(state, body["endpoint_id"], body.get("reason", "manual"), at)
-            ]
+            result_actions = [demote(state, body["endpoint_id"], body.get("reason", "manual"), at)]
         elif action == "auto_balance":
             result_actions = auto_balance(state, at)
         else:
@@ -535,12 +626,13 @@ async def capability_self_heal(
         raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
     except Exception as e:
-        raise err_500(e, "self_heal action failed:")
+        raise err_500(e, "self_heal action failed:") from e
     return {
         "actions": [a.__dict__ for a in result_actions],
         "state": state_to_dict(state),
         "available_endpoints": get_available_endpoints(state),
     }
+
 
 @router.post("/v1/capability/multi-mode-synth")
 async def capability_multi_mode_synth(
@@ -571,7 +663,7 @@ async def capability_multi_mode_synth(
         raise  # patch v1.6.6: pass through 4xx
 
     except Exception as e:
-        raise err_500(e, "synthesis failed:")
+        raise err_500(e, "synthesis failed:") from e
     return {
         "mode": result.mode.value,
         "output": result.output,
@@ -579,6 +671,7 @@ async def capability_multi_mode_synth(
         "confidence": result.confidence,
         "metadata": result.metadata,
     }
+
 
 # ========== v1.5.3 Capability Endpoints — Wave 3 (HIGH 优先级) ==========
 @router.post("/v1/capability/conflict-arbitrate")
@@ -608,6 +701,7 @@ async def capability_conflict_arbitrate(
         "voting_breakdown": verdict.voting_breakdown,
     }
 
+
 @router.post("/v1/capability/section-viability")
 async def capability_section_viability(
     body: CreateSectionViabilityRequest,
@@ -631,6 +725,7 @@ async def capability_section_viability(
         "ap_score": report.ap_score,
         "verdicts": [v.__dict__ for v in report.verdicts],
     }
+
 
 @router.post("/v1/capability/feedback-iter")
 async def capability_feedback_iter(
@@ -681,7 +776,7 @@ async def capability_feedback_iter(
             raise  # patch v1.6.6: pass through 4xx
 
         except Exception as e:
-            raise err_500(e, "save_feedback failed:")
+            raise err_500(e, "save_feedback failed:") from e
     history = load_history(history_path) if history_path else []
     conv = (
         detect_convergence(history)
@@ -694,6 +789,7 @@ async def capability_feedback_iter(
         "convergence": conv,
         "next_iter_prompt": prompt,
     }
+
 
 @router.post("/v1/capability/stream-aggregate")
 async def capability_stream_aggregate(
@@ -721,7 +817,7 @@ async def capability_stream_aggregate(
         raise  # patch v1.6.6: pass through 4xx
 
     except Exception as e:
-        raise err_500(e, "stream aggregate failed:")
+        raise err_500(e, "stream aggregate failed:") from e
     return {
         "full_content": result.full_content,
         "tool_calls": result.tool_calls,
@@ -733,6 +829,7 @@ async def capability_stream_aggregate(
             for c in result.chunks[:5]
         ],
     }
+
 
 @router.post("/v1/capability/per-provider-rl")
 async def capability_per_provider_rl(
@@ -798,8 +895,9 @@ async def capability_per_provider_rl(
         raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
     except Exception as e:
-        raise err_500(e, "per_provider_rl action failed:")
+        raise err_500(e, "per_provider_rl action failed:") from e
     return result
+
 
 # ========== v1.5.4 Capability Endpoints — Wave 4 (HIGH 优先级) ==========
 @router.post("/v1/capability/tier-recalibrate")
@@ -844,6 +942,7 @@ async def capability_tier_recalibrate(
         "plan_count": len(plans),
     }
 
+
 @router.post("/v1/capability/consumption-intel")
 async def capability_consumption_intel(
     body: CreateConsumptionIntelRequest,
@@ -869,6 +968,7 @@ async def capability_consumption_intel(
         "estimated_cost_usd": decision.estimated_cost_usd,
     }
 
+
 @router.post("/v1/capability/importance-score")
 async def capability_importance_score(
     body: CreateImportanceScoreRequest,
@@ -889,12 +989,12 @@ async def capability_importance_score(
     top_k = body.get("top_k", 0)
     return {
         "scores": [
-            {"message_idx": s.message_idx, "score": s.score, "reasons": s.reasons}
-            for s in scores
+            {"message_idx": s.message_idx, "score": s.score, "reasons": s.reasons} for s in scores
         ],
         "top_k_indices": select_top_k(scores, top_k) if top_k else [],
         "should_compress": should_compress(scores, body.get("threshold", 0.5)),
     }
+
 
 @router.post("/v1/capability/quorum-check")
 async def capability_quorum_check(
@@ -954,6 +1054,7 @@ async def capability_quorum_check(
         else:
             result["rating"] = parse_rating(jr)
     return result
+
 
 @router.post("/v1/capability/model-entry")
 async def capability_model_entry(
@@ -1016,6 +1117,7 @@ async def capability_model_entry(
         else {},
     }
 
+
 # ========== v1.5.5 Capability Endpoints — Wave 5 (HIGH 优先级) ==========
 @router.post("/v1/capability/tool-replay")
 async def capability_tool_replay(
@@ -1041,9 +1143,7 @@ async def capability_tool_replay(
     # replay
     replay = replay_tool_calls(proposals, source_indices=list(range(len(proposals))))
     # 防循环
-    disable = should_disable_tool_choice(
-        len(all_calls), body.get("recent_count", len(all_calls))
-    )
+    disable = should_disable_tool_choice(len(all_calls), body.get("recent_count", len(all_calls)))
     loop = detect_tool_loop(all_calls, window=body.get("window", 5))
     formatted = format_tool_calls_for_aggregator(replay.tool_calls)
     return {
@@ -1054,6 +1154,7 @@ async def capability_tool_replay(
         "detected_loop": loop.__dict__ if loop else None,
         "aggregator_format": formatted,
     }
+
 
 @router.post("/v1/capability/hook-events")
 async def capability_hook_events(
@@ -1087,7 +1188,7 @@ async def capability_hook_events(
         try:
             event = HookEvent(event_name)
         except ValueError:
-            raise HTTPException(400, f"unknown event: {event_name}")
+            raise HTTPException(400, f"unknown event: {event_name}") from None
         ctx = HookContext(
             event=event,
             session_id=body.get("session_id", ""),
@@ -1114,6 +1215,7 @@ async def capability_hook_events(
     else:
         raise HTTPException(400, f"unknown action: {action}")
     return result
+
 
 @router.post("/v1/capability/meta-prompt")
 async def capability_meta_prompt(
@@ -1148,6 +1250,7 @@ async def capability_meta_prompt(
         return {"winner": winner, "options_count": len(options)}
     else:
         raise HTTPException(400, f"unknown action: {action}")
+
 
 @router.post("/v1/capability/task-tree")
 async def capability_task_tree(
@@ -1207,9 +1310,7 @@ async def capability_task_tree(
                     pass
     if tree is None:
         tree = TaskTree(root_id="root")
-        tree.add_task(
-            TaskSegment(id="root", title="root", description="root", status="pending")
-        )
+        tree.add_task(TaskSegment(id="root", title="root", description="root", status="pending"))
     # 修 v1.6.6: 删除 buggy "else: tree = TaskTree(root_id='root')" 覆盖代码
     action = body.get("action", "ready")
     task_id = body.get("task_id", "")
@@ -1232,13 +1333,14 @@ async def capability_task_tree(
         try:
             status_enum = TaskStatus(new_status)
         except ValueError:
-            raise HTTPException(400, f"unknown status: {new_status}")
+            raise HTTPException(400, f"unknown status: {new_status}") from None
         tree.set_status(task_id, status_enum)
         result = {"set": True, "task_id": task_id, "status": new_status}
     else:
         raise HTTPException(400, f"unknown action: {action}")
     result["tree"] = tree_to_dict(tree)
     return result
+
 
 @router.post("/v1/capability/distill")
 async def capability_distill(
@@ -1281,6 +1383,7 @@ async def capability_distill(
             }
     return result
 
+
 # ========== v1.5.6 Capability Endpoints — Wave 6 (HIGH 优先级) ==========
 @router.post("/v1/capability/rerank")
 async def capability_rerank(
@@ -1312,6 +1415,7 @@ async def capability_rerank(
         result_data["stream_proxy"] = proxy
         result_data["openai_format"] = format_for_openai(proxy)
     return result_data
+
 
 @router.post("/v1/capability/goal-eval")
 async def capability_goal_eval(
@@ -1361,6 +1465,7 @@ async def capability_goal_eval(
         ceiling = cr.__dict__
     return {"results": results, "ceiling_report": ceiling}
 
+
 @router.post("/v1/capability/auto-converge")
 async def capability_auto_converge(
     body: CreateAutoConvergeRequest,
@@ -1408,6 +1513,7 @@ async def capability_auto_converge(
             body.get("calibrate_samples", 0),
         )
     return result
+
 
 @router.post("/v1/capability/subagent-comms")
 async def capability_subagent_comms(
@@ -1467,9 +1573,7 @@ async def capability_subagent_comms(
                 board.update_status(body["task_id"], body.get("status", "pending"))
                 result = {"updated": True}
             elif action == "list_tasks":
-                tasks = board.list_tasks(
-                    status=body.get("status"), assignee=body.get("assignee")
-                )
+                tasks = board.list_tasks(status=body.get("status"), assignee=body.get("assignee"))
                 result = {"tasks": [t.__dict__ for t in tasks]}
             elif action == "get_task":
                 t = board.get_task(body["task_id"])
@@ -1500,8 +1604,9 @@ async def capability_subagent_comms(
         raise  # patch v1.6.6: pass through 4xx
 
     except Exception as e:
-        raise err_500(e, "subagent_comms failed:")
+        raise err_500(e, "subagent_comms failed:") from e
     return result
+
 
 @router.post("/v1/capability/version")
 async def capability_version(
@@ -1575,8 +1680,9 @@ async def capability_version(
         raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
     except Exception as e:
-        raise err_500(e, "version action failed:")
+        raise err_500(e, "version action failed:") from e
     return result
+
 
 # ========== v1.5.7 Capability Endpoints — Wave 7 (HIGH 优先级) ==========
 @router.post("/v1/capability/config")
@@ -1603,9 +1709,7 @@ async def capability_config(
     try:
         if action == "set":
             layer = ConfigLayer[body.get("layer", "user").upper()]
-            stack.set(
-                body["key"], body.get("value"), layer, explicit=body.get("explicit", True)
-            )
+            stack.set(body["key"], body.get("value"), layer, explicit=body.get("explicit", True))
             result = {"set": True, "key": body["key"], "layer": body.get("layer", "user")}
         elif action == "get":
             val, layer = stack.get_with_source(body["key"])
@@ -1633,8 +1737,9 @@ async def capability_config(
         raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
     except Exception as e:
-        raise err_500(e, "config action failed:")
+        raise err_500(e, "config action failed:") from e
     return result
+
 
 @router.post("/v1/capability/bubble")
 async def capability_bubble(
@@ -1668,9 +1773,7 @@ async def capability_bubble(
                 )
                 result = {"request_id": req_id}
             elif action == "resolve":
-                ok = mgr.resolve(
-                    body["request_id"], BubbleStatus(body.get("decision", "allowed"))
-                )
+                ok = mgr.resolve(body["request_id"], BubbleStatus(body.get("decision", "allowed")))
                 result = {"resolved": ok}
             elif action == "pending":
                 pending = mgr.get_pending()
@@ -1706,8 +1809,9 @@ async def capability_bubble(
         raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
     except Exception as e:
-        raise err_500(e, "bubble action failed:")
+        raise err_500(e, "bubble action failed:") from e
     return result
+
 
 @router.post("/v1/capability/worktree")
 async def capability_worktree(
@@ -1774,8 +1878,9 @@ async def capability_worktree(
         raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
     except Exception as e:
-        raise err_500(e, "worktree action failed:")
+        raise err_500(e, "worktree action failed:") from e
     return result
+
 
 @router.post("/v1/capability/route")
 async def capability_route(
@@ -1825,8 +1930,9 @@ async def capability_route(
         raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
     except Exception as e:
-        raise err_500(e, "route action failed:")
+        raise err_500(e, "route action failed:") from e
     return result
+
 
 @router.post("/v1/capability/session-lock")
 async def capability_session_lock(
@@ -1917,8 +2023,9 @@ async def capability_session_lock(
         raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
     except Exception as e:
-        raise err_500(e, "session_lock action failed:")
+        raise err_500(e, "session_lock action failed:") from e
     return result
+
 
 # ========== v1.5.8 Capability Endpoints — Wave 8 (HIGH 优先级) ==========
 @router.post("/v1/capability/flask")
@@ -1956,6 +2063,7 @@ async def capability_flask(
             )
         result["task_scores"] = scores
     return result
+
 
 @router.post("/v1/capability/elo")
 async def capability_elo(
@@ -2023,8 +2131,9 @@ async def capability_elo(
         raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
     except Exception as e:
-        raise err_500(e, "elo action failed:")
+        raise err_500(e, "elo action failed:") from e
     return result
+
 
 @router.post("/v1/capability/brainstorm")
 async def capability_brainstorm(
@@ -2060,8 +2169,9 @@ async def capability_brainstorm(
         raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
     except Exception as e:
-        raise err_500(e, "brainstorm action failed:")
+        raise err_500(e, "brainstorm action failed:") from e
     return result
+
 
 @router.post("/v1/capability/cross-iter")
 async def capability_cross_iter(
@@ -2120,8 +2230,9 @@ async def capability_cross_iter(
         raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
     except Exception as e:
-        raise err_500(e, "cross_iter action failed:")
+        raise err_500(e, "cross_iter action failed:") from e
     return result
+
 
 @router.post("/v1/capability/audit")
 async def capability_audit(
@@ -2145,7 +2256,8 @@ async def capability_audit(
         raise  # patch v1.6.6: pass through 4xx
 
     except Exception as e:
-        raise err_500(e, "audit failed:")
+        raise err_500(e, "audit failed:") from e
+
 
 # ========== v1.5.9 Capability Endpoints — Wave 9 (HIGH 优先级) ==========
 @router.post("/v1/capability/in-flight")
@@ -2205,8 +2317,9 @@ async def capability_in_flight(
         raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
     except Exception as e:
-        raise err_500(e, "in_flight action failed:")
+        raise err_500(e, "in_flight action failed:") from e
     return result
+
 
 @router.post("/v1/capability/mx")
 async def capability_mx(
@@ -2252,8 +2365,9 @@ async def capability_mx(
         raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
     except Exception as e:
-        raise err_500(e, "mx action failed:")
+        raise err_500(e, "mx action failed:") from e
     return result
+
 
 @router.post("/v1/capability/tier-promo")
 async def capability_tier_promo(
@@ -2309,8 +2423,9 @@ async def capability_tier_promo(
         raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
     except Exception as e:
-        raise err_500(e, "tier_promo action failed:")
+        raise err_500(e, "tier_promo action failed:") from e
     return result
+
 
 @router.post("/v1/capability/artifact")
 async def capability_artifact(
@@ -2331,9 +2446,7 @@ async def capability_artifact(
     if not hasattr(capability_artifact, "_registry"):
         capability_artifact._registry = SchemaRegistry()
     if not hasattr(capability_artifact, "_orchestrator"):
-        capability_artifact._orchestrator = TmuxOrchestrator(
-            max_visible=body.get("max_visible", 3)
-        )
+        capability_artifact._orchestrator = TmuxOrchestrator(max_visible=body.get("max_visible", 3))
     reg = capability_artifact._registry
     orch = capability_artifact._orchestrator
     action = body.get("action", "register")
@@ -2385,8 +2498,9 @@ async def capability_artifact(
         raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
     except Exception as e:
-        raise err_500(e, "artifact action failed:")
+        raise err_500(e, "artifact action failed:") from e
     return result
+
 
 @router.post("/v1/capability/frozen")
 async def capability_frozen(
@@ -2451,8 +2565,9 @@ async def capability_frozen(
         raise  # 修 38: 让 4xx 直接返回(不被包 500)
 
     except Exception as e:
-        raise err_500(e, "frozen action failed:")
+        raise err_500(e, "frozen action failed:") from e
     return result
+
 
 # ========== v1.5.10 Capability Endpoints — Wave 10 (HIGH 优先级) ==========
 @router.post("/v1/capability/turboquant")
@@ -2496,8 +2611,9 @@ async def capability_turboquant(
         raise  # patch v1.6.6: pass through 4xx
 
     except Exception as e:
-        raise err_500(e, "turboquant failed:")
+        raise err_500(e, "turboquant failed:") from e
     return result
+
 
 @router.post("/v1/capability/moa-engine")
 async def capability_moa_engine(
@@ -2541,8 +2657,9 @@ async def capability_moa_engine(
         raise  # patch v1.6.6: pass through 4xx
 
     except Exception as e:
-        raise err_500(e, "MoA run failed")
+        raise err_500(e, "MoA run failed") from e
     return result
+
 
 @router.post("/v1/capability/acceptance")
 async def capability_acceptance(
@@ -2597,8 +2714,9 @@ async def capability_acceptance(
         raise  # patch v1.6.6: pass through 4xx
 
     except Exception as e:
-        raise err_500(e, "acceptance failed:")
+        raise err_500(e, "acceptance failed:") from e
     return result
+
 
 @router.post("/v1/capability/llm-merge")
 async def capability_llm_merge(
@@ -2660,8 +2778,9 @@ async def capability_llm_merge(
         raise  # patch v1.6.6: pass through 4xx
 
     except Exception as e:
-        raise err_500(e, "llm_merge failed:")
+        raise err_500(e, "llm_merge failed:") from e
     return result
+
 
 @router.post("/v1/capability/grace")
 async def capability_grace(
@@ -2704,10 +2823,12 @@ async def capability_grace(
         raise  # patch v1.6.6: pass through 4xx
 
     except Exception as e:
-        raise err_500(e, "grace failed:")
+        raise err_500(e, "grace failed:") from e
     return result
 
+
 # ========== Wave 11 Capability Endpoints (5 new) ==========
+
 
 @router.post("/v1/capability/rag-search")
 async def capability_rag_search(
@@ -2729,7 +2850,8 @@ async def capability_rag_search(
         raise
 
     except Exception as e:
-        raise err_500(e, "rag_search failed:")
+        raise err_500(e, "rag_search failed:") from e
+
 
 @router.post("/v1/capability/plan-act")
 async def capability_plan_act(
@@ -2747,7 +2869,8 @@ async def capability_plan_act(
         raise
 
     except Exception as e:
-        raise err_500(e, "plan_act failed:")
+        raise err_500(e, "plan_act failed:") from e
+
 
 @router.post("/v1/capability/channels")
 async def capability_channels(
@@ -2794,7 +2917,8 @@ async def capability_channels(
         raise
 
     except Exception as e:
-        raise err_500(e, "channels failed:")
+        raise err_500(e, "channels failed:") from e
+
 
 @router.post("/v1/capability/reference-router")
 async def capability_reference_router(
@@ -2814,7 +2938,7 @@ async def capability_reference_router(
         try:
             strat = RefStrategy(strategy)
         except ValueError:
-            raise HTTPException(400, f"unknown strategy: {strategy}")
+            raise HTTPException(400, f"unknown strategy: {strategy}") from None
         cfg = ReferenceConfig(
             main_model=body.get("main_model", "main"),
             ref_model=body.get("ref_model", "ref"),
@@ -2828,7 +2952,8 @@ async def capability_reference_router(
         raise
 
     except Exception as e:
-        raise err_500(e, "reference_router failed:")
+        raise err_500(e, "reference_router failed:") from e
+
 
 @router.post("/v1/capability/checkpoint")
 async def capability_checkpoint(
@@ -2891,9 +3016,11 @@ async def capability_checkpoint(
         raise
 
     except Exception as e:
-        raise err_500(e, "checkpoint failed:")
+        raise err_500(e, "checkpoint failed:") from e
+
 
 # ========== Wave 12 Capability Endpoints (5 new) ==========
+
 
 @router.post("/v1/capability/audit")
 async def capability_audit_cache(
@@ -2955,7 +3082,8 @@ async def capability_audit_cache(
         raise
 
     except Exception as e:
-        raise err_500(e, "audit failed:")
+        raise err_500(e, "audit failed:") from e
+
 
 @router.post("/v1/capability/canary")
 async def capability_canary(
@@ -2975,7 +3103,7 @@ async def capability_canary(
             try:
                 strategy = CanaryStrategy(strat_name)
             except ValueError:
-                raise HTTPException(400, f"unknown strategy: {strat_name}")
+                raise HTTPException(400, f"unknown strategy: {strat_name}") from None
             prompt = body.get("prompt", "")
             det = CanaryDetector(strategy=strategy)
             new_prompt, canary = det.inject(prompt)
@@ -2993,7 +3121,8 @@ async def capability_canary(
         raise
 
     except Exception as e:
-        raise err_500(e, "canary failed:")
+        raise err_500(e, "canary failed:") from e
+
 
 @router.post("/v1/capability/wrap-output")
 async def capability_wrap_output(
@@ -3018,7 +3147,7 @@ async def capability_wrap_output(
             try:
                 trust = TrustLevel(trust_name)
             except ValueError:
-                raise HTTPException(400, f"unknown trust: {trust_name}")
+                raise HTTPException(400, f"unknown trust: {trust_name}") from None
             wrapped = wrap_output(
                 content, source, trust, max_length=int(body.get("max_length", 8192))
             )
@@ -3041,7 +3170,8 @@ async def capability_wrap_output(
         raise
 
     except Exception as e:
-        raise err_500(e, "wrap_output failed:")
+        raise err_500(e, "wrap_output failed:") from e
+
 
 @router.post("/v1/capability/fuzzy-dedup")
 async def capability_fuzzy_dedup(
@@ -3082,7 +3212,8 @@ async def capability_fuzzy_dedup(
         raise
 
     except Exception as e:
-        raise err_500(e, "fuzzy_dedup failed:")
+        raise err_500(e, "fuzzy_dedup failed:") from e
+
 
 @router.post("/v1/capability/input-fingerprint")
 async def capability_input_fingerprint(
@@ -3117,9 +3248,7 @@ async def capability_input_fingerprint(
                 return {"added": True, "attrs": fp.attrs, "size": store.size()}
             elif "collisions_with" in body:
                 min_levels = int(body.get("min_levels", 2))
-                collisions = store.find_collisions(
-                    body["collisions_with"], min_levels=min_levels
-                )
+                collisions = store.find_collisions(body["collisions_with"], min_levels=min_levels)
                 return {"collisions": len(collisions), "size": store.size()}
         else:
             raise HTTPException(400, f"unknown action: {action}")
@@ -3127,9 +3256,11 @@ async def capability_input_fingerprint(
         raise
 
     except Exception as e:
-        raise err_500(e, "input_fingerprint failed:")
+        raise err_500(e, "input_fingerprint failed:") from e
+
 
 # ========== Wave 13 Capability Endpoints (5 new) ==========
+
 
 @router.post("/v1/capability/tool-screening")
 async def capability_tool_screening(
@@ -3154,7 +3285,8 @@ async def capability_tool_screening(
         raise
 
     except Exception as e:
-        raise err_500(e, "tool_screening failed:")
+        raise err_500(e, "tool_screening failed:") from e
+
 
 @router.post("/v1/capability/anthropic-compat")
 async def capability_anthropic_compat(
@@ -3206,7 +3338,8 @@ async def capability_anthropic_compat(
         raise
 
     except Exception as e:
-        raise err_500(e, "anthropic_compat failed:")
+        raise err_500(e, "anthropic_compat failed:") from e
+
 
 @router.post("/v1/capability/token-bucket")
 async def capability_token_bucket(
@@ -3253,7 +3386,8 @@ async def capability_token_bucket(
         raise
 
     except Exception as e:
-        raise err_500(e, "token_bucket failed:")
+        raise err_500(e, "token_bucket failed:") from e
+
 
 @router.post("/v1/capability/request-dedup")
 async def capability_request_dedup(
@@ -3309,7 +3443,8 @@ async def capability_request_dedup(
         raise
 
     except Exception as e:
-        raise err_500(e, "request_dedup failed:")
+        raise err_500(e, "request_dedup failed:") from e
+
 
 @router.post("/v1/capability/trace")
 async def capability_trace(
@@ -3411,4 +3546,4 @@ async def capability_trace(
         raise
 
     except Exception as e:
-        raise err_500(e, "trace failed:")
+        raise err_500(e, "trace failed:") from e

@@ -62,4 +62,8 @@ class KlingVideoProvider(VideoGenerationProvider):
             videos = task_data["task_result"].get("videos", [{}])
             if videos:
                 video_url = videos[0].get("url")
-        return {"status": status, "video_url": video_url, "error": task_data.get("task_error_msg") if status == "FAILED" else None}
+        return {
+            "status": status,
+            "video_url": video_url,
+            "error": task_data.get("task_error_msg") if status == "FAILED" else None,
+        }

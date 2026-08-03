@@ -1,4 +1,5 @@
 """Admin management endpoints — /api/endpoints, /api/api-keys, /api/logs, etc."""
+
 from __future__ import annotations
 
 import logging
@@ -64,7 +65,7 @@ async def upsert_endpoint(req: EndpointUpsert, admin: dict[str, Any] = Depends(r
     except HTTPException:
         raise
     except Exception as e:
-        raise err_500(e, "upsert failed:")
+        raise err_500(e, "upsert failed:") from e
     return {"ok": True, "id": ep.id}
 
 
@@ -124,9 +125,7 @@ async def list_api_keys(admin: dict[str, Any] = Depends(require_admin)):
 
 
 @router.post("/api/api-keys")
-async def create_api_key(
-    req: CreateAPIKeyRequest, admin: dict[str, Any] = Depends(require_admin)
-):
+async def create_api_key(req: CreateAPIKeyRequest, admin: dict[str, Any] = Depends(require_admin)):
     return get_storage().create_api_key(req.name, req.quota_rpm, req.quota_daily_tokens)
 
 
@@ -233,11 +232,13 @@ async def create_user(
     try:
         user = storage.create_admin_user(req.username, req.password, req.role)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     if not user:
         raise HTTPException(409, "Username already exists")
     await audit_action(
-        request, "create_user", "users",
+        request,
+        "create_user",
+        "users",
         resource_id=str(user["id"]),
         detail={"username": req.username, "role": req.role},
     )
@@ -246,7 +247,9 @@ async def create_user(
 
 @router.put("/api/admin/users/{user_id}/role")
 async def update_user_role(
-    user_id: int, req: UpdateRoleRequest, request: Request,
+    user_id: int,
+    req: UpdateRoleRequest,
+    request: Request,
     admin: dict[str, Any] = Depends(require_admin),
 ):
     """Update a user's role. Requires admin:rbac permission."""
@@ -258,11 +261,13 @@ async def update_user_role(
     try:
         ok = storage.update_user_role(user_id, req.role)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
     if not ok:
         raise HTTPException(500, "Failed to update role")
     await audit_action(
-        request, "update_role", "users",
+        request,
+        "update_role",
+        "users",
         resource_id=str(user_id),
         detail={
             "username": target_user["username"],
@@ -290,7 +295,9 @@ async def delete_user(
     if not ok:
         raise HTTPException(500, "Failed to delete user")
     await audit_action(
-        request, "delete_user", "users",
+        request,
+        "delete_user",
+        "users",
         resource_id=str(user_id),
         detail={"username": target_user["username"]},
     )
@@ -339,6 +346,7 @@ async def get_audit_log(
 
     return {"entries": entries, "total": len(lines)}
 
+
 # ========== Cache Management ==========
 @router.get("/api/admin/cache/stats")
 async def cache_stats(admin: dict[str, Any] = Depends(require_admin)):
@@ -362,4 +370,3 @@ async def cache_config(admin: dict[str, Any] = Depends(require_admin)):
     """Get current cache configuration."""
     cache_mgr = get_cache_manager()
     return cache_mgr.get_config()
-

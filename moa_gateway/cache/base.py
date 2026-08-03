@@ -1,4 +1,5 @@
 """Cache abstract base class and shared types."""
+
 from __future__ import annotations
 
 import time
@@ -28,20 +29,16 @@ class CacheBackend(ABC):
     """Abstract cache backend interface."""
 
     @abstractmethod
-    async def get(self, key: str) -> CacheEntry | None:
-        ...
+    async def get(self, key: str) -> CacheEntry | None: ...
 
     @abstractmethod
-    async def set(self, key: str, value: Any, ttl: int = 3600) -> None:
-        ...
+    async def set(self, key: str, value: Any, ttl: int = 3600) -> None: ...
 
     @abstractmethod
-    async def delete(self, key: str) -> None:
-        ...
+    async def delete(self, key: str) -> None: ...
 
     @abstractmethod
-    async def clear(self) -> None:
-        ...
+    async def clear(self) -> None: ...
 
     async def size(self) -> int:
         """Return the number of entries (if supported)."""

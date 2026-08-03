@@ -22,7 +22,9 @@ class TTSProvider(ABC):
         self.timeout = timeout
 
     @abstractmethod
-    async def synthesize(self, text: str, voice: str = "default", audio_format: str = "mp3") -> bytes:
+    async def synthesize(
+        self, text: str, voice: str = "default", audio_format: str = "mp3"
+    ) -> bytes:
         """Return audio bytes."""
         raise NotImplementedError
 
@@ -33,7 +35,12 @@ class OpenAITTSProvider(TTSProvider):
     async def synthesize(self, text: str, voice: str = "alloy", audio_format: str = "mp3") -> bytes:
         url = f"{self.api_base}/audio/speech"
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"}
-        payload: dict[str, Any] = {"model": "tts-1", "input": text, "voice": voice, "response_format": audio_format}
+        payload: dict[str, Any] = {
+            "model": "tts-1",
+            "input": text,
+            "voice": voice,
+            "response_format": audio_format,
+        }
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(url, json=payload, headers=headers)
             if resp.status_code != 200:
@@ -44,10 +51,20 @@ class OpenAITTSProvider(TTSProvider):
 class QwenTTSProvider(TTSProvider):
     """Qwen (DashScope) TTS provider with async task."""
 
-    async def synthesize(self, text: str, voice: str = "longxiaochun", audio_format: str = "mp3") -> bytes:
+    async def synthesize(
+        self, text: str, voice: str = "longxiaochun", audio_format: str = "mp3"
+    ) -> bytes:
         url = f"{self.api_base}/api/v1/services/audio/tts"
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}", "X-DashScope-Async": "enable"}
-        payload: dict[str, Any] = {"model": "sambert-zhichu-v1", "input": {"text": text}, "parameters": {"voice": voice, "format": audio_format}}
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+            "X-DashScope-Async": "enable",
+        }
+        payload: dict[str, Any] = {
+            "model": "sambert-zhichu-v1",
+            "input": {"text": text},
+            "parameters": {"voice": voice, "format": audio_format},
+        }
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(url, json=payload, headers=headers)
             if resp.status_code != 200:
@@ -60,7 +77,9 @@ class QwenTTSProvider(TTSProvider):
         start = time.time()
         while time.time() - start < 60:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                poll_resp = await client.get(poll_url, headers={"Authorization": f"Bearer {self.api_key}"})
+                poll_resp = await client.get(
+                    poll_url, headers={"Authorization": f"Bearer {self.api_key}"}
+                )
             if poll_resp.status_code == 200:
                 poll_data = poll_resp.json()
                 status = poll_data.get("output", {}).get("task_status", "")
@@ -78,7 +97,9 @@ class QwenTTSProvider(TTSProvider):
 class IFlytekTTSProvider(TTSProvider):
     """iFlytek Spark TTS provider."""
 
-    async def synthesize(self, text: str, voice: str = "xiaoyan", audio_format: str = "mp3") -> bytes:
+    async def synthesize(
+        self, text: str, voice: str = "xiaoyan", audio_format: str = "mp3"
+    ) -> bytes:
         url = f"{self.api_base}/v1/tts"
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"}
         payload: dict[str, Any] = {"text": text, "voice": voice, "format": audio_format}

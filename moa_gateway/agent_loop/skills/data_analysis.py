@@ -1,4 +1,5 @@
-﻿"""Data analysis skill — descriptive stats, trend, anomaly detection."""
+"""Data analysis skill — descriptive stats, trend, anomaly detection."""
+
 from __future__ import annotations
 
 import json
@@ -139,12 +140,14 @@ async def analyze_data(data: str, analysis_type: str = "summary") -> str:
         for i, v in enumerate(values):
             z_score = abs(v - mean_val) / stdev_val
             if z_score > threshold:
-                anomalies.append({
-                    "index": i,
-                    "value": v,
-                    "z_score": round(z_score, 4),
-                    "direction": "high" if v > mean_val else "low",
-                })
+                anomalies.append(
+                    {
+                        "index": i,
+                        "value": v,
+                        "z_score": round(z_score, 4),
+                        "direction": "high" if v > mean_val else "low",
+                    }
+                )
 
         anomaly_word = "anomaly" if len(anomalies) == 1 else "anomalies"
         lines = [
@@ -165,6 +168,5 @@ async def analyze_data(data: str, analysis_type: str = "summary") -> str:
 
     else:
         return (
-            f"Unknown analysis type: '{analysis_type}'. "
-            f"Supported types: summary, trend, anomaly."
+            f"Unknown analysis type: '{analysis_type}'. Supported types: summary, trend, anomaly."
         )

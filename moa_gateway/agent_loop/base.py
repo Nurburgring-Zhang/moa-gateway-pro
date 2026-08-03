@@ -1,11 +1,13 @@
-﻿"""Abstract interfaces and base data structures for agent loops."""
+"""Abstract interfaces and base data structures for agent loops."""
+
 from __future__ import annotations
 
 import logging
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Awaitable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -128,8 +130,7 @@ class ToolExecutor:
     def tool_specs(self) -> list[dict[str, Any]]:
         """Return OpenAI-compatible tool specifications."""
         return [
-            {"name": name, "description": desc or name}
-            for name, desc in self._descriptions.items()
+            {"name": name, "description": desc or name} for name, desc in self._descriptions.items()
         ]
 
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any
 
 import httpx
 
@@ -60,7 +59,10 @@ class IFlytekASRProvider(ASRProvider):
 
     async def transcribe(self, audio_data: bytes, language: str = "zh") -> str:
         url = f"{self.api_base}/v1/asr"
-        headers = {"Content-Type": "application/octet-stream", "Authorization": f"Bearer {self.api_key}"}
+        headers = {
+            "Content-Type": "application/octet-stream",
+            "Authorization": f"Bearer {self.api_key}",
+        }
         params = {"language": language}
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(url, content=audio_data, headers=headers, params=params)

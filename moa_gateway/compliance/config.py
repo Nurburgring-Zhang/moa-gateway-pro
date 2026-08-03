@@ -1,4 +1,5 @@
 """Compliance configuration constants."""
+
 import os
 
 # Encryption

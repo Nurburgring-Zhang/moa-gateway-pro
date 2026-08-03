@@ -1,9 +1,10 @@
 """Capability-aware strategy: select models matching the task's required capabilities."""
+
 from __future__ import annotations
 
 from typing import Any
 
-from .base import ModelCandidate, MoaStrategy
+from .base import MoaStrategy, ModelCandidate
 
 _PERF_RANK = {"S": 0, "A": 1, "B": 2, "C": 3}
 
@@ -50,20 +51,16 @@ class CapabilityAwareStrategy(MoaStrategy):
 
         if not required_caps:
             # No specific capability requirement → sort by performance
-            healthy.sort(key=lambda c: (_PERF_RANK.get(c.perf_tier, 3), -c.success_rate, c.latency_p95))
+            healthy.sort(
+                key=lambda c: (_PERF_RANK.get(c.perf_tier, 3), -c.success_rate, c.latency_p95)
+            )
             return [c.endpoint_id for c in healthy[:n]]
 
         # Tier 1: models with ALL required capabilities
-        full_match = [
-            c for c in healthy
-            if all(cap in c.capabilities for cap in required_caps)
-        ]
+        full_match = [c for c in healthy if all(cap in c.capabilities for cap in required_caps)]
 
         # Tier 2: models with at least ONE required capability
-        partial_match = [
-            c for c in healthy
-            if any(cap in c.capabilities for cap in required_caps)
-        ]
+        partial_match = [c for c in healthy if any(cap in c.capabilities for cap in required_caps)]
 
         # Build pool: full_match first, then partial, then fallback
         pool = list(full_match)
@@ -91,12 +88,14 @@ class CapabilityAwareStrategy(MoaStrategy):
                 else:
                     match_rank[id(c)] = 2
 
-        pool.sort(key=lambda c: (
-            match_rank.get(id(c), 2),
-            _PERF_RANK.get(c.perf_tier, 3),
-            -c.success_rate,
-            c.latency_p95,
-        ))
+        pool.sort(
+            key=lambda c: (
+                match_rank.get(id(c), 2),
+                _PERF_RANK.get(c.perf_tier, 3),
+                -c.success_rate,
+                c.latency_p95,
+            )
+        )
         return [c.endpoint_id for c in pool[:n]]
 
     def aggregate(

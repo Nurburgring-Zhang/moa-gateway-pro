@@ -1,10 +1,12 @@
-﻿"""ReAct loop — Reason → Act → Observe iteration."""
+"""ReAct loop — Reason → Act → Observe iteration."""
+
 from __future__ import annotations
 
 import json
 import logging
 import re
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from .base import AgentContext, AgentLoop, LoopResult, ToolCall, ToolExecutor, ToolResult
 
@@ -99,9 +101,9 @@ class ReActLoop(AgentLoop):
         tool_names = self._tool_executor.list_tools()
 
         # Build the working message list
-        work_messages: list[dict[str, Any]] = [
-            self._build_system_message(tool_names)
-        ] + list(messages)
+        work_messages: list[dict[str, Any]] = [self._build_system_message(tool_names)] + list(
+            messages
+        )
 
         all_tool_calls: list[ToolCall] = []
         all_tool_results: list[ToolResult] = []
@@ -171,14 +173,15 @@ class ReActLoop(AgentLoop):
 
             # --- Feed observation back to LLM ---
             observation = (
-                tool_result.output if tool_result.success
-                else f"Error: {tool_result.error}"
+                tool_result.output if tool_result.success else f"Error: {tool_result.error}"
             )
             work_messages.append({"role": "assistant", "content": llm_response})
-            work_messages.append({
-                "role": "user",
-                "content": f"Observation: {observation}",
-            })
+            work_messages.append(
+                {
+                    "role": "user",
+                    "content": f"Observation: {observation}",
+                }
+            )
 
         # Max iterations reached
         logger.warning("ReAct loop hit max_iterations (%d)", ctx.max_iterations)

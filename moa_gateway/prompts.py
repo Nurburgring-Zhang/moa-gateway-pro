@@ -80,14 +80,14 @@ BUILTIN: dict[str, str] = {
 
 
 def get_prompt(name: str, **kwargs) -> str:
-    '''Get prompt template with placeholder substitution.
+    """Get prompt template with placeholder substitution.
 
     Backward compatible: old templates use {placeholder} + .format();
     new templates use {{ placeholder }} + Jinja2.
-    '''
+    """
     raw = _load_template(name)
-    if raw.startswith('---'):
-        parts = raw.split('---', 2)
+    if raw.startswith("---"):
+        parts = raw.split("---", 2)
         body = parts[2].strip() if len(parts) >= 3 else raw
         if not kwargs:
             return body
@@ -98,21 +98,22 @@ def get_prompt(name: str, **kwargs) -> str:
     if not kwargs:
         return raw
     try:
-        return raw.format(**{k: v for k, v in kwargs.items() if f'{{{k}}}' in raw})
+        return raw.format(**{k: v for k, v in kwargs.items() if f"{{{k}}}" in raw})
     except (KeyError, IndexError):
         return raw
 
+
 def _load_template(name: str) -> str:
-    '''Load template: USER_DIR (with subdirs) > DEFAULT_DIR (with subdirs) > builtin.'''
-    fname = f'{name}.md'
+    """Load template: USER_DIR (with subdirs) > DEFAULT_DIR (with subdirs) > builtin."""
+    fname = f"{name}.md"
     # 1. Flat files (backward compatible)
     for d in _search_dirs():
         p = d / fname
         if p.exists():
             try:
-                return p.read_text(encoding='utf-8').strip()
+                return p.read_text(encoding="utf-8").strip()
             except Exception as e:
-                logger.warning('read %s failed: %s', p, e)
+                logger.warning("read %s failed: %s", p, e)
     # 2. Subdirectory files (new templates)
     for d in _search_dirs():
         if not d.exists():
@@ -123,66 +124,74 @@ def _load_template(name: str) -> str:
             p = subdir / fname
             if p.exists():
                 try:
-                    return p.read_text(encoding='utf-8').strip()
+                    return p.read_text(encoding="utf-8").strip()
                 except Exception as e:
-                    logger.warning('read %s failed: %s', p, e)
-    return BUILTIN.get(name, f'# {name}\n\n请基于上下文回答用户问题。')
+                    logger.warning("read %s failed: %s", p, e)
+    return BUILTIN.get(name, f"# {name}\n\n请基于上下文回答用户问题。")
+
 
 def list_templates() -> list[dict[str, Any]]:
-    '''List all templates (flat + subdirectory + builtin).'''
+    """List all templates (flat + subdirectory + builtin)."""
     seen = set()
     out = []
     # 1. Flat files (backward compatible)
-    for src, d in [('user', USER_DIR), ('default', DEFAULT_DIR)]:
+    for src, d in [("user", USER_DIR), ("default", DEFAULT_DIR)]:
         if not d.exists():
             continue
-        for p in sorted(d.glob('*.md')):
-            if p.name == 'README.md':
+        for p in sorted(d.glob("*.md")):
+            if p.name == "README.md":
                 continue
             name = p.stem
             if name in seen:
                 continue
             seen.add(name)
-            out.append({
-                'name': name,
-                'source': src,
-                'path': str(p),
-                'size': p.stat().st_size,
-                'read_only': (src == 'default'),
-                'category': None,
-            })
+            out.append(
+                {
+                    "name": name,
+                    "source": src,
+                    "path": str(p),
+                    "size": p.stat().st_size,
+                    "read_only": (src == "default"),
+                    "category": None,
+                }
+            )
     # 2. Subdirectory files (new templates)
-    for src, d in [('user', USER_DIR), ('default', DEFAULT_DIR)]:
+    for src, d in [("user", USER_DIR), ("default", DEFAULT_DIR)]:
         if not d.exists():
             continue
         for subdir in sorted(d.iterdir()):
             if not subdir.is_dir():
                 continue
-            for p in sorted(subdir.glob('*.md')):
+            for p in sorted(subdir.glob("*.md")):
                 name = p.stem
                 if name in seen:
                     continue
                 seen.add(name)
-                out.append({
-                    'name': name,
-                    'source': src,
-                    'path': str(p),
-                    'size': p.stat().st_size,
-                    'read_only': (src == 'default'),
-                    'category': subdir.name,
-                })
+                out.append(
+                    {
+                        "name": name,
+                        "source": src,
+                        "path": str(p),
+                        "size": p.stat().st_size,
+                        "read_only": (src == "default"),
+                        "category": subdir.name,
+                    }
+                )
     # 3. Builtin templates
     for name in BUILTIN:
         if name not in seen:
-            out.append({
-                'name': name,
-                'source': 'builtin',
-                'path': None,
-                'size': len(BUILTIN[name]),
-                'read_only': True,
-                'category': None,
-            })
+            out.append(
+                {
+                    "name": name,
+                    "source": "builtin",
+                    "path": None,
+                    "size": len(BUILTIN[name]),
+                    "read_only": True,
+                    "category": None,
+                }
+            )
     return out
+
 
 def save_template(name: str, content: str) -> str:
     """保存用户自定义模板(写到 USER_DIR)"""
@@ -224,59 +233,59 @@ PLACEHOLDERS = {
 
 
 def list_categories() -> list[str]:
-    '''Return all template categories (subdirectory names).'''
+    """Return all template categories (subdirectory names)."""
     cats: set[str] = set()
     for d in [USER_DIR, DEFAULT_DIR]:
         if d.exists():
             for subdir in d.iterdir():
-                if subdir.is_dir() and any(subdir.glob('*.md')):
+                if subdir.is_dir() and any(subdir.glob("*.md")):
                     cats.add(subdir.name)
     return sorted(cats)
 
 
 def get_by_category(category: str) -> list[dict[str, Any]]:
-    '''List templates in a specific category.'''
+    """List templates in a specific category."""
     out: list[dict[str, Any]] = []
     for d in [USER_DIR, DEFAULT_DIR]:
         cat_dir = d / category
         if not (cat_dir.exists() and cat_dir.is_dir()):
             continue
-        for p in sorted(cat_dir.glob('*.md')):
+        for p in sorted(cat_dir.glob("*.md")):
             entry: dict[str, Any] = {
-                'name': p.stem,
-                'category': category,
-                'path': str(p),
-                'size': p.stat().st_size,
-                'description': '',
-                'variables': {},
+                "name": p.stem,
+                "category": category,
+                "path": str(p),
+                "size": p.stat().st_size,
+                "description": "",
+                "variables": {},
             }
             try:
                 meta = load_template_with_metadata(p.stem)
-                if meta.get('has_frontmatter'):
-                    m = meta['metadata']
-                    entry['description'] = m.get('description', '')
-                    entry['variables'] = m.get('variables', {})
-                    for fld in ('temperature', 'top_p', 'max_tokens'):
+                if meta.get("has_frontmatter"):
+                    m = meta["metadata"]
+                    entry["description"] = m.get("description", "")
+                    entry["variables"] = m.get("variables", {})
+                    for fld in ("temperature", "top_p", "max_tokens"):
                         if fld in m:
                             entry[fld] = m[fld]
             except Exception as e:
-                logger.warning('load metadata for %s failed: %s', p.stem, e)
+                logger.warning("load metadata for %s failed: %s", p.stem, e)
             out.append(entry)
     return out
 
 
 def load_template_with_metadata(name: str) -> dict[str, Any]:
-    '''Load template, parse YAML frontmatter metadata.'''
+    """Load template, parse YAML frontmatter metadata."""
     raw = _load_template(name)
     result: dict[str, Any] = {
-        'name': name,
-        'has_frontmatter': False,
-        'metadata': {},
-        'body': raw,
+        "name": name,
+        "has_frontmatter": False,
+        "metadata": {},
+        "body": raw,
     }
-    if not raw.startswith('---'):
+    if not raw.startswith("---"):
         return result
-    parts = raw.split('---', 2)
+    parts = raw.split("---", 2)
     if len(parts) < 3:
         return result
     frontmatter_text = parts[1].strip()
@@ -284,63 +293,70 @@ def load_template_with_metadata(name: str) -> dict[str, Any]:
     try:
         metadata = yaml.safe_load(frontmatter_text) or {}
     except Exception as e:
-        logger.warning('parse frontmatter for %s failed: %s', name, e)
+        logger.warning("parse frontmatter for %s failed: %s", name, e)
         metadata = {}
     result = {
-        'name': name,
-        'has_frontmatter': True,
-        'metadata': metadata,
-        'body': body,
+        "name": name,
+        "has_frontmatter": True,
+        "metadata": metadata,
+        "body": body,
     }
-    for field in ('id', 'category', 'temperature', 'top_p', 'max_tokens', 'description', 'variables'):
+    for field in (
+        "id",
+        "category",
+        "temperature",
+        "top_p",
+        "max_tokens",
+        "description",
+        "variables",
+    ):
         if field in metadata:
             result[field] = metadata[field]
     return result
 
 
 def render_prompt(name: str, variables: dict | None = None) -> dict[str, Any]:
-    '''Jinja2 render template, return {system, user, params}.'''
+    """Jinja2 render template, return {system, user, params}."""
     if variables is None:
         variables = {}
     meta = load_template_with_metadata(name)
     params: dict[str, Any] = {}
-    system = ''
-    user = ''
-    if meta['has_frontmatter']:
-        m = meta['metadata']
-        for field in ('temperature', 'top_p', 'max_tokens'):
+    system = ""
+    user = ""
+    if meta["has_frontmatter"]:
+        m = meta["metadata"]
+        for field in ("temperature", "top_p", "max_tokens"):
             if field in m:
                 params[field] = m[field]
         try:
-            body_yaml = yaml.safe_load(meta['body']) or {}
+            body_yaml = yaml.safe_load(meta["body"]) or {}
             if isinstance(body_yaml, dict):
-                system_text = str(body_yaml.get('system', ''))
-                user_text = str(body_yaml.get('user', ''))
+                system_text = str(body_yaml.get("system", ""))
+                user_text = str(body_yaml.get("user", ""))
             else:
-                system_text = ''
-                user_text = meta['body']
+                system_text = ""
+                user_text = meta["body"]
         except Exception as e:
-            logger.warning('parse body YAML for %s failed: %s', name, e)
-            system_text = ''
-            user_text = meta['body']
+            logger.warning("parse body YAML for %s failed: %s", name, e)
+            system_text = ""
+            user_text = meta["body"]
         if system_text:
             try:
                 system = Jinja2Template(system_text).render(**variables)
             except Exception as e:
-                logger.warning('render system for %s failed: %s', name, e)
+                logger.warning("render system for %s failed: %s", name, e)
                 system = system_text
         if user_text:
             try:
                 user = Jinja2Template(user_text).render(**variables)
             except Exception as e:
-                logger.warning('render user for %s failed: %s', name, e)
+                logger.warning("render user for %s failed: %s", name, e)
                 user = user_text
     else:
-        user = meta['body']
+        user = meta["body"]
         if variables:
             try:
                 user = Jinja2Template(user).render(**variables)
             except Exception:
                 pass
-    return {'system': system, 'user': user, 'params': params}
-
+    return {"system": system, "user": user, "params": params}

@@ -1,4 +1,5 @@
 """MoA (Mixture-of-Agents) orchestration endpoints."""
+
 from __future__ import annotations
 
 import logging
@@ -9,8 +10,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..auth import require_api_key
 from ..moa import get_moa
 from ..ratelimit import get_limiter
+from ..req_models import (
+    CreateMoaBenchmarkRequest,
+    CreateMoaCostParetoRequest,
+    CreateMoaEvalRequest,
+    CreateMoaFlaskRequest,
+    CreateMoaSimilarityRequest,
+)
 from ..router import get_router
-from ..req_models import *  # noqa: F403,F401
 from .chat import ChatCompletionRequest
 
 logger = logging.getLogger(__name__)
@@ -45,20 +52,20 @@ async def moa_execute(
             temperature=req.temperature or 0.6,
             max_tokens=req.max_tokens or 4096,
         )
+    except ValueError as e:
+        raise HTTPException(400, f"Invalid input: {e}") from e
+    except (ConnectionError, TimeoutError) as e:
+        raise HTTPException(503, f"Upstream service unavailable: {e}") from e
     except Exception as e:
         logger.exception("moa execute failed: %s", e)
-        raise HTTPException(502, f"moa failed: {e}")
-    approx = (
-        sum(len(m.get("content", "")) // 3 for m in messages) + len(result.final_content) // 3
-    )
+        raise HTTPException(500, "Internal server error") from e
+    approx = sum(len(m.get("content", "")) // 3 for m in messages) + len(result.final_content) // 3
     limiter.incr_tokens(key_info, approx)
     return result.to_dict()
 
 
 @router.post("/v1/moa/eval")
-async def moa_eval(
-    body: CreateMoaEvalRequest, key_info: dict[str, Any] = Depends(require_api_key)
-):
+async def moa_eval(body: CreateMoaEvalRequest, key_info: dict[str, Any] = Depends(require_api_key)):
     """Compare N model answers side-by-side"""
     query = (body.get("query") or "").strip()
     candidates = body.get("candidates") or []
@@ -80,9 +87,13 @@ async def moa_eval(
             reference_answer=reference,
             temperature=float(body.get("temperature") or 0.3),
         )
+    except ValueError as e:
+        raise HTTPException(400, f"Invalid input: {e}") from e
+    except (ConnectionError, TimeoutError) as e:
+        raise HTTPException(503, f"Upstream service unavailable: {e}") from e
     except Exception as e:
         logger.exception("moa eval failed: %s", e)
-        raise HTTPException(502, f"eval failed: {e}")
+        raise HTTPException(500, "Internal server error") from e
     approx = (
         sum(len(c.get("answer", c.get("error", ""))) // 3 for c in res["candidates"])
         + len(res["scores_raw"]) // 3
@@ -151,23 +162,17 @@ async def moa_benchmark(
             results[preset_name] = r["items"]
             items = r["items"]
             valid_latency = [
-                i.get("latency_ms")
-                for i in items
-                if isinstance(i.get("latency_ms"), (int, float))
+                i.get("latency_ms") for i in items if isinstance(i.get("latency_ms"), (int, float))
             ]
             valid_flask = [
-                i.get("flask_avg")
-                for i in items
-                if isinstance(i.get("flask_avg"), (int, float))
+                i.get("flask_avg") for i in items if isinstance(i.get("flask_avg"), (int, float))
             ]
             summary[preset_name] = {
                 "total_questions": len(items),
                 "total_cost": r["total_cost"],
                 "avg_latency_ms": (sum(valid_latency) / max(1, len(valid_latency))),
                 "avg_flask_score": (sum(valid_flask) / max(1, len(valid_flask))),
-                "success_rate": (
-                    sum(1 for i in items if i.get("success")) / max(1, len(items))
-                ),
+                "success_rate": (sum(1 for i in items if i.get("success")) / max(1, len(items))),
             }
         except Exception as e:
             results[preset_name] = {"error": str(e)}
@@ -177,9 +182,7 @@ async def moa_benchmark(
         "categories": sorted(set(p["category"] for p in BENCHMARK_PROMPTS)),
         "prompts_count": len(BENCHMARK_PROMPTS),
         "tested_prompts": len(prompts),
-        "prompts": [
-            {"id": p["id"], "category": p["category"], "text": p["text"]} for p in prompts
-        ],
+        "prompts": [{"id": p["id"], "category": p["category"], "text": p["text"]} for p in prompts],
         "results": results,
         "summary": summary,
     }
@@ -257,7 +260,7 @@ async def get_moa_prompt(name: str, _: dict[str, Any] = Depends(require_api_key)
     try:
         content = get_prompt(name)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     return {"name": name, "content": content}
 
 

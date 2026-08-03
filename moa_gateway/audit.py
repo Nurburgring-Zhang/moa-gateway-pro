@@ -13,7 +13,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import Request
 
@@ -43,11 +43,11 @@ class AuditEvent:
         actor_id: str,
         actor_role: str,
         resource: str,
-        resource_id: Optional[str] = None,
-        detail: Optional[dict] = None,
+        resource_id: str | None = None,
+        detail: dict | None = None,
         result: str = "success",
-        ip_address: Optional[str] = None,
-        request_id: Optional[str] = None,
+        ip_address: str | None = None,
+        request_id: str | None = None,
     ):
         self.timestamp = time.time()
         self.action = action
@@ -82,8 +82,8 @@ def log_audit(event: AuditEvent) -> None:
     entry = event.to_dict()
     # PII redaction in audit logs
     try:
-        from .compliance.pii_detector import pii_detector
         from .compliance.config import PII_LOG_REDACTION
+        from .compliance.pii_detector import pii_detector
 
         if PII_LOG_REDACTION:
             _redact_dict(entry, pii_detector)
@@ -105,8 +105,8 @@ async def audit_action(
     request: Request,
     action: str,
     resource: str,
-    resource_id: Optional[str] = None,
-    detail: Optional[dict] = None,
+    resource_id: str | None = None,
+    detail: dict | None = None,
     result: str = "success",
 ) -> None:
     """Shortcut to record an audit event from within a route handler.

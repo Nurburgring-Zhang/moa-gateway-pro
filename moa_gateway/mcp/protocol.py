@@ -1,8 +1,9 @@
 """MCP protocol data models - JSON-RPC 2.0 compliant."""
+
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -25,18 +26,18 @@ class JSONRPCRequest(BaseModel):
     """JSON-RPC 2.0 request."""
 
     jsonrpc: str = "2.0"
-    id: Optional[str | int] = None
+    id: str | int | None = None
     method: str
-    params: Optional[dict[str, Any]] = None
+    params: dict[str, Any] | None = None
 
 
 class JSONRPCResponse(BaseModel):
     """JSON-RPC 2.0 response."""
 
     jsonrpc: str = "2.0"
-    id: Optional[str | int] = None
-    result: Optional[Any] = None
-    error: Optional[dict[str, Any]] = None
+    id: str | int | None = None
+    result: Any | None = None
+    error: dict[str, Any] | None = None
 
 
 class ToolDefinition(BaseModel):
@@ -57,5 +58,5 @@ class ToolCallRequest(BaseModel):
 class ToolCallResult(BaseModel):
     """Result from a tool call."""
 
-    content: List[dict[str, Any]]
+    content: list[dict[str, Any]]
     isError: bool = False

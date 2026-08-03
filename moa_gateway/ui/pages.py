@@ -468,7 +468,7 @@ def build_endpoints(state: dict, sr) -> ft.Control:
                     "moonshot",
                     "qwen",
                     "doubao",
-                    "lingyi",
+                    "lingyiwanwu",
                     "baichuan",
                     "mistral",
                     "google",

@@ -1,9 +1,10 @@
 """Diversity strategy: select models from different providers/platforms."""
+
 from __future__ import annotations
 
 from typing import Any
 
-from .base import ModelCandidate, MoaStrategy
+from .base import MoaStrategy, ModelCandidate
 
 _PERF_RANK = {"S": 0, "A": 1, "B": 2, "C": 3}
 

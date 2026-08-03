@@ -1,4 +1,5 @@
-﻿"""Code execution skill — safe Python execution in a restricted namespace."""
+"""Code execution skill — safe Python execution in a restricted namespace."""
+
 from __future__ import annotations
 
 import io
@@ -28,7 +29,6 @@ _ALLOWED_BUILTINS = {
     "float": float,
     "format": format,
     "frozenset": frozenset,
-    "getattr": getattr,
     "hasattr": hasattr,
     "hash": hash,
     "hex": hex,
@@ -52,13 +52,11 @@ _ALLOWED_BUILTINS = {
     "reversed": reversed,
     "round": round,
     "set": set,
-    "setattr": setattr,
     "slice": slice,
     "sorted": sorted,
     "str": str,
     "sum": sum,
     "tuple": tuple,
-    "type": type,
     "zip": zip,
     "True": True,
     "False": False,

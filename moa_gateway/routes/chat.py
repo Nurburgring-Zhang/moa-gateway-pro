@@ -1,4 +1,5 @@
 """Core /v1/chat/completions endpoint — OpenAI compatible."""
+
 from __future__ import annotations
 
 import logging
@@ -179,7 +180,7 @@ async def chat_completions(
         except Exception as e:
             metrics.error("chat_failed")
             logger.exception("chat failed: %s", e)
-            raise HTTPException(502, f"model call failed: {e}")
+            raise HTTPException(502, f"model call failed: {e}") from e
 
         limiter.incr_tokens(key_info, resp.prompt_tokens + resp.completion_tokens)
         latency = (time.time() - t0) * 1000
@@ -208,8 +209,11 @@ async def chat_completions(
         # Store in cache (non-streaming only)
         if cache_mgr.enabled and not req.stream:
             await cache_mgr.set(
-                messages, model_id, result_body,
-                temperature=temperature, max_tokens=max_tokens,
+                messages,
+                model_id,
+                result_body,
+                temperature=temperature,
+                max_tokens=max_tokens,
             )
         return JSONResponse(
             content=result_body,
@@ -233,7 +237,7 @@ async def chat_completions(
     except Exception as e:
         metrics.error("moa_failed")
         logger.exception("MoA failed: %s", e)
-        raise HTTPException(502, f"MoA failed: {e}")
+        raise HTTPException(502, f"MoA failed: {e}") from e
 
     content = result.final_content or result.aggregated_content
     approx_input = sum(len(m.get("content", "")) // 3 for m in messages) + sum(
@@ -268,9 +272,7 @@ async def chat_completions(
     )
     # Streaming MoA: pseudo-stream the final content
     if req.stream:
-        return StreamingResponse(
-            stream_moa(result, request_id), media_type="text/event-stream"
-        )
+        return StreamingResponse(stream_moa(result, request_id), media_type="text/event-stream")
     moa_body = format_chat_response(
         request_id,
         result.aggregator_model or "moa",
@@ -289,8 +291,11 @@ async def chat_completions(
     # Store MoA result in cache
     if cache_mgr.enabled:
         await cache_mgr.set(
-            messages, model_id, moa_body,
-            temperature=temperature, max_tokens=max_tokens,
+            messages,
+            model_id,
+            moa_body,
+            temperature=temperature,
+            max_tokens=max_tokens,
         )
     return JSONResponse(
         content=moa_body,

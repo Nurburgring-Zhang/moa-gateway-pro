@@ -1,4 +1,5 @@
 """Multi-layer cache manager — coordinates L1/L2/L3 with protection."""
+
 from __future__ import annotations
 
 import logging
@@ -126,10 +127,15 @@ class CacheManager:
         return None
 
     async def set(
-        self, messages: list, model: str, response: Any, **kwargs
+        self, messages: list, model: str, response: Any, *, stream: bool = False, **kwargs
     ) -> None:
         """Store response in all cache layers."""
         if not self.enabled:
+            return
+
+        # Respect skip_streaming config: do not cache streaming responses
+        if stream and self._config.skip_streaming:
+            logger.debug("Skipping cache store: streaming response (skip_streaming=True)")
             return
 
         exact_key = ExactMatchCache.compute_key(messages, model, **kwargs)

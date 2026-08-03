@@ -6,17 +6,23 @@ Endpoints:
 - POST /v1/observability/reports/generate    -- generate a new report
 - GET  /v1/observability/traces              -- query execution traces
 """
+
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from typing import Any
 
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from ..auth import require_api_key
 from ..observability.test_report import get_report_generator
 
 router = APIRouter(prefix="/v1/observability", tags=["observability"])
 
 
 @router.get("/reports")
-async def list_reports():
+async def list_reports(
+    key_info: dict[str, Any] = Depends(require_api_key),
+):
     """List all generated test reports."""
     gen = get_report_generator()
     reports = gen.get_all_reports()
@@ -37,7 +43,10 @@ async def list_reports():
 
 
 @router.get("/reports/{report_id}")
-async def get_report(report_id: str):
+async def get_report(
+    report_id: str,
+    key_info: dict[str, Any] = Depends(require_api_key),
+):
     """Get a specific test report by ID."""
     gen = get_report_generator()
     report = gen.get_report(report_id)
@@ -50,6 +59,7 @@ async def get_report(report_id: str):
 async def generate_report(
     endpoint_id: str | None = Query(default=None),
     scenario_name: str | None = Query(default=None),
+    key_info: dict[str, Any] = Depends(require_api_key),
 ):
     """Generate a new test report from recorded traces."""
     gen = get_report_generator()
@@ -65,6 +75,7 @@ async def list_traces(
     endpoint_id: str | None = Query(default=None),
     scenario_name: str | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=1000),
+    key_info: dict[str, Any] = Depends(require_api_key),
 ):
     """Query execution traces."""
     gen = get_report_generator()

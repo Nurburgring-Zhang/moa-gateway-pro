@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
 import re as _re
 import time
@@ -81,12 +82,12 @@ async def authenticate_api_key(request: Request) -> dict[str, Any] | None:
     # fallback:检查 config.yaml 里配的 gateway_api_keys
     settings = get_settings()
     for k in settings.auth.gateway_api_keys:
-        if k and k == token:
+        if k and hmac.compare_digest(k, token):
             return {
                 "source": "yaml",
                 "key_id": "yaml",
                 "name": "yaml-config",
-                "quota_rpm": 10000,
+                "quota_rpm": settings.ratelimit.per_key_rpm,
                 "quota_daily_tokens": 999_999_999,
             }
     return None

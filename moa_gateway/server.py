@@ -13,8 +13,10 @@ import asyncio
 import json
 import logging
 import os
+import secrets
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,6 +34,125 @@ from .storage import get_storage
 from .ha import graceful, health_checker
 
 logger = logging.getLogger(__name__)
+
+
+# ========== Auto-Bootstrap Helpers ==========
+
+def _load_dotenv() -> None:
+    """加载项目根目录的.env文件到环境变量（仅设置未被系统覆盖的）"""
+    root = Path(__file__).resolve().parent.parent
+    env_file = root / ".env"
+    if not env_file.exists():
+        return
+    try:
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key, value = key.strip(), value.strip()
+            # 去除引号包裹
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                value = value[1:-1]
+            if key and value and key not in os.environ:
+                os.environ[key] = value
+    except Exception as e:
+        logging.getLogger(__name__).warning("Failed to load .env: %s", e)
+
+
+def _ensure_gateway_key(settings) -> None:
+    """确保至少有一个gateway API key"""
+    if settings.auth.gateway_api_keys:
+        return
+    # 从环境变量读取
+    env_key = os.environ.get("MOA_GATEWAY_KEY", "").strip()
+    if env_key:
+        settings.auth.gateway_api_keys = [env_key]
+        logger.info("gateway_api_keys loaded from MOA_GATEWAY_KEY env var")
+    else:
+        # 自动生成一个临时key
+        auto_key = f"moa-auto-{secrets.token_urlsafe(24)}"
+        settings.auth.gateway_api_keys = [auto_key]
+        logger.warning(
+            "\n" + "=" * 60 + "\n"
+            "  \u26a0 未配置 gateway_api_keys，已自动生成临时Key:\n"
+            f"  {auto_key}\n"
+            "  请将此Key用于API调用的 Authorization: Bearer <key>\n"
+            "  建议在 .env 文件中设置 MOA_GATEWAY_KEY 以持久化\n"
+            + "=" * 60
+        )
+
+
+def _ensure_admin_password(settings) -> None:
+    """确保admin密码已设置"""
+    if settings.auth.admin_password:
+        return
+    env_pwd = os.environ.get("MOA_ADMIN_PASSWORD", "").strip()
+    if env_pwd:
+        settings.auth.admin_password = env_pwd
+        logger.info("admin_password loaded from MOA_ADMIN_PASSWORD env var")
+    else:
+        auto_pwd = secrets.token_urlsafe(12)
+        settings.auth.admin_password = auto_pwd
+        logger.warning(
+            "  \u26a0 未配置admin密码，已自动生成: %s", auto_pwd
+        )
+
+
+def _print_startup_summary(settings) -> None:
+    """打印启动配置摘要"""
+    lines = []
+    lines.append("")
+    lines.append("=" * 60)
+    lines.append("  [*] MOA-Gateway-Pro 启动完成")
+    lines.append("=" * 60)
+
+    # Gateway Key
+    keys = settings.auth.gateway_api_keys
+    if keys:
+        display_key = keys[0] if len(keys[0]) <= 24 else keys[0][:20] + "..."
+        lines.append(f"  \u2713 Gateway API Key: {display_key}")
+    else:
+        lines.append("  \u2717 Gateway API Key: 未配置（所有请求将被拒绝）")
+
+    # 检查有哪些真实Provider
+    real_providers = []
+    mock_providers = []
+    for model in settings.models:
+        key = model.api_key or os.environ.get(model.api_key_env or "", "")
+        if key:
+            real_providers.append(model.id)
+        else:
+            mock_providers.append(model.id)
+
+    if real_providers:
+        display = ", ".join(real_providers[:5])
+        if len(real_providers) > 5:
+            display += "..."
+        lines.append(f"  \u2713 真实模型: {len(real_providers)}个 ({display})")
+    else:
+        lines.append("  \u26a0 真实模型: 0个（全部使用MockProvider）")
+        lines.append("    \u2192 请在 .env 中配置至少一个LLM Key")
+        lines.append("    \u2192 推荐: GROQ_API_KEY (免费) https://console.groq.com/keys")
+
+    if mock_providers:
+        lines.append(f"  \u25cb Mock模型: {len(mock_providers)}个")
+
+    # 多模态状态
+    multimodal_keys = {
+        "ELEVENLABS_API_KEY": "语音(TTS/ASR)",
+        "TAVILY_API_KEY": "Web搜索",
+    }
+    for env_key, desc in multimodal_keys.items():
+        if os.environ.get(env_key):
+            lines.append(f"  \u2713 {desc}: 已配置")
+
+    port = settings.server.port
+    lines.append(f"\n  [i] API文档: http://localhost:{port}/docs")
+    lines.append("=" * 60)
+    lines.append("")
+
+    print("\n".join(lines))
 
 
 async def _daily_purge_loop(purge_manager) -> None:
@@ -56,7 +177,15 @@ async def _daily_purge_loop(purge_manager) -> None:
 
 # ========== FastAPI App ==========
 def create_app() -> FastAPI:
+    # Auto-Bootstrap: 加载.env文件（在任何配置加载之前）
+    _load_dotenv()
+
     settings = get_settings()
+
+    # Auto-Bootstrap: 确保关键配置存在
+    _ensure_gateway_key(settings)
+    _ensure_admin_password(settings)
+
     setup_logging(
         settings.server.log_level, settings.observability.log_dir, settings.observability.log_json
     )
@@ -195,7 +324,10 @@ def create_app() -> FastAPI:
 
         # HA: Mark instance as ready to receive traffic
         health_checker.mark_ready()
-        logger.info("Instance marked READY — accepting traffic")
+        logger.info("Instance marked READY \u2014 accepting traffic")
+
+        # Auto-Bootstrap: 打印启动配置摘要
+        _print_startup_summary(settings)
 
         yield
         # HA: Mark not ready during shutdown (drain from LB)
@@ -352,9 +484,21 @@ def create_app() -> FastAPI:
     # ============ Observability Middleware (trace injection + metrics) ============
     app.add_middleware(ObservabilityMiddleware)
 
+    # Multimodal upload paths allowed larger body size
+    LARGE_BODY_PATHS = (
+        "/v1/images/edits",
+        "/v1/images/variations",
+        "/v1/audio/",
+        "/v1/video/",
+    )
+
     @app.middleware("http")
     async def add_security_headers(request, call_next):
-        max_body = 1 * 1024 * 1024  # 1MB
+        # Allow larger body for multimodal upload endpoints
+        if any(request.url.path.startswith(p) for p in LARGE_BODY_PATHS):
+            max_body = 25 * 1024 * 1024  # 25MB for multimodal
+        else:
+            max_body = 1 * 1024 * 1024  # 1MB for regular API calls
         cl = request.headers.get("content-length")
         if cl and cl.isdigit() and int(cl) > max_body:
             return JSONResponse(
@@ -393,6 +537,14 @@ def create_app() -> FastAPI:
         observability_router,
         benchmark_router,
         optimizer_router,
+        vision_router,
+        audio_router,
+        image_edit_router,
+        video_router,
+        embodied_router,
+        world_model_router,
+        threed_router,
+        assistant_router,
     )
 
     app.include_router(health_router)
@@ -411,6 +563,14 @@ def create_app() -> FastAPI:
     app.include_router(observability_router)
     app.include_router(benchmark_router)
     app.include_router(optimizer_router)
+    app.include_router(vision_router)
+    app.include_router(audio_router)
+    app.include_router(image_edit_router)
+    app.include_router(video_router)
+    app.include_router(embodied_router)
+    app.include_router(world_model_router)
+    app.include_router(threed_router)
+    app.include_router(assistant_router)
 
     return app
 

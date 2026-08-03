@@ -1,12 +1,14 @@
 """OpenAI-compatible /v1/models endpoint."""
+
 from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 
-from ..auth import authenticate_api_key
+from ..auth import authenticate_api_key, require_api_key
 from ..model_pool import get_model_pool
 
 logger = logging.getLogger(__name__)
@@ -15,7 +17,10 @@ router = APIRouter(tags=["models"])
 
 
 @router.get("/v1/models")
-async def list_models(request: Request):
+async def list_models(
+    request: Request,
+    key_info: dict[str, Any] = Depends(require_api_key),
+):
     """OpenAI compatible: list available models"""
     pool = get_model_pool()
     info = await authenticate_api_key(request)

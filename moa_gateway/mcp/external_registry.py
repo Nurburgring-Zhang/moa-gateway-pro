@@ -3,6 +3,7 @@
 Manages connections to external MCP servers (stdio/SSE/HTTP transports),
 tracks discovered tools, and supports config-driven auto-registration.
 """
+
 from __future__ import annotations
 
 import logging
@@ -35,7 +36,9 @@ class ExternalMCPRegistry:
     def register(self, server: ExternalMCPServer) -> None:
         """Register or replace an external MCP server."""
         self._servers[server.name] = server
-        logger.info("Registered external MCP server: %s (transport=%s)", server.name, server.transport)
+        logger.info(
+            "Registered external MCP server: %s (transport=%s)", server.name, server.transport
+        )
 
     def unregister(self, name: str) -> None:
         """Remove an external MCP server and clean up its discovered tools."""

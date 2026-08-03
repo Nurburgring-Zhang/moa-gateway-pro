@@ -1,4 +1,5 @@
 """Agent Dispatch endpoints — /v1/agent/*."""
+
 from __future__ import annotations
 
 import logging
@@ -7,7 +8,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..auth import require_api_key
-from ..req_models import *  # noqa: F403,F401
+from ..req_models import (
+    CreateAgentDispatchBatchRequest,
+    CreateAgentDispatchRequest,
+    CreateAgentRunLoopRequest,
+    CreateAgentWorkflowRegisterRequest,
+    CreateAgentWorkflowRunRequest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -193,9 +200,7 @@ async def agent_run_loop(
     llm_call = _make_llm_call()
     harness = AgentHarness(llm_call=llm_call)
 
-    tools_to_register = (
-        requested_tools if requested_tools else list(BUILTIN_TOOLS.keys())
-    )
+    tools_to_register = requested_tools if requested_tools else list(BUILTIN_TOOLS.keys())
     for tool_name in tools_to_register:
         entry = BUILTIN_TOOLS.get(tool_name)
         if entry:
@@ -212,10 +217,7 @@ async def agent_run_loop(
         "success": result.success,
         "final_response": result.final_response,
         "iterations": result.iterations,
-        "tool_calls": [
-            {"name": tc.name, "arguments": tc.arguments}
-            for tc in result.tool_calls
-        ],
+        "tool_calls": [{"name": tc.name, "arguments": tc.arguments} for tc in result.tool_calls],
         "tool_results": [
             {
                 "name": tr.name,

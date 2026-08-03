@@ -1,19 +1,19 @@
 """Data Encryption — AES-256-GCM at-rest field-level encryption."""
+
 from __future__ import annotations
 
 import base64
 import hashlib
 import os
-from typing import Optional
 
 
 class FieldEncryptor:
     """Field-level encryptor — protects sensitive data at rest."""
 
-    def __init__(self, master_key: Optional[str] = None):
+    def __init__(self, master_key: str | None = None):
         key_material = (master_key or os.getenv("MOA_ENCRYPTION_KEY", "")).encode()
         if not key_material:
-            self._key: Optional[bytes] = None
+            self._key: bytes | None = None
         else:
             self._key = hashlib.sha256(key_material).digest()  # 32 bytes = AES-256
 

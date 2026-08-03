@@ -4,6 +4,7 @@ Fuses Warp's Workflow YAML format with Paseo's Task dependency graph
 (execution-order.ts topological sort). Supports multi-step MOA workflows
 with variable interpolation, conditional branching, and parallel execution.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -114,9 +115,7 @@ class WorkflowYAML:
         for step in self.steps:
             for dep in step.depends_on:
                 if dep not in self._step_map:
-                    raise ValueError(
-                        f"Step '{step.id}' depends on unknown step '{dep}'"
-                    )
+                    raise ValueError(f"Step '{step.id}' depends on unknown step '{dep}'")
         # Check for cycles via topological sort
         self._topological_sort()
 
@@ -154,9 +153,7 @@ class WorkflowYAML:
 
         if len(order) != len(self.steps):
             remaining = set(self._step_map.keys()) - set(order)
-            raise ValueError(
-                f"Circular dependency detected among steps: {remaining}"
-            )
+            raise ValueError(f"Circular dependency detected among steps: {remaining}")
 
         return order
 
@@ -186,7 +183,8 @@ class WorkflowYAML:
         while len(completed) < len(order):
             # Find steps whose dependencies are all completed
             ready = [
-                sid for sid in order
+                sid
+                for sid in order
                 if sid not in completed
                 and all(d in completed for d in self._step_map[sid].depends_on)
             ]
@@ -211,11 +209,13 @@ class WorkflowYAML:
             for sid, result in zip(ready, step_results):
                 step = self._step_map[sid]
                 if isinstance(result, Exception):
-                    results.append({
-                        "step_id": sid,
-                        "success": False,
-                        "error": str(result),
-                    })
+                    results.append(
+                        {
+                            "step_id": sid,
+                            "success": False,
+                            "error": str(result),
+                        }
+                    )
                     return {
                         "success": False,
                         "error": f"Step '{sid}' failed: {result}",
@@ -230,11 +230,13 @@ class WorkflowYAML:
                 # Also store the raw output under the step ID
                 step_outputs[f"steps.{sid}.output"] = output_val
 
-                results.append({
-                    "step_id": sid,
-                    "success": True,
-                    "output": str(output_val)[:2000],
-                })
+                results.append(
+                    {
+                        "step_id": sid,
+                        "success": True,
+                        "output": str(output_val)[:2000],
+                    }
+                )
                 completed.add(sid)
 
         return {
@@ -447,10 +449,7 @@ class WorkflowYAML:
         if isinstance(value, str):
             return self._render_string(value, context, outputs)
         elif isinstance(value, dict):
-            return {
-                k: self._render_value(v, context, outputs)
-                for k, v in value.items()
-            }
+            return {k: self._render_value(v, context, outputs) for k, v in value.items()}
         elif isinstance(value, list):
             return [self._render_value(v, context, outputs) for v in value]
         else:
@@ -474,15 +473,27 @@ class WorkflowYAML:
 
         def replacer(match: re.Match) -> str:
             var_path = match.group(1).strip()
-            # Handle pipe operators (e.g., "var | length")
+            # Handle pipe operators (e.g., "var | length" or "var | length > 100")
             if "|" in var_path:
                 parts = var_path.split("|", 1)
                 var_path = parts[0].strip()
-                transform = parts[1].strip()
+                transform_expr = parts[1].strip()
+                # Separate transform name from possible comparison expression
+                transform_parts = transform_expr.split(None, 1)
+                transform = transform_parts[0]  # e.g., "length"
                 value = self._lookup_variable(var_path, context, outputs)
                 if transform == "length":
-                    return str(len(value) if value is not None else 0)
-                return str(value)
+                    result_val = len(value) if value is not None else 0
+                elif transform == "upper":
+                    result_val = str(value).upper() if value else ""
+                elif transform == "lower":
+                    result_val = str(value).lower() if value else ""
+                else:
+                    result_val = value
+                # If there's a comparison part (e.g., "> 100"), concatenate for condition evaluator
+                if len(transform_parts) > 1:
+                    return f"{result_val} {transform_parts[1]}"
+                return str(result_val)
 
             value = self._lookup_variable(var_path, context, outputs)
             return str(value) if value is not None else match.group(0)
@@ -523,6 +534,7 @@ class WorkflowYAML:
 def _get_gateway_url() -> str:
     """Get the gateway base URL from environment."""
     import os
+
     return os.environ.get("MOA_GATEWAY_URL", "http://127.0.0.1:8910")
 
 
@@ -530,7 +542,7 @@ async def _http_post(url: str, body: dict[str, Any]) -> dict[str, Any]:
     """Make an async HTTP POST request and return JSON response."""
     import httpx
 
-    async with httpx.AsyncClient(timeout=120) as client:
+    async with httpx.AsyncClient(timeout=120, trust_env=False) as client:
         resp = await client.post(url, json=body)
         if resp.status_code == 200:
             return resp.json()

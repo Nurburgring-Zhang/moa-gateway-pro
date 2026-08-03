@@ -1,4 +1,5 @@
 """Base classes for MOA strategies."""
+
 from __future__ import annotations
 
 import logging
@@ -12,24 +13,39 @@ logger = logging.getLogger(__name__)
 try:
     from ..benchmark.benchmark_engine import PerformanceTier
 except Exception:  # pragma: no cover
+
     class PerformanceTier:  # type: ignore[no-redef]
-        S = "S"; A = "A"; B = "B"; C = "C"
+        S = "S"
+        A = "A"
+        B = "B"
+        C = "C"
+
 
 try:
     from ..benchmark.capability_probe import Capability
 except Exception:  # pragma: no cover
+
     class Capability:  # type: ignore[no-redef]
-        TEXT = "text"; CODE = "code"; REASONING = "reasoning"
-        VISION = "vision"; FUNCTION_CALL = "function_call"
-        JSON_MODE = "json_mode"; MULTILINGUAL = "multilingual"
-        CREATIVE = "creative"; STREAMING = "streaming"
+        TEXT = "text"
+        CODE = "code"
+        REASONING = "reasoning"
+        VISION = "vision"
+        FUNCTION_CALL = "function_call"
+        JSON_MODE = "json_mode"
+        MULTILINGUAL = "multilingual"
+        CREATIVE = "creative"
+        STREAMING = "streaming"
+
 
 try:
     from ..health.health_checker import HealthStatus
 except Exception:  # pragma: no cover
+
     class HealthStatus:  # type: ignore[no-redef]
-        HEALTHY = "healthy"; DEGRADED = "degraded"
-        UNHEALTHY = "unhealthy"; DEAD = "dead"
+        HEALTHY = "healthy"
+        DEGRADED = "degraded"
+        UNHEALTHY = "unhealthy"
+        DEAD = "dead"
 
 
 @dataclass
@@ -38,13 +54,13 @@ class ModelCandidate:
 
     endpoint_id: str
     model_id: str = ""
-    platform_id: str = ""          # provider name, e.g. "openai", "google", "deepseek"
+    platform_id: str = ""  # provider name, e.g. "openai", "google", "deepseek"
     tier_value: str = "standard"  # ModelTier value: free/lite/standard/premium/flagship
-    perf_tier: str = "C"           # PerformanceTier value: S/A/B/C
+    perf_tier: str = "C"  # PerformanceTier value: S/A/B/C
     capabilities: list[str] = field(default_factory=list)
     health_status: str = "healthy"
-    latency_p95: float = 0.0       # milliseconds
-    success_rate: float = 0.0      # 0.0-1.0
+    latency_p95: float = 0.0  # milliseconds
+    success_rate: float = 0.0  # 0.0-1.0
     cost_per_1k_input: float = 0.0
     cost_per_1k_output: float = 0.0
     weight: int = 100
@@ -132,6 +148,7 @@ def build_candidates(
     if model_pool is None:
         try:
             from ..model_pool import get_model_pool
+
             model_pool = get_model_pool()
         except Exception:
             return []
@@ -198,20 +215,22 @@ def build_candidates(
             hs = getattr(hr, "status", None)
             health_status = getattr(hs, "value", health_status) if hs else health_status
 
-        candidates.append(ModelCandidate(
-            endpoint_id=ep_id,
-            model_id=getattr(cfg, "model", ""),
-            platform_id=getattr(cfg, "provider", ""),
-            tier_value=tier_val,
-            perf_tier=perf_tier,
-            capabilities=caps,
-            health_status=health_status,
-            latency_p95=latency_p95,
-            success_rate=success_rate,
-            cost_per_1k_input=getattr(cfg, "cost_per_1k_input", 0.0),
-            cost_per_1k_output=getattr(cfg, "cost_per_1k_output", 0.0),
-            weight=getattr(cfg, "weight", 100),
-            tags=list(getattr(cfg, "tags", [])),
-        ))
+        candidates.append(
+            ModelCandidate(
+                endpoint_id=ep_id,
+                model_id=getattr(cfg, "model", ""),
+                platform_id=getattr(cfg, "provider", ""),
+                tier_value=tier_val,
+                perf_tier=perf_tier,
+                capabilities=caps,
+                health_status=health_status,
+                latency_p95=latency_p95,
+                success_rate=success_rate,
+                cost_per_1k_input=getattr(cfg, "cost_per_1k_input", 0.0),
+                cost_per_1k_output=getattr(cfg, "cost_per_1k_output", 0.0),
+                weight=getattr(cfg, "weight", 100),
+                tags=list(getattr(cfg, "tags", [])),
+            )
+        )
 
     return candidates

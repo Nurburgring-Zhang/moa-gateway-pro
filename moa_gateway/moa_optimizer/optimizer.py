@@ -1,14 +1,11 @@
 """MOA automatic optimiser — continuously finds the best model combination."""
+
 from __future__ import annotations
 
-import asyncio
 import logging
-import math
-import time
-import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 from .ab_tester import ABTester
 
@@ -18,12 +15,13 @@ logger = logging.getLogger(__name__)
 @dataclass
 class OptimizationResult:
     """Result of one optimisation round."""
+
     timestamp: datetime
     best_strategy: str
     best_model_combination: list[str]
     quality_score: float
     avg_latency_ms: float
-    cost_score: float        # lower = cheaper
+    cost_score: float  # lower = cheaper
     experiments_run: int
     recommendation: str
 
@@ -83,27 +81,49 @@ class MoaOptimizer:
         return [
             {
                 "task_type": "code_generation",
-                "messages": [{"role": "user", "content": "Write a Python function that returns the nth Fibonacci number."}],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "Write a Python function that returns the nth Fibonacci number.",
+                    }
+                ],
                 "expected_keywords": ["def", "fibonacci", "return"],
             },
             {
                 "task_type": "creative_writing",
-                "messages": [{"role": "user", "content": "Write a short poem about artificial intelligence."}],
+                "messages": [
+                    {"role": "user", "content": "Write a short poem about artificial intelligence."}
+                ],
                 "expected_keywords": ["ai", "intelligence"],
             },
             {
                 "task_type": "reasoning",
-                "messages": [{"role": "user", "content": "If all cats are animals, and Whiskers is a cat, what can we conclude?"}],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "If all cats are animals, and Whiskers is a cat, what can we conclude?",
+                    }
+                ],
                 "expected_keywords": ["whiskers", "animal"],
             },
             {
                 "task_type": "data_analysis",
-                "messages": [{"role": "user", "content": "Summarize the key principles of data privacy in JSON format."}],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "Summarize the key principles of data privacy in JSON format.",
+                    }
+                ],
                 "expected_keywords": ["privacy", "json"],
             },
             {
                 "task_type": "multilingual",
-                "messages": [{"role": "user", "content": "Translate 'Hello world' to French, Spanish, and Japanese."}],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "Translate 'Hello world' to French, Spanish, and Japanese.",
+                    }
+                ],
                 "expected_keywords": ["bonjour", "hola", "konnichiwa"],
             },
         ]
@@ -153,6 +173,7 @@ class MoaOptimizer:
         alpha, beta = self._beta_priors.get(strategy_name, (1.0, 1.0))
         # Use stdlib random.betavariate (avoids numpy dependency)
         import random
+
         try:
             return random.betavariate(alpha, beta)
         except Exception:
@@ -163,7 +184,7 @@ class MoaOptimizer:
     # ============================================================
     async def optimize(self) -> OptimizationResult:
         """Execute one round of optimisation search."""
-        from ..moa_strategies import list_strategies, get_strategy, build_candidates
+        from ..moa_strategies import build_candidates, get_strategy, list_strategies
 
         strategies = list_strategies()
         if not strategies:
@@ -206,6 +227,7 @@ class MoaOptimizer:
         if self._moa is None:
             try:
                 from ..moa import get_moa
+
                 self._moa = get_moa()
             except Exception as e:
                 logger.error("Cannot get MoA orchestrator: %s", e)
@@ -263,10 +285,7 @@ class MoaOptimizer:
             best_models = [c.endpoint_id for c in candidates[:3]]
 
         # Compute cost score (lower = cheaper) — average total_cost_per_1k of selected
-        selected_costs = [
-            c.total_cost_per_1k for c in candidates
-            if c.endpoint_id in best_models
-        ]
+        selected_costs = [c.total_cost_per_1k for c in candidates if c.endpoint_id in best_models]
         cost_score = sum(selected_costs) / max(1, len(selected_costs))
 
         # Build recommendation text
@@ -288,7 +307,10 @@ class MoaOptimizer:
         self._last_result = result
         logger.info(
             "Optimisation complete: best=%s score=%.3f latency=%.0fms cost=%.4f",
-            best_strat, best_score, best_latency, cost_score,
+            best_strat,
+            best_score,
+            best_latency,
+            cost_score,
         )
         return result
 

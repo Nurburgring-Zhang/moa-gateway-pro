@@ -7,10 +7,12 @@ Create Date: 2026-07-21
 This migration creates the baseline schema that matches the existing
 SQLite database structure. It's compatible with both SQLite and PostgreSQL.
 """
-from typing import Sequence, Union
 
-from alembic import op
+from collections.abc import Sequence
+from typing import Union
+
 import sqlalchemy as sa
+from alembic import op
 
 revision: str = "001"
 down_revision: Union[str, None] = None

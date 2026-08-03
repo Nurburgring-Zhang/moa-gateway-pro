@@ -1,11 +1,13 @@
 """MCP transport layer - SSE and HTTP transport implementations."""
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
 import uuid
-from typing import Any, AsyncGenerator, Optional
+from collections.abc import AsyncGenerator
+from typing import Any
 
 from .protocol import JSONRPCRequest, JSONRPCResponse
 from .server import MCPServer
@@ -36,8 +38,8 @@ class SSETransport:
         logger.info("SSE session removed: %s", session_id)
 
     async def handle_message(
-        self, session_id: str, request: JSONRPCRequest, user: Optional[dict] = None
-    ) -> Optional[JSONRPCResponse]:
+        self, session_id: str, request: JSONRPCRequest, user: dict | None = None
+    ) -> JSONRPCResponse | None:
         """Process a message for a session and push response to the session queue."""
         response = await self.server.handle_request(request, user)
         if response and session_id in self._sessions:
@@ -72,9 +74,7 @@ class HTTPTransport:
     def __init__(self, server: MCPServer):
         self.server = server
 
-    async def handle(
-        self, body: dict[str, Any], user: Optional[dict] = None
-    ) -> dict[str, Any]:
+    async def handle(self, body: dict[str, Any], user: dict | None = None) -> dict[str, Any]:
         """Handle a single HTTP JSON-RPC request."""
         request = JSONRPCRequest(**body)
         response = await self.server.handle_request(request, user)

@@ -1,4 +1,5 @@
 """Prometheus metrics endpoint — enhanced with LLM business metrics."""
+
 from __future__ import annotations
 
 import logging

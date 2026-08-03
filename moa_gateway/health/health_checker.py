@@ -3,6 +3,7 @@
 Tracks per-endpoint health using a sliding window of probe results,
 latency statistics, and failure classification.
 """
+
 from __future__ import annotations
 
 import logging
@@ -18,10 +19,10 @@ logger = logging.getLogger(__name__)
 class HealthStatus(Enum):
     """Endpoint health status levels."""
 
-    HEALTHY = "healthy"       # success rate > 95%
-    DEGRADED = "degraded"     # success rate 50%-95%
-    UNHEALTHY = "unhealthy"   # success rate < 50%
-    DEAD = "dead"             # unavailable for 7+ consecutive days
+    HEALTHY = "healthy"  # success rate > 95%
+    DEGRADED = "degraded"  # success rate 50%-95%
+    UNHEALTHY = "unhealthy"  # success rate < 50%
+    DEAD = "dead"  # unavailable for 7+ consecutive days
 
 
 @dataclass
@@ -118,7 +119,9 @@ class EndpointHealth:
             "consecutive_failures": self.consecutive_failures,
             "last_success_at": self.last_success_at.isoformat() if self.last_success_at else None,
             "last_failure_at": self.last_failure_at.isoformat() if self.last_failure_at else None,
-            "unavailable_since": self.unavailable_since.isoformat() if self.unavailable_since else None,
+            "unavailable_since": self.unavailable_since.isoformat()
+            if self.unavailable_since
+            else None,
             "last_error": self.last_error,
             "error_type_counts": dict(self.error_type_counts),
         }
@@ -132,14 +135,10 @@ class EndpointHealth:
         eh._latencies = deque(data.get("latencies", []), maxlen=100)
         eh.consecutive_failures = data.get("consecutive_failures", 0)
         eh.last_success_at = (
-            datetime.fromisoformat(data["last_success_at"])
-            if data.get("last_success_at")
-            else None
+            datetime.fromisoformat(data["last_success_at"]) if data.get("last_success_at") else None
         )
         eh.last_failure_at = (
-            datetime.fromisoformat(data["last_failure_at"])
-            if data.get("last_failure_at")
-            else None
+            datetime.fromisoformat(data["last_failure_at"]) if data.get("last_failure_at") else None
         )
         eh.unavailable_since = (
             datetime.fromisoformat(data["unavailable_since"])
@@ -163,7 +162,9 @@ class EndpointHealth:
             "days_unavailable": self.days_unavailable,
             "last_success_at": self.last_success_at.isoformat() if self.last_success_at else None,
             "last_failure_at": self.last_failure_at.isoformat() if self.last_failure_at else None,
-            "unavailable_since": self.unavailable_since.isoformat() if self.unavailable_since else None,
+            "unavailable_since": self.unavailable_since.isoformat()
+            if self.unavailable_since
+            else None,
             "last_error": self.last_error,
             "error_type_counts": dict(self.error_type_counts),
         }
@@ -188,17 +189,11 @@ class HealthChecker:
 
     def get_healthy_endpoints(self) -> list[str]:
         """Return IDs of all healthy endpoints."""
-        return [
-            eid for eid, h in self._health.items()
-            if h.status == HealthStatus.HEALTHY
-        ]
+        return [eid for eid, h in self._health.items() if h.status == HealthStatus.HEALTHY]
 
     def get_endpoints_by_status(self, status: HealthStatus) -> list[str]:
         """Return IDs of endpoints matching the given status."""
-        return [
-            eid for eid, h in self._health.items()
-            if h.status == status
-        ]
+        return [eid for eid, h in self._health.items() if h.status == status]
 
     def remove_health(self, endpoint_id: str) -> None:
         """Remove health record for an endpoint (after purge)."""
@@ -221,6 +216,7 @@ class HealthChecker:
         if not self._storage:
             return
         import json
+
         data = {eid: h.to_dict() for eid, h in self._health.items()}
         self._storage.set_config_override("_health_state", json.dumps(data, ensure_ascii=False))
         logger.debug("Saved health state for %d endpoints", len(data))
@@ -230,6 +226,7 @@ class HealthChecker:
         if not self._storage:
             return
         import json
+
         raw = self._storage.get_config_overrides().get("_health_state")
         if not raw:
             return

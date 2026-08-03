@@ -76,7 +76,7 @@ class AuthConfig(BaseModel):
     # P1-4 安全加固:默认 gateway_api_keys 为空(必须显式添加或通过 WebUI 生成)
     gateway_api_keys: list[str] = Field(default_factory=list)
     admin_username: str = "admin"
-    admin_password: str = "admin"
+    admin_password: str = ""
     jwt_secret: str = ""
     jwt_expire_minutes: int = 1440
 
@@ -166,6 +166,7 @@ class MoAConfig(BaseModel):
 
 class HealthConfig(BaseModel):
     """Health check and API health management configuration."""
+
     # Legacy health check settings (used by ModelPool._health_check_loop)
     interval_seconds: int = 30
     timeout_seconds: int = 10
@@ -174,12 +175,12 @@ class HealthConfig(BaseModel):
     healthy_recheck: int = 120
     # API health management system (Task #43)
     enabled: bool = True
-    probe_interval_new: int = 600        # newly discovered API: every 10 min
-    probe_interval_healthy: int = 1800   # healthy API: every 30 min
-    probe_interval_degraded: int = 300   # degraded API: every 5 min
+    probe_interval_new: int = 600  # newly discovered API: every 10 min
+    probe_interval_healthy: int = 1800  # healthy API: every 30 min
+    probe_interval_degraded: int = 300  # degraded API: every 5 min
     probe_interval_unhealthy: int = 180  # unhealthy API: every 3 min
-    purge_threshold_days: int = 7        # purge after 7 days of unavailability
-    probe_timeout: int = 15              # probe request timeout (seconds)
+    purge_threshold_days: int = 7  # purge after 7 days of unavailability
+    probe_timeout: int = 30  # probe request timeout (seconds)
 
 
 class RateLimitConfig(BaseModel):
@@ -200,7 +201,6 @@ class ObservabilityConfig(BaseModel):
     test_report_storage_dir: str = "data/reports"
 
 
-
 class CacheConfig(BaseModel):
     """Cache system configuration."""
 
@@ -217,7 +217,6 @@ class CacheConfig(BaseModel):
     skip_streaming: bool = True
 
 
-
 class DiscoveryConfig(BaseModel):
     "Free model discovery system configuration."
 
@@ -227,8 +226,6 @@ class DiscoveryConfig(BaseModel):
     first_run_delay_seconds: int = 60
     platforms: list[str] = Field(default_factory=list)
     api_keys: dict[str, str] = Field(default_factory=dict)
-
-
 
 
 class BenchmarkConfig(BaseModel):
@@ -245,7 +242,17 @@ class PromptTemplatesConfig(BaseModel):
 
     enabled: bool = True
     custom_dir: str = "~/.moa-gateway/prompts"
-    categories: list[str] = Field(default_factory=lambda: ["programming", "writing", "analysis", "translation", "summarization", "creative", "qa"])
+    categories: list[str] = Field(
+        default_factory=lambda: [
+            "programming",
+            "writing",
+            "analysis",
+            "translation",
+            "summarization",
+            "creative",
+            "qa",
+        ]
+    )
 
 
 class ParamTemplatesConfig(BaseModel):
@@ -259,11 +266,20 @@ class AgentLoopConfig(BaseModel):
 
     default_loop: str = "react"
     max_iterations: int = 10
-    default_tools: list[str] = Field(default_factory=lambda: ["web_search", "code_execute", "file_read", "file_list", "analyze_data"])
+    default_tools: list[str] = Field(
+        default_factory=lambda: [
+            "web_search",
+            "code_execute",
+            "file_read",
+            "file_list",
+            "analyze_data",
+        ]
+    )
 
 
 class OptimizerConfig(BaseModel):
     """MOA auto-optimiser configuration."""
+
     enabled: bool = True
     daily_optimization: bool = True
     max_experiments: int = 50
@@ -341,9 +357,7 @@ def load_settings(config_path: Path | None = None) -> Settings:
     cfg = Settings(**raw)
     # Task #35: Expand ~ in prompt_templates.custom_dir
     if cfg.prompt_templates.custom_dir:
-        cfg.prompt_templates.custom_dir = os.path.expanduser(
-            cfg.prompt_templates.custom_dir
-        )
+        cfg.prompt_templates.custom_dir = os.path.expanduser(cfg.prompt_templates.custom_dir)
     # 修26: 安全加固 — auth.admin_password 留空时强制用 env var 兜底
     # 优先级:env MOA_ADMIN_PASSWORD > yaml admin_password
     env_pw = os.environ.get("MOA_ADMIN_PASSWORD", "").strip()

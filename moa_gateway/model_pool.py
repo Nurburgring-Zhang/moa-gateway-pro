@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import logging
 import random
+import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -80,6 +81,7 @@ class ModelEndpoint:
     cooldown_until: float = 0.0
     total_calls: int = 0
     total_failures: int = 0
+    last_status_code: int | None = None
 
     @property
     def id(self) -> str:
@@ -97,7 +99,7 @@ class ModelEndpoint:
     def is_available(self) -> bool:
         if not self.enabled:
             return False
-        if self.health_status == "unhealthy":
+        if self.health_status in ("unhealthy", "dead"):
             return False
         if time.time() < self.cooldown_until:
             return False
@@ -138,7 +140,7 @@ class ModelPool:
         self.endpoints: dict[str, ModelEndpoint] = {}
         self._client: httpx.AsyncClient | None = None
         self._health_task: asyncio.Task | None = None
-        self._lock = asyncio.Lock()
+        self._lock = threading.Lock()
         # Round-1 (P0-11): per-endpoint lock for _saved_api_key race
         self._ep_locks: dict[str, asyncio.Lock] = {}
         # 修 P0-2: 同步路径上需要关闭的旧 provider 队列 (stop() 时统一 await aclose)
@@ -165,6 +167,11 @@ class ModelPool:
 
     def refresh(self) -> None:
         """从 settings + storage 刷新端点"""
+        with self._lock:
+            self._refresh_unlocked()
+
+    def _refresh_unlocked(self) -> None:
+        """Internal refresh without lock (caller must hold _lock)."""
         storage_eps = {e["endpoint_id"]: e for e in self.storage.list_endpoints()}
         new_ids = set()
         for cfg in self.settings.models:
@@ -246,43 +253,50 @@ class ModelPool:
             logger.warning("build_provider(%s) failed: %s", ep.config.provider, e)
 
     def upsert_endpoint(self, ep_dict: dict[str, Any]) -> ModelEndpoint:
-        eid = ep_dict["endpoint_id"]
-        self.storage.upsert_endpoint(ep_dict)
-        s_ep = self.storage.get_endpoint(eid)
-        if not s_ep:
-            raise RuntimeError(f"failed to persist endpoint {eid}")
-        cfg = ModelEndpointConfig(
-            id=eid,
-            provider=s_ep["provider"],
-            model=s_ep["model"],
-            tier=s_ep["tier"],
-            api_base=s_ep.get("api_base") or "",
-            api_key_env=s_ep.get("api_key_env") or "",
-            cost_per_1k_input=s_ep.get("cost_per_1k_input") or 0.001,
-            cost_per_1k_output=s_ep.get("cost_per_1k_output") or 0.002,
-            max_tokens=s_ep.get("max_tokens") or 8192,
-            timeout=s_ep.get("timeout") or 120,
-            weight=s_ep.get("weight") or 100,
-            enabled=bool(s_ep.get("enabled", True)),
-            tags=s_ep.get("tags") or [],
-        )
-        cfg.api_key_runtime = s_ep.get("api_key", "")
-        ep = ModelEndpoint(config=cfg)
-        self._rebuild_provider(ep)
-        self.endpoints[eid] = ep
-        return ep
+        with self._lock:
+            eid = ep_dict["endpoint_id"]
+            self.storage.upsert_endpoint(ep_dict)
+            s_ep = self.storage.get_endpoint(eid)
+            if not s_ep:
+                raise RuntimeError(f"failed to persist endpoint {eid}")
+            cfg = ModelEndpointConfig(
+                id=eid,
+                provider=s_ep["provider"],
+                model=s_ep["model"],
+                tier=s_ep["tier"],
+                api_base=s_ep.get("api_base") or "",
+                api_key_env=s_ep.get("api_key_env") or "",
+                cost_per_1k_input=s_ep.get("cost_per_1k_input") or 0.001,
+                cost_per_1k_output=s_ep.get("cost_per_1k_output") or 0.002,
+                max_tokens=s_ep.get("max_tokens") or 8192,
+                timeout=s_ep.get("timeout") or 120,
+                weight=s_ep.get("weight") or 100,
+                enabled=bool(s_ep.get("enabled", True)),
+                tags=s_ep.get("tags") or [],
+            )
+            cfg.api_key_runtime = s_ep.get("api_key", "")
+            ep = ModelEndpoint(config=cfg)
+            self._rebuild_provider(ep)
+            self.endpoints[eid] = ep
+            return ep
 
     def get_endpoint(self, eid: str) -> ModelEndpoint | None:
         """Get a model endpoint by ID (for health probe integration)."""
         return self.endpoints.get(eid)
 
     def remove_endpoint(self, eid: str) -> bool:
-        ok = self.storage.delete_endpoint(eid)
-        ep = self.endpoints.pop(eid, None)
-        if ep and ep.provider_obj:
-            with contextlib.suppress(Exception):
-                asyncio.get_event_loop().create_task(ep.provider_obj.aclose())
-        return ok
+        with self._lock:
+            ok = self.storage.delete_endpoint(eid)
+            ep = self.endpoints.pop(eid, None)
+            if ep and ep.provider_obj:
+                with contextlib.suppress(Exception):
+                    asyncio.get_event_loop().create_task(ep.provider_obj.aclose())
+            return ok
+
+    async def safe_refresh(self) -> None:
+        """Async wrapper for refresh() — usable from async contexts with proper locking."""
+        with self._lock:
+            self._refresh_unlocked()
 
     async def start(self) -> None:
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(300))
@@ -359,12 +373,17 @@ class ModelPool:
             if ep.config.enabled and ep.config.api_key_runtime
         ]
         if tasks:
-            # 启动期最多 3s 等待 health check,超时未回的端点立即切 mock(避免卡 lifespan)
+            # P0-1 (Task #56): Use configurable probe_timeout instead of hardcoded 3s.
+            # On timeout, do NOT degrade to MockProvider -- keep real provider.
+            probe_timeout = float(self.settings.health.probe_timeout)
             try:
-                await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=3.0)
+                await asyncio.wait_for(
+                    asyncio.gather(*tasks, return_exceptions=True),
+                    timeout=probe_timeout,
+                )
             except asyncio.TimeoutError:
-                # 修 P1-2: 死代码 `isinstance(getattr(ep.provider_obj, '__class__', None), type(None))`
-                # 改 `ep.provider_obj is not None` (语义: provider_obj 存在)
+                # P0-1 (Task #56): Do NOT degrade to MockProvider on startup timeout.
+                # Real LLM APIs often take >3s. Keep real provider for runtime requests.
                 for ep in self.endpoints.values():
                     if (
                         ep.config.enabled
@@ -373,15 +392,12 @@ class ModelPool:
                         and ep.provider_obj.__class__.__name__ != "MockProvider"
                     ):
                         logger.warning(
-                            "%s: startup health check timeout → auto-fallback to MockProvider",
+                            "%s: startup health check timeout (%.1fs), keeping real provider",
                             ep.id,
+                            probe_timeout,
                         )
-                        ep._saved_api_key = ep.config.api_key_runtime
-                        ep.config.api_key_runtime = ""
-                        self._rebuild_provider(ep)
-                        ep.health_status = "healthy"
-                        ep.consecutive_failures = 0
-                        ep.last_error = "startup timeout → auto-fallback to mock"
+                        ep.health_status = "unknown"
+                        ep.last_error = f"startup health check timeout ({probe_timeout:.1f}s)"
 
     async def _check_one(self, eid: str) -> None:
         ep = self.endpoints.get(eid)
@@ -394,12 +410,14 @@ class ModelPool:
             now = time.time()
             ep.last_health_check = now
             if ok:
+                ep.last_status_code = 200
                 if ep.cooldown_until and now >= ep.cooldown_until:
                     ep.recover_breaker()
                 else:
                     ep.health_status = "healthy"
                     ep.consecutive_failures = 0
             else:
+                ep.last_status_code = None
                 # 失败 1 次就探测 401/403 → 立即切 mock(让 dashboard 显示 mock 模式)
                 # 这样 dashboard 不会红 3 次
                 await self._maybe_fallback_to_mock(ep, "health_check failed")
@@ -407,13 +425,16 @@ class ModelPool:
                 if ep.consecutive_failures >= self.settings.health.failure_threshold:
                     ep.trigger_breaker(self.settings.health.cooldown_seconds)
         except asyncio.TimeoutError:
+            ep.last_status_code = None
             await self._maybe_fallback_to_mock(ep, "health_check timeout")
             ep.consecutive_failures += 1
             if ep.consecutive_failures >= self.settings.health.failure_threshold:
                 ep.trigger_breaker(self.settings.health.cooldown_seconds)
         except Exception as e:
+            ep.last_status_code = getattr(e, "status", None)
             ep.consecutive_failures += 1
             ep.last_error = str(e)
+            await self._maybe_fallback_to_mock(ep, str(e))
             if ep.consecutive_failures >= self.settings.health.failure_threshold:
                 ep.trigger_breaker(self.settings.health.cooldown_seconds)
 

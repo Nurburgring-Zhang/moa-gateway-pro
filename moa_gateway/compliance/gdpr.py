@@ -1,11 +1,11 @@
 """GDPR Compliance — Data Subject Rights implementation."""
+
 from __future__ import annotations
 
 import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -17,19 +17,19 @@ class DeletionRequest:
     request_id: str
     user_id: str
     requested_at: float
-    completed_at: Optional[float] = None
+    completed_at: float | None = None
     status: str = "pending"  # pending/processing/completed/failed
-    data_categories: List[str] = field(default_factory=lambda: ["all"])
+    data_categories: list[str] = field(default_factory=lambda: ["all"])
 
 
 class GDPRManager:
     """GDPR data subject rights manager."""
 
     def __init__(self):
-        self._requests: List[DeletionRequest] = []
+        self._requests: list[DeletionRequest] = []
 
     async def create_deletion_request(
-        self, user_id: str, categories: Optional[List[str]] = None
+        self, user_id: str, categories: list[str] | None = None
     ) -> DeletionRequest:
         """Create a data deletion request (right to be forgotten)."""
         request = DeletionRequest(
@@ -93,7 +93,7 @@ class GDPRManager:
             },
         }
 
-    def get_request_status(self, request_id: str) -> Optional[dict]:
+    def get_request_status(self, request_id: str) -> dict | None:
         """Query deletion request status."""
         request = next((r for r in self._requests if r.request_id == request_id), None)
         if request:
@@ -105,7 +105,7 @@ class GDPRManager:
             }
         return None
 
-    def list_requests(self, user_id: Optional[str] = None) -> List[dict]:
+    def list_requests(self, user_id: str | None = None) -> list[dict]:
         """List all deletion requests, optionally filtered by user."""
         requests = self._requests
         if user_id:

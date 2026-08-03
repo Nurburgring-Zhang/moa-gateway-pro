@@ -1,12 +1,12 @@
 """Adaptive ensemble strategy: dynamic weighting based on historical success."""
+
 from __future__ import annotations
 
 import logging
-import math
 from collections import deque
 from typing import Any
 
-from .base import ModelCandidate, MoaStrategy
+from .base import MoaStrategy, ModelCandidate
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ class AdaptiveEnsembleStrategy(MoaStrategy):
 
     def __init__(self) -> None:
         self._model_weights: dict[str, float] = {}
-        self._history: dict[str, deque] = {}   # endpoint_id -> success history (bool)
+        self._history: dict[str, deque] = {}  # endpoint_id -> success history (bool)
         self._quality_scores: dict[str, float] = {}  # endpoint_id -> avg quality
 
     @property
@@ -42,7 +42,7 @@ class AdaptiveEnsembleStrategy(MoaStrategy):
         sr = sum(1 for h in hist if h) / len(hist)
         # Recency factor: more recent data matters more (exponential decay)
         recency = sum(
-            (self.EMA_ALPHA ** i) * (1.0 if list(hist)[-(i + 1)] else 0.0)
+            (self.EMA_ALPHA**i) * (1.0 if list(hist)[-(i + 1)] else 0.0)
             for i in range(min(len(hist), 10))
         ) / max(1, min(len(hist), 10))
         # Quality score boost
@@ -99,7 +99,7 @@ class AdaptiveEnsembleStrategy(MoaStrategy):
 
         # Fallback: if candidates provided, use weights to pick the best response
         if candidates:
-            weights = [self._get_weight(c.endpoint_id) for c in candidates[:len(valid)]]
+            weights = [self._get_weight(c.endpoint_id) for c in candidates[: len(valid)]]
             if weights:
                 best_idx = max(range(len(weights)), key=lambda i: weights[i])
                 if best_idx < len(valid):
@@ -132,5 +132,8 @@ class AdaptiveEnsembleStrategy(MoaStrategy):
         self._model_weights[endpoint_id] = self._get_weight(endpoint_id)
         logger.debug(
             "AdaptiveEnsemble: updated %s success=%s quality=%.2f weight=%.3f",
-            endpoint_id, success, quality_score, self._model_weights[endpoint_id],
+            endpoint_id,
+            success,
+            quality_score,
+            self._model_weights[endpoint_id],
         )

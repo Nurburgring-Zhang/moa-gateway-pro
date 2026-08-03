@@ -163,7 +163,9 @@ class ConsensusService(ServiceBase):
                         "winner": w,
                         "confidence": conf,
                     }
-                    for c, w, conf in self.arbitrate_conflicts(summary["conflicts"], viability_scores)
+                    for c, w, conf in self.arbitrate_conflicts(
+                        summary["conflicts"], viability_scores
+                    )
                 ]
         if hasattr(summary, "to_dict"):
             return summary.to_dict()

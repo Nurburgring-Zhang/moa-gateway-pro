@@ -101,7 +101,9 @@ class AutoConfigurator:
         self._last_errors = errors
         logger.info(
             "configure_discovered: %d configured, %d skipped, %d errors",
-            configured, skipped, len(errors),
+            configured,
+            skipped,
+            len(errors),
         )
         return {"configured": configured, "skipped": skipped, "errors": errors}
 
@@ -132,7 +134,8 @@ class AutoConfigurator:
                 removed += 1
                 logger.info(
                     "Removed stale endpoint %s (consecutive_failures=%d)",
-                    eid, ep.consecutive_failures,
+                    eid,
+                    ep.consecutive_failures,
                 )
 
         logger.info("cleanup_stale: checked %d, removed %d", checked, removed)
@@ -154,7 +157,11 @@ class AutoConfigurator:
                 auto_eps.append(ep_data)
 
         tier_dist: dict[str, int] = {
-            "free": 0, "lite": 0, "standard": 0, "premium": 0, "flagship": 0,
+            "free": 0,
+            "lite": 0,
+            "standard": 0,
+            "premium": 0,
+            "flagship": 0,
         }
         platform_set: set[str] = set()
         stale_count = 0

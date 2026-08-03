@@ -34,7 +34,13 @@ logger = logging.getLogger("mcp_server")
 # ========== 协议常量 ==========
 PROTOCOL_VERSION = "2024-11-05"
 SERVER_NAME = "MoA Gateway Pro"
-SERVER_VERSION = "1.8.1"
+
+try:
+    from moa_gateway import __version__ as _ver
+
+    SERVER_VERSION = _ver
+except ImportError:
+    SERVER_VERSION = "1.9.0"
 
 # ========== 配置 ==========
 # MCP server 假设 MoA HTTP server 跑在 MOA_GATEWAY_URL(默认 8088)
@@ -129,9 +135,9 @@ def _do_request(req, timeout):
             return json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"HTTP {e.code} {e.reason}: {body[:500]}")
+        raise RuntimeError(f"HTTP {e.code} {e.reason}: {body[:500]}") from e
     except urllib.error.URLError as e:
-        raise RuntimeError(f"gateway unreachable: {e.reason}")
+        raise RuntimeError(f"gateway unreachable: {e.reason}") from e
 
 
 # ========== 工具注册表 ==========

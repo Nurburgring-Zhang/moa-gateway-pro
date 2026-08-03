@@ -6,6 +6,7 @@ Features:
 - Request context enrichment
 - Configurable output (stdout/file)
 """
+
 from __future__ import annotations
 
 import json
@@ -44,9 +45,19 @@ class StructuredJsonFormatter(logging.Formatter):
             log_entry["exception"] = self.formatException(record.exc_info)
 
         # Extra fields from LogRecord
-        for key in ("request_id", "model", "provider", "preset",
-                    "latency_ms", "cost", "status_code", "method",
-                    "path", "client_ip", "org_id"):
+        for key in (
+            "request_id",
+            "model",
+            "provider",
+            "preset",
+            "latency_ms",
+            "cost",
+            "status_code",
+            "method",
+            "path",
+            "client_ip",
+            "org_id",
+        ):
             val = getattr(record, key, None)
             if val is not None:
                 log_entry[key] = val
@@ -120,5 +131,7 @@ def setup_logging(
 
     logging.getLogger(__name__).info(
         "Structured logging initialized: level=%s, json=%s, dir=%s",
-        level, json_mode, log_dir,
+        level,
+        json_mode,
+        log_dir,
     )

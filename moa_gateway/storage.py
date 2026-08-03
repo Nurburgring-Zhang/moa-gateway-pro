@@ -27,7 +27,7 @@ from typing import Any
 import bcrypt
 from cryptography.fernet import Fernet
 
-from .config import DATA_DIR, Settings, get_settings
+from .config import DATA_DIR, ROOT_DIR, Settings, get_settings
 from .database import DatabaseEngine
 
 logger = logging.getLogger(__name__)  # 修 P0-10: logger 必须在 _get_or_create_fernet 之前定义
@@ -240,7 +240,10 @@ class Storage:
 
     def __init__(self, db_path: Path | None = None):
         settings = get_settings()
-        self.db_path = Path(db_path or (DATA_DIR / settings.storage.db_path))
+        # P1-4 (Task #56): Use ROOT_DIR instead of DATA_DIR to avoid double data/ prefix.
+        # settings.storage.db_path is 'data/config.db' (relative to ROOT_DIR),
+        # so DATA_DIR / 'data/config.db' = 'data/data/config.db' (wrong!).
+        self.db_path = Path(db_path or (ROOT_DIR / settings.storage.db_path))
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         # Database engine factory - supports SQLite/PostgreSQL
         self._engine = DatabaseEngine.create(db_path=self.db_path)
@@ -696,8 +699,13 @@ class Storage:
                 c.execute(
                     "INSERT INTO config_overrides (key, value, updated_at) VALUES (?, ?, ?) "
                     "ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?",
-                    (key, json.dumps(value, ensure_ascii=False), time.time(),
-                     json.dumps(value, ensure_ascii=False), time.time()),
+                    (
+                        key,
+                        json.dumps(value, ensure_ascii=False),
+                        time.time(),
+                        json.dumps(value, ensure_ascii=False),
+                        time.time(),
+                    ),
                 )
 
     # ========== RateLimit counters ==========
@@ -779,7 +787,6 @@ class Storage:
             ).fetchone()
             return int(row["tokens"]) if row else 0
 
-
     # ========== RBAC User Management ==========
     def list_admin_users(self) -> list[dict]:
         """List all admin users (without password hashes)."""
@@ -848,11 +855,11 @@ class Storage:
             cur = c.execute("DELETE FROM admin_users WHERE id = ?", (user_id,))
             return cur.rowcount > 0
 
-
     # ========== Purge Records (Task #43) ==========
     def save_purge_record(self, record: dict) -> None:
         """Persist a purge record for audit trail."""
         import json
+
         with self.conn() as c:
             c.execute(
                 "INSERT INTO purge_records "
@@ -874,6 +881,7 @@ class Storage:
     def list_purge_records(self, limit: int = 100) -> list[dict]:
         """List purge records for audit/history."""
         import json
+
         with self.conn() as c:
             rows = c.execute(
                 "SELECT * FROM purge_records ORDER BY created_at DESC LIMIT ?",

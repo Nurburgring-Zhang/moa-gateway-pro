@@ -3,6 +3,7 @@
 Removes endpoints that have been unavailable for longer than a threshold.
 Supports manual restore of purged endpoints.
 """
+
 from __future__ import annotations
 
 import logging
@@ -10,7 +11,7 @@ from collections import deque
 from datetime import datetime
 from typing import Any
 
-from .health_checker import EndpointHealth, HealthChecker, HealthStatus
+from .health_checker import EndpointHealth, HealthChecker
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +54,13 @@ class PurgeManager:
         if purged:
             logger.info(
                 "Purged %d endpoints (threshold=%d days): %s",
-                len(purged), self._purge_threshold_days, purged,
+                len(purged),
+                self._purge_threshold_days,
+                purged,
             )
         return purged
 
-    async def _purge_endpoint(
-        self, endpoint_id: str, health: EndpointHealth
-    ) -> None:
+    async def _purge_endpoint(self, endpoint_id: str, health: EndpointHealth) -> None:
         """Execute purge: remove from model_pool, record log."""
         purge_record = {
             "endpoint_id": endpoint_id,
@@ -105,16 +106,16 @@ class PurgeManager:
 
         logger.info(
             "Purged endpoint %s: unavailable for %d days, success_rate=%.2f",
-            endpoint_id, health.days_unavailable, health.success_rate,
+            endpoint_id,
+            health.days_unavailable,
+            health.success_rate,
         )
 
     def get_purge_history(self) -> list[dict]:
         """Return in-memory purge history."""
         return list(self._purged_endpoints)
 
-    async def restore_endpoint(
-        self, endpoint_id: str, endpoint_config: dict
-    ) -> bool:
+    async def restore_endpoint(self, endpoint_id: str, endpoint_config: dict) -> bool:
         """Restore a purged endpoint (manual operation).
 
         Args:

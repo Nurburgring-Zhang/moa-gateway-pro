@@ -6,6 +6,7 @@ Supports:
 - OTLP HTTP exporter (alternative)
 - Prometheus exporter (metrics scraping)
 """
+
 from __future__ import annotations
 
 import logging
@@ -46,11 +47,13 @@ class OTLPSpanExporter:
                 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # noqa: PLC0415
                     OTLPSpanExporter as _OTLPExporter,
                 )
+
                 self._exporter = _OTLPExporter(endpoint=self.endpoint)
             else:
                 from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # noqa: PLC0415
                     OTLPSpanExporter as _OTLPExporter,
                 )
+
                 self._exporter = _OTLPExporter(endpoint=self.endpoint)
             logger.info("OTLP exporter configured: %s (%s)", self.endpoint, self.protocol)
         except ImportError as e:

@@ -1,36 +1,36 @@
-server:
+﻿server:
   host: 0.0.0.0
   port: 8910
   workers: 1
   log_level: INFO
-  # SEC-010: CORS 配置警告
-  # ━━ 生产环境必须修改 ━━
-  # '*' 仅适用于开发环境。生产部署时必须替换为精确的域名，如:
+  # SEC-010: CORS 閰嶇疆璀﹀憡
+  # 鈹佲攣 鐢熶骇鐜蹇呴』淇敼 鈹佲攣
+  # '*' 浠呴€傜敤浜庡紑鍙戠幆澧冦€傜敓浜ч儴缃叉椂蹇呴』鏇挎崲涓虹簿纭殑鍩熷悕锛屽:
   # cors_origins: ["https://your-domain.com", "https://admin.your-domain.com"]
-  # 否则将存在跨站请求伪造 (CSRF) 和数据泄露风险。
+  # 鍚﹀垯灏嗗瓨鍦ㄨ法绔欒姹備吉閫?(CSRF) 鍜屾暟鎹硠闇查闄┿€?
   cors_origins:
-  - '*'
+  - http://localhost:3000
+  - http://127.0.0.1:3000
 storage:
   db_path: data/config.db
   log_retention_days: 30
-  # ━━ 数据库后端配置 ━━
-  # 默认 SQLite (零配置,适合开发/测试):
-  #   database_url: ""  (使用 db_path)
-  # PostgreSQL (生产环境,高并发):
+  # 鈹佲攣 鏁版嵁搴撳悗绔厤缃?鈹佲攣
+  # 榛樿 SQLite (闆堕厤缃?閫傚悎寮€鍙?娴嬭瘯):
+  #   database_url: ""  (浣跨敤 db_path)
+  # PostgreSQL (鐢熶骇鐜,楂樺苟鍙?:
   #   database_url: "postgresql+psycopg2://moa:password@localhost:5432/moa_gateway"
-  # 或通过环境变量: export DATABASE_URL="postgresql+psycopg2://..."
+  # 鎴栭€氳繃鐜鍙橀噺: export DATABASE_URL="postgresql+psycopg2://..."
   database_url: ""
-  # 连接池参数 (仅 PostgreSQL 生效)
+  # 杩炴帴姹犲弬鏁?(浠?PostgreSQL 鐢熸晥)
   db_pool_size: 20
   db_max_overflow: 10
   db_pool_timeout: 30
   db_pool_recycle: 3600
 auth:
-  gateway_api_keys:
-  - demo-key-please-change
+  gateway_api_keys: []
   admin_username: admin
-  # 修26: 安全加固 — 启动前必须显式设置,不能用默认 'admin' / 空
-  # 推荐用环境变量覆盖: export MOA_ADMIN_PASSWORD='YourStrong#Pass1'
+  # 淇?6: 瀹夊叏鍔犲浐 鈥?鍚姩鍓嶅繀椤绘樉寮忚缃?涓嶈兘鐢ㄩ粯璁?'admin' / 绌?
+  # 鎺ㄨ崘鐢ㄧ幆澧冨彉閲忚鐩? export MOA_ADMIN_PASSWORD='YourStrong#Pass1'
   admin_password: ''
   jwt_secret: ''
   jwt_expire_minutes: 1440
@@ -181,7 +181,7 @@ models:
   - openai-compat
   api_key: ''
 - id: yi-large
-  provider: lingyi
+  provider: lingyiwanwu
   model: yi-large
   tier: premium
   api_base: https://api.lingyiwanwu.com/v1
@@ -292,6 +292,54 @@ models:
   - intl
   - openai-compat
   api_key: ''
+- id: fireworks-llama-70b
+  provider: fireworks
+  model: accounts/fireworks/models/llama-v3p3-70b-instruct
+  tier: standard
+  api_base: https://api.fireworks.ai/v1
+  api_key_env: FIREWORKS_API_KEY
+  cost_per_1k_input: 0.0009
+  cost_per_1k_output: 0.0009
+  max_tokens: 131072
+  timeout: 120
+  weight: 100
+  enabled: true
+  tags:
+  - intl
+  - openai-compat
+  api_key: ''
+- id: aimlapi-llama-70b
+  provider: aimlapi
+  model: meta-llama/Llama-3.3-70B-Instruct
+  tier: standard
+  api_base: https://api.aimlapi.com/v1
+  api_key_env: AIMLAPI_API_KEY
+  cost_per_1k_input: 0.0
+  cost_per_1k_output: 0.0
+  max_tokens: 131072
+  timeout: 120
+  weight: 100
+  enabled: true
+  tags:
+  - intl
+  - openai-compat
+  api_key: ''
+- id: novita-deepseek-v3
+  provider: novita
+  model: deepseek/deepseek-chat-v3
+  tier: standard
+  api_base: https://api.novita.ai/v3/openai
+  api_key_env: NOVITA_API_KEY
+  cost_per_1k_input: 0.0
+  cost_per_1k_output: 0.0
+  max_tokens: 65536
+  timeout: 120
+  weight: 100
+  enabled: true
+  tags:
+  - intl
+  - openai-compat
+  api_key: ''
 routing:
   thresholds:
     trivial_length: 10
@@ -325,7 +373,7 @@ moa:
       reference_temperature: 0.5
       aggregator_temperature: 0.5
       tier: lite
-      description: 单 lite 模型,最快最便宜
+      description: 鍗?lite 妯″瀷,鏈€蹇渶渚垮疁
     balanced:
       enabled: true
       strategy: parallel
@@ -334,7 +382,7 @@ moa:
       critic_rounds: 1
       reference_temperature: 0.6
       aggregator_temperature: 0.4
-      description: 4 模型并行 + 旗舰聚合 + 1 互审
+      description: 4 妯″瀷骞惰 + 鏃楄埌鑱氬悎 + 1 浜掑
     quality:
       enabled: true
       strategy: parallel
@@ -343,7 +391,7 @@ moa:
       critic_rounds: 2
       reference_temperature: 0.6
       aggregator_temperature: 0.3
-      description: 5 模型 + 旗舰聚合 + 2 互审
+      description: 5 妯″瀷 + 鏃楄埌鑱氬悎 + 2 浜掑
     chinese_battalion:
       enabled: true
       strategy: parallel
@@ -361,7 +409,7 @@ moa:
       critic_rounds: 1
       reference_temperature: 0.6
       aggregator_temperature: 0.4
-      description: OpenSquilla v0.5.0 风格:4 国产模型并行 + 国产聚合,零国外旗舰
+      description: OpenSquilla v0.5.0 椋庢牸:4 鍥戒骇妯″瀷骞惰 + 鍥戒骇鑱氬悎,闆跺浗澶栨棗鑸?
       max_tokens: 4096
     compose_analyst:
       enabled: true
@@ -371,7 +419,7 @@ moa:
       critic_rounds: 0
       reference_temperature: 0.6
       aggregator_temperature: 0.4
-      description: 4 模型分工:feasibility / performance / security / ux
+      description: 4 妯″瀷鍒嗗伐:feasibility / performance / security / ux
       max_tokens: 4096
     judge:
       enabled: true
@@ -380,7 +428,7 @@ moa:
       critic_rounds: 3
       reference_temperature: 0.5
       aggregator_temperature: 0.3
-      description: 单模型多轮反思,适合预算紧张但需要质量的场景
+      description: 鍗曟ā鍨嬪杞弽鎬?閫傚悎棰勭畻绱у紶浣嗛渶瑕佽川閲忕殑鍦烘櫙
       max_tokens: 4096
     chain_deep:
       enabled: true
@@ -394,7 +442,7 @@ moa:
         tier: premium
       reference_temperature: 0.6
       aggregator_temperature: 0.4
-      description: 3 步串行 MoA,适合长链路调研分析
+      description: 3 姝ヤ覆琛?MoA,閫傚悎闀块摼璺皟鐮斿垎鏋?
       max_tokens: 4096
     pipeline:
       enabled: true
@@ -406,7 +454,7 @@ moa:
         tier: standard
       - name: evaluator
         tier: premium
-      description: planner → generator → evaluator 单线流程
+      description: planner 鈫?generator 鈫?evaluator 鍗曠嚎娴佺▼
       max_tokens: 4096
     chinese_battalion_layered:
       enabled: true
@@ -426,7 +474,7 @@ moa:
       layer_count: 3
       reference_temperature: 0.6
       aggregator_temperature: 0.4
-      description: Together AI MoA 3 层架构:4 国产 L1 并行 → L2 同批模型聚合 → L3 旗舰聚合
+      description: Together AI MoA 3 灞傛灦鏋?4 鍥戒骇 L1 骞惰 鈫?L2 鍚屾壒妯″瀷鑱氬悎 鈫?L3 鏃楄埌鑱氬悎
       max_tokens: 4096
     chinese_battalion_lite:
       enabled: true
@@ -444,7 +492,7 @@ moa:
       layer_count: 2
       reference_temperature: 0.6
       aggregator_temperature: 0.4
-      description: Together AI MoA-Lite:2 层 MoA,1.8% 提升 + 成本最优
+      description: Together AI MoA-Lite:2 灞?MoA,1.8% 鎻愬崌 + 鎴愭湰鏈€浼?
       max_tokens: 4096
     qwen_single_proposer:
       enabled: true
@@ -456,7 +504,7 @@ moa:
       aggregator: qwen-plus
       aggregator_tier: premium
       reference_temperature: 0.7
-      description: Single-Proposer:Qwen-Plus 高温采样 4 次再聚合(论文对照组)
+      description: Single-Proposer:Qwen-Plus 楂樻俯閲囨牱 4 娆″啀鑱氬悎(璁烘枃瀵圭収缁?
       max_tokens: 4096
     ranker_qwen110b:
       enabled: true
@@ -465,7 +513,7 @@ moa:
       aggregator: qwen-max
       aggregator_tier: premium
       reference_temperature: 0.6
-      description: LLM Ranker baseline:并行 4 参考 + 旗舰选最佳(论文 §3.3 对照组)
+      description: LLM Ranker baseline:骞惰 4 鍙傝€?+ 鏃楄埌閫夋渶浣?璁烘枃 搂3.3 瀵圭収缁?
       max_tokens: 4096
 health:
   interval_seconds: 30
@@ -520,7 +568,7 @@ discovery:
   refresh_interval_hours: 24
   auto_configure: true
   first_run_delay_seconds: 60
-  platforms: []
+  platforms: []  # empty list = scan all registered platforms
   api_keys:
     groq: ""
     openrouter: ""
@@ -536,7 +584,11 @@ discovery:
     sambanova: ""
     github_models: ""
     cloudflare_ai: ""
-    chutes: ""
+    chutes: ""  # [DEPRECATED 2026-02] free tier discontinued
+    fireworks: ""
+    aimlapi: ""
+    novita: ""
+    anthropic: ""
     # Domestic AI model companies
     moonshot: ""
     baichuan: ""

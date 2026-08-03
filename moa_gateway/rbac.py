@@ -13,7 +13,6 @@ from __future__ import annotations
 import logging
 from enum import Enum
 from functools import wraps
-from typing import Set
 
 from fastapi import HTTPException, Request
 
@@ -63,7 +62,7 @@ class Permission(str, Enum):
 
 
 # Role -> Permission mapping matrix
-ROLE_PERMISSIONS: dict[Role, Set[Permission]] = {
+ROLE_PERMISSIONS: dict[Role, set[Permission]] = {
     Role.ADMIN: set(Permission),  # All permissions
     Role.OPERATOR: {
         Permission.CALL_CHAT,
@@ -94,7 +93,7 @@ ROLE_PERMISSIONS: dict[Role, Set[Permission]] = {
 }
 
 
-def get_user_permissions(role: str) -> Set[Permission]:
+def get_user_permissions(role: str) -> set[Permission]:
     """Get the set of permissions for a given role string."""
     try:
         r = Role(role)

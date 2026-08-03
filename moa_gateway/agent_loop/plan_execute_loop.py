@@ -5,14 +5,16 @@ Enhanced with Paseo-style scenario orchestration (P1-4):
 - ScenarioExecutor: topological sort + parallel/serial execution
 - run_scenario(): execute multi-step scenarios with context passing
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from .base import AgentContext, AgentLoop, LoopResult, ToolCall, ToolExecutor, ToolResult
 
@@ -108,15 +110,11 @@ def _topological_sort(steps: list[ScenarioStep]) -> list[list[ScenarioStep]]:
     remaining = list(steps)
 
     while remaining:
-        ready = [
-            s for s in remaining
-            if all(dep in completed for dep in s.depends_on)
-        ]
+        ready = [s for s in remaining if all(dep in completed for dep in s.depends_on)]
         if not ready:
             remaining_ids = [s.id for s in remaining]
             raise ValueError(
-                f"Circular or missing dependency detected. "
-                f"Unresolved steps: {remaining_ids}"
+                f"Circular or missing dependency detected. Unresolved steps: {remaining_ids}"
             )
         waves.append(ready)
         for s in ready:
@@ -134,7 +132,7 @@ class ScenarioExecutor:
     steps are available as inputs to later steps.
     """
 
-    def __init__(self, plan_execute_loop: "PlanExecuteLoop") -> None:
+    def __init__(self, plan_execute_loop: PlanExecuteLoop) -> None:
         self._loop = plan_execute_loop
 
     async def execute_scenario(
@@ -181,8 +179,12 @@ class ScenarioExecutor:
             if len(wave) == 1:
                 result = await self._execute_step(wave[0], ctx)
                 self._collect_results(
-                    wave[0], result, step_results, ctx,
-                    all_tool_calls, all_tool_results,
+                    wave[0],
+                    result,
+                    step_results,
+                    ctx,
+                    all_tool_calls,
+                    all_tool_results,
                 )
             else:
                 tasks = [self._execute_step(s, ctx) for s in wave]
@@ -197,19 +199,22 @@ class ScenarioExecutor:
                         ctx[f"_step_{step.id}_error"] = str(result)
                     else:
                         self._collect_results(
-                            step, result, step_results, ctx,
-                            all_tool_calls, all_tool_results,
+                            step,
+                            result,
+                            step_results,
+                            ctx,
+                            all_tool_calls,
+                            all_tool_results,
                         )
 
         # Verify expected outputs
         for step in steps:
             if step.expected_output and step.id in step_results:
-                self._verify_expected_output(
-                    step, step_results[step.id]
-                )
+                self._verify_expected_output(step, step_results[step.id])
 
         overall_success = all(
-            isinstance(r, dict) and r.get("success", True)
+            isinstance(r, dict)
+            and r.get("success", True)
             and not r.get("verification_failed", False)
             for r in step_results.values()
         )
@@ -254,9 +259,9 @@ class ScenarioExecutor:
             if tool_name == "llm":
                 llm_prompt = arguments.get("query", arguments.get("prompt", ""))
                 try:
-                    response = await self._loop._llm_call([
-                        {"role": "user", "content": str(llm_prompt)}
-                    ])
+                    response = await self._loop._llm_call(
+                        [{"role": "user", "content": str(llm_prompt)}]
+                    )
                     return {"success": True, "output": response, "action": "execute"}
                 except Exception as exc:  # noqa: BLE001
                     return {"success": False, "output": "", "error": str(exc), "action": "execute"}
@@ -314,9 +319,7 @@ class ScenarioExecutor:
                 resolved_val = value
                 for ctx_key, ctx_val in context.items():
                     if isinstance(ctx_val, str):
-                        resolved_val = resolved_val.replace(
-                            "{{" + ctx_key + "}}", ctx_val
-                        )
+                        resolved_val = resolved_val.replace("{{" + ctx_key + "}}", ctx_val)
                 resolved[key] = resolved_val
             elif isinstance(value, dict):
                 resolved[key] = self._resolve_templates(value, context)
@@ -355,9 +358,7 @@ class ScenarioExecutor:
             if key == "contains":
                 if isinstance(expected, str) and expected not in output:
                     result["verification_failed"] = True
-                    result["verification_error"] = (
-                        f"Expected output to contain '{expected}'"
-                    )
+                    result["verification_error"] = f"Expected output to contain '{expected}'"
             elif key == "success":
                 if result.get("success") != expected:
                     result["verification_failed"] = True
@@ -449,9 +450,9 @@ class PlanExecuteLoop(AgentLoop):
                 # Use LLM directly for this step
                 llm_prompt = arguments.get("query", arguments.get("prompt", step_desc))
                 try:
-                    step_result = await self._llm_call([
-                        {"role": "user", "content": str(llm_prompt)}
-                    ])
+                    step_result = await self._llm_call(
+                        [{"role": "user", "content": str(llm_prompt)}]
+                    )
                     step_results.append(f"Step {i + 1} ({step_desc}): {step_result}")
                 except Exception as exc:  # noqa: BLE001
                     step_results.append(f"Step {i + 1} ({step_desc}): ERROR - {exc}")
@@ -463,13 +464,9 @@ class PlanExecuteLoop(AgentLoop):
                 all_tool_results.append(tool_result)
 
                 if tool_result.success:
-                    step_results.append(
-                        f"Step {i + 1} ({step_desc}): {tool_result.output}"
-                    )
+                    step_results.append(f"Step {i + 1} ({step_desc}): {tool_result.output}")
                 else:
-                    step_results.append(
-                        f"Step {i + 1} ({step_desc}): FAILED - {tool_result.error}"
-                    )
+                    step_results.append(f"Step {i + 1} ({step_desc}): FAILED - {tool_result.error}")
 
         # --- Phase 3: Synthesize ---
         results_text = "\n".join(step_results)

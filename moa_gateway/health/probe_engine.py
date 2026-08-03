@@ -3,6 +3,7 @@
 Sends lightweight test requests to detect endpoint availability.
 Adjusts probe frequency based on endpoint health status.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -12,7 +13,7 @@ from typing import Any
 
 import httpx
 
-from .health_checker import HealthChecker, HealthStatus
+from .health_checker import HealthChecker
 
 logger = logging.getLogger(__name__)
 
@@ -28,11 +29,11 @@ class ProbeEngine:
 
     # Probe frequency configuration (seconds)
     PROBE_INTERVALS = {
-        "new": 600,           # newly discovered API: every 10 minutes
-        "healthy": 1800,      # healthy API: every 30 minutes
-        "degraded": 300,      # degraded API: every 5 minutes
-        "unhealthy": 180,     # unhealthy API: every 3 minutes
-        "dead": 3600,         # dead API: every hour (in case it comes back)
+        "new": 600,  # newly discovered API: every 10 minutes
+        "healthy": 1800,  # healthy API: every 30 minutes
+        "degraded": 300,  # degraded API: every 5 minutes
+        "unhealthy": 180,  # unhealthy API: every 3 minutes
+        "dead": 3600,  # dead API: every hour (in case it comes back)
     }
 
     def __init__(
@@ -88,9 +89,7 @@ class ProbeEngine:
                 timeout=min(self._probe_timeout, timeout),
                 trust_env=False,
             ) as client:
-                success = await self._send_probe(
-                    client, provider, api_base, api_key, model
-                )
+                success = await self._send_probe(client, provider, api_base, api_key, model)
                 latency_ms = (time.monotonic() - start_time) * 1000
 
                 if success:
@@ -112,9 +111,7 @@ class ProbeEngine:
             health.record_failure(f"HTTP error: {e}", error_type="http_error")
             return False
         except Exception as e:
-            health.record_failure(
-                f"Unexpected: {type(e).__name__}: {e}", error_type="unexpected"
-            )
+            health.record_failure(f"Unexpected: {type(e).__name__}: {e}", error_type="unexpected")
             return False
 
     async def _send_probe(
@@ -151,9 +148,7 @@ class ProbeEngine:
                 url = f"{api_base}/models/{model}:generateContent"
                 params = {"key": api_key} if api_key else {}
                 payload = {"contents": [{"parts": [{"text": "Hi"}]}]}
-                resp = await client.post(
-                    url, json=payload, params=params, headers=headers
-                )
+                resp = await client.post(url, json=payload, params=params, headers=headers)
             elif provider == "cohere":
                 # Cohere format
                 url = f"{api_base}/chat"
@@ -176,7 +171,9 @@ class ProbeEngine:
                 # Record the HTTP error in health
                 logger.debug(
                     "Probe %s/%s: HTTP %d",
-                    provider, model, resp.status_code,
+                    provider,
+                    model,
+                    resp.status_code,
                 )
                 return False
         except httpx.TimeoutException:
@@ -256,3 +253,19 @@ class ProbeEngine:
     def get_monitored_endpoints(self) -> list[str]:
         """Return list of currently monitored endpoint IDs."""
         return list(self._tasks.keys())
+
+    async def probe_all(self, endpoint_ids: list[str] | None = None) -> dict[str, bool]:
+        """Probe all (or specified) endpoints once and return results.
+
+        Unlike start_monitoring, this performs a one-shot health check
+        without starting persistent monitoring loops.
+        """
+        if endpoint_ids is None:
+            endpoint_ids = list(self.get_monitored_endpoints())
+        results: dict[str, bool] = {}
+        for eid in endpoint_ids:
+            try:
+                results[eid] = await self.probe_endpoint(eid)
+            except Exception:
+                results[eid] = False
+        return results

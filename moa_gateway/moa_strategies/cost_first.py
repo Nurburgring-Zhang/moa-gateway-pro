@@ -1,9 +1,10 @@
 """Cost-first strategy: prefer free models, fall back to paid only when needed."""
+
 from __future__ import annotations
 
 from typing import Any
 
-from .base import ModelCandidate, MoaStrategy
+from .base import MoaStrategy, ModelCandidate
 
 # Tier ranking for cost preference (lower = more preferred)
 _TIER_COST_RANK = {

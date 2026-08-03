@@ -8,6 +8,7 @@ Provides:
 - GET  /v1/mcp/servers            List connected external MCP servers
 - POST /v1/mcp/servers            Register an external MCP server
 """
+
 from __future__ import annotations
 
 import logging
@@ -230,7 +231,9 @@ async def unregister_external_mcp_server(
     """Unregister an external MCP server by name."""
     role = key_info.get("role", "readonly")
     if role not in ("admin", "operator"):
-        raise HTTPException(status_code=403, detail="Only admin/operator can unregister MCP servers")
+        raise HTTPException(
+            status_code=403, detail="Only admin/operator can unregister MCP servers"
+        )
 
     registry = get_external_mcp_registry()
     if not registry.get_server(name):

@@ -1,4 +1,5 @@
-﻿"""File operation skills — read, write, list."""
+"""File operation skills — read, write, list."""
+
 from __future__ import annotations
 
 import logging
@@ -25,7 +26,7 @@ def _validate_path(path: str) -> Path:
         except ValueError:
             raise PermissionError(
                 f"Path '{path}' is outside the allowed sandbox root '{root}'"
-            )
+            ) from None
     return p
 
 

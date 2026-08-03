@@ -44,28 +44,6 @@ class _ModelBase(_DictLikeMixin, BaseModel):
     # Field type set to Any for flexibility — actual validation done by endpoint code
 
 
-class _DictLikeMixin:
-    """Mixin that adds dict-like access to Pydantic models.
-
-    Allows existing endpoint code that does body.get("key", default) and body["key"]
-    to keep working after the body type changed from Dict to Pydantic model.
-    """
-
-    def __getitem__(self, key):
-        # Get attribute or raise KeyError (matching dict behavior)
-        if hasattr(self, key):
-            return getattr(self, key)
-        raise KeyError(key)
-
-    def get(self, key, default=None):
-        # Like dict.get, return default if attribute missing or None
-        if hasattr(self, key):
-            val = getattr(self, key)
-            if val is not None:
-                return val
-        return default
-
-
 class CreateMoaEvalRequest(_ModelBase):
     """Request body for POST /v1/moa/eval."""
 
@@ -915,6 +893,7 @@ class CreateAgentWorkflowRunRequest(_ModelBase):
     input: Any | None = Field(None, description="输入")
     name: Any | None = Field(None, description="名称")
 
+
 class CreateAgentRunLoopRequest(_ModelBase):
     """Request body for POST /v1/agent/run-loop."""
 
@@ -922,7 +901,6 @@ class CreateAgentRunLoopRequest(_ModelBase):
     max_iterations: Any | None = Field(None, description="Max loop iterations")
     messages: Any | None = Field(None, description="Conversation messages")
     tools: Any | None = Field(None, description="Tool names to enable")
-
 
 
 # ============ Model registry ============

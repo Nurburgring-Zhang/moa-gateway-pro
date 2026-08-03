@@ -1,0 +1,246 @@
+"""Vision and Image generation endpoints."""
+from __future__ import annotations
+
+import logging
+import time
+import uuid
+from typing import Any, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+
+from ..auth import require_api_key
+from ..config import get_settings
+
+logger = logging.getLogger(__name__)
+router = APIRouter(tags=["vision"])
+
+
+# --- Request/Response Models ------------------------------------------------
+
+
+class ImageContent(BaseModel):
+    """Single image input - URL or base64."""
+
+    type: str = "image_url"  # "image_url" or "image_base64"
+    url: Optional[str] = None
+    base64_data: Optional[str] = None
+    media_type: str = "image/png"
+
+
+class VisionAnalyzeRequest(BaseModel):
+    """Vision analysis request."""
+
+    images: list[ImageContent] = Field(
+        ..., min_length=1, description="One or more images to analyze"
+    )
+    prompt: str = Field(
+        default="Describe this image in detail.", description="Analysis prompt"
+    )
+    model: str = Field(
+        default="auto", description="Model to use (auto selects best available)"
+    )
+    max_tokens: int = Field(default=2000, ge=1, le=16384)
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+
+
+class VisionAnalyzeResponse(BaseModel):
+    """Vision analysis response."""
+
+    id: str
+    model: str
+    description: str
+    usage: dict[str, int] = {}
+
+
+class ImageGenerateRequest(BaseModel):
+    """Image generation request."""
+
+    prompt: str = Field(..., min_length=1, max_length=4000)
+    model: str = Field(
+        default="auto", description="Provider: cogview/wanx/openai/auto"
+    )
+    n: int = Field(default=1, ge=1, le=10)
+    size: str = Field(default="1024x1024", pattern=r"^\d+x\d+$")
+    response_format: str = Field(default="url", pattern=r"^(url|b64_json)$")
+
+
+class ImageGenerateResponse(BaseModel):
+    """Image generation response."""
+
+    created: int
+    data: list[dict[str, Any]]
+
+
+# --- Vision Analysis Endpoint -----------------------------------------------
+
+
+@router.post("/v1/vision/analyze", response_model=VisionAnalyzeResponse)
+async def vision_analyze(
+    req: VisionAnalyzeRequest,
+    key_info: dict[str, Any] = Depends(require_api_key),
+):
+    """Analyze images using vision-capable models.
+
+    Accepts one or more images (URL or base64) with a prompt,
+    routes to the best available vision model.
+    """
+    settings = get_settings()
+
+    # Build multimodal content array for chat completions
+    content_parts: list[dict[str, Any]] = []
+
+    # Add text prompt
+    content_parts.append({"type": "text", "text": req.prompt})
+
+    # Add images
+    for img in req.images:
+        if img.url:
+            content_parts.append(
+                {"type": "image_url", "image_url": {"url": img.url}}
+            )
+        elif img.base64_data:
+            data_url = f"data:{img.media_type};base64,{img.base64_data}"
+            content_parts.append(
+                {"type": "image_url", "image_url": {"url": data_url}}
+            )
+        else:
+            raise HTTPException(
+                status_code=400, detail="Each image must have url or base64_data"
+            )
+
+    # Select vision model
+    model = req.model
+    if model == "auto":
+        model = _select_vision_model(settings)
+
+    # Route through model pool (same pattern as chat endpoint)
+    from ..model_pool import get_model_pool
+
+    pool = get_model_pool()
+
+    messages = [{"role": "user", "content": content_parts}]
+
+    try:
+        resp = await pool.call(
+            model,
+            messages,
+            temperature=req.temperature,
+            max_tokens=req.max_tokens,
+            stream=False,
+        )
+
+        return VisionAnalyzeResponse(
+            id=f"vision-{uuid.uuid4().hex[:12]}",
+            model=resp.model or model,
+            description=resp.content or "",
+            usage={
+                "prompt_tokens": resp.prompt_tokens,
+                "completion_tokens": resp.completion_tokens,
+                "total_tokens": resp.total_tokens,
+            },
+        )
+    except Exception as e:
+        logger.error("Vision analysis failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"Vision model error: {e}")
+
+
+# --- Image Generation Endpoint ----------------------------------------------
+
+
+@router.post("/v1/images/generations", response_model=ImageGenerateResponse)
+async def generate_images(
+    req: ImageGenerateRequest,
+    key_info: dict[str, Any] = Depends(require_api_key),
+):
+    """Generate images from text prompts.
+
+    Routes to the configured image generation provider
+    (CogView, Wanx, DALL-E compatible).
+    """
+    settings = get_settings()
+
+    # Determine provider
+    platform = req.model if req.model != "auto" else _select_image_provider(settings)
+
+    # Build provider
+    try:
+        from ..providers import build_multimodal_provider
+
+        provider = build_multimodal_provider(
+            modality="image",
+            platform_id=platform,
+            api_key="",
+            api_base="",
+        )
+
+        if provider is None:
+            raise HTTPException(
+                status_code=503,
+                detail=f"No image generation provider available for platform: {platform}",
+            )
+
+        # Generate images
+        image_urls = await provider.generate_image(
+            prompt=req.prompt,
+            size=req.size,
+            n=req.n,
+        )
+
+        # Format response (OpenAI compatible)
+        data = []
+        for url in image_urls:
+            if req.response_format == "url":
+                data.append({"url": url})
+            else:
+                data.append({"url": url, "revised_prompt": req.prompt})
+
+        return ImageGenerateResponse(
+            created=int(time.time()),
+            data=data,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Image generation failed: %s", e)
+        raise HTTPException(
+            status_code=502, detail=f"Image generation error: {e}"
+        )
+
+
+# --- Helper Functions -------------------------------------------------------
+
+
+def _select_vision_model(settings: Any) -> str:
+    """Auto-select the best available vision model."""
+    vision_models = [
+        "gpt-4o",
+        "gpt-4o-mini",
+        "qwen-vl-max",
+        "qwen-vl-plus",
+        "glm-4v",
+    ]
+
+    try:
+        from ..model_pool import get_model_pool
+
+        pool = get_model_pool()
+        available = set(pool.endpoints.keys())
+        for model in vision_models:
+            if model in available:
+                return model
+    except Exception:
+        pass
+
+    # Default fallback
+    return "gpt-4o"
+
+
+def _select_image_provider(settings: Any) -> str:
+    """Auto-select image generation provider."""
+    from ..providers import PROVIDER_MODALITY_MAP
+
+    image_providers = PROVIDER_MODALITY_MAP.get("image", [])
+    if image_providers:
+        return image_providers[0][0]  # First registered provider
+    return "wanx"

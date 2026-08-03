@@ -1,4 +1,5 @@
 """Authentication endpoints — /api/auth/*."""
+
 from __future__ import annotations
 
 import asyncio
@@ -18,10 +19,8 @@ router = APIRouter(tags=["auth"])
 
 
 def get_client_ip(request: Request) -> str:
-    """Extract client IP from Request, prefer X-Forwarded-For, fallback to client.host"""
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        return xff.split(",")[0].strip()
+    """Extract client IP — use direct connection only (do not trust X-Forwarded-For
+    unless behind a trusted reverse proxy that overwrites it)."""
     if request.client:
         return request.client.host
     return "unknown"
@@ -56,25 +55,20 @@ async def login(req: LoginRequest, client_ip: str = Depends(get_client_ip)):
             )
         else:
             c.execute(
-                "INSERT OR REPLACE INTO login_attempts (ip, count, window_start) "
-                "VALUES (?, 1, ?)",
+                "INSERT OR REPLACE INTO login_attempts (ip, count, window_start) VALUES (?, 1, ?)",
                 (client_ip, now),
             )
     from ..storage import async_bcrypt_verify
 
     with storage.conn() as c:
-        row = c.execute(
-            "SELECT * FROM admin_users WHERE username = ?", (req.username,)
-        ).fetchone()
+        row = c.execute("SELECT * FROM admin_users WHERE username = ?", (req.username,)).fetchone()
     if not row:
         raise HTTPException(401, "Invalid username or password")
     ok = await async_bcrypt_verify(req.password, row["password_hash"])
     if not ok:
         raise HTTPException(401, "Invalid username or password")
     with storage.conn() as c:
-        c.execute(
-            "UPDATE admin_users SET last_login = ? WHERE id = ?", (time.time(), row["id"])
-        )
+        c.execute("UPDATE admin_users SET last_login = ? WHERE id = ?", (time.time(), row["id"]))
     from ..config import get_settings as _gs
 
     settings = _gs()
@@ -85,16 +79,19 @@ async def login(req: LoginRequest, client_ip: str = Depends(get_client_ip)):
     token = create_jwt_token(row["username"], row["role"])
     # Audit: successful login
     from ..audit import AuditEvent, log_audit
-    log_audit(AuditEvent(
-        action="login",
-        actor_id=row["username"],
-        actor_role=row["role"],
-        resource="auth",
-        resource_id=row["username"],
-        detail={"ip": client_ip},
-        result="success",
-        ip_address=client_ip,
-    ))
+
+    log_audit(
+        AuditEvent(
+            action="login",
+            actor_id=row["username"],
+            actor_role=row["role"],
+            resource="auth",
+            resource_id=row["username"],
+            detail={"ip": client_ip},
+            result="success",
+            ip_address=client_ip,
+        )
+    )
     return {
         "token": token,
         "user": {

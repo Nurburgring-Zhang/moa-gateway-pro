@@ -1,11 +1,11 @@
 """Data Retention Policy — automatic cleanup of expired data."""
+
 from __future__ import annotations
 
 import logging
 import os
 import time
 from dataclasses import dataclass
-from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class RetentionPolicy:
 class DataRetentionManager:
     """Data retention manager — enforces data lifecycle policies."""
 
-    DEFAULT_POLICIES: List[RetentionPolicy] = [
+    DEFAULT_POLICIES: list[RetentionPolicy] = [
         RetentionPolicy("audit_logs", 90, "audit_log", "timestamp"),
         RetentionPolicy("request_logs", 30, "request_log", "created_at"),
         RetentionPolicy("cache_entries", 7, "cache_store", "created_at"),
@@ -32,7 +32,7 @@ class DataRetentionManager:
         RetentionPolicy("temp_files", 1, "data/temp/", ""),
     ]
 
-    def __init__(self, policies: Optional[List[RetentionPolicy]] = None):
+    def __init__(self, policies: list[RetentionPolicy] | None = None):
         self._policies = policies or list(self.DEFAULT_POLICIES)
 
     async def run_cleanup(self, db_conn=None) -> dict:
@@ -71,7 +71,7 @@ class DataRetentionManager:
                 count += 1
         return count
 
-    def get_policy_status(self) -> List[dict]:
+    def get_policy_status(self) -> list[dict]:
         """Get status summary for all policies."""
         return [
             {

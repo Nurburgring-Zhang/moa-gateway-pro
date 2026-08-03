@@ -1,4 +1,4 @@
-﻿"""moa_gateway.providers.gemini_provider -- Google Gemini API adapter
+"""moa_gateway.providers.gemini_provider -- Google Gemini API adapter
 
 Gemini uses a different API format from OpenAI:
 - Auth: x-goog-api-key header or ?key=xxx query param
@@ -119,32 +119,31 @@ class GeminiProvider(Provider):
                     }
                 )
             # normal text / multimodal content
-            else:
-                if isinstance(content, str):
-                    parts.append({"text": content})
-                elif isinstance(content, list):
-                    for part in content:
-                        if isinstance(part, dict):
-                            if "text" in part:
-                                parts.append({"text": part["text"]})
-                            elif part.get("type") == "text":
-                                parts.append({"text": part.get("text", "")})
-                            elif part.get("type") == "image_url":
-                                image_url = part.get("image_url", {}).get("url", "")
-                                if image_url.startswith("data:"):
-                                    # data:image/png;base64,xxxx
-                                    mime_part, _, data = image_url.partition(",")
-                                    mime_type = "image/png"
-                                    if ":" in mime_part:
-                                        mime_type = mime_part.split(":")[1].split(";")[0]
-                                    parts.append(
-                                        {
-                                            "inlineData": {
-                                                "mimeType": mime_type,
-                                                "data": data,
-                                            }
+            elif isinstance(content, str):
+                parts.append({"text": content})
+            elif isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict):
+                        if "text" in part:
+                            parts.append({"text": part["text"]})
+                        elif part.get("type") == "text":
+                            parts.append({"text": part.get("text", "")})
+                        elif part.get("type") == "image_url":
+                            image_url = part.get("image_url", {}).get("url", "")
+                            if image_url.startswith("data:"):
+                                # data:image/png;base64,xxxx
+                                mime_part, _, data = image_url.partition(",")
+                                mime_type = "image/png"
+                                if ":" in mime_part:
+                                    mime_type = mime_part.split(":")[1].split(";")[0]
+                                parts.append(
+                                    {
+                                        "inlineData": {
+                                            "mimeType": mime_type,
+                                            "data": data,
                                         }
-                                    )
+                                    }
+                                )
 
             if parts:
                 contents.append({"role": gemini_role, "parts": parts})
@@ -179,7 +178,7 @@ class GeminiProvider(Provider):
         # strip "models/" prefix if present
         model = req.model
         if model.startswith("models/"):
-            model = model[len("models/"):]
+            model = model[len("models/") :]
 
         url = f"{self.api_base}/v1beta/models/{model}:generateContent"
 
@@ -255,9 +254,7 @@ class GeminiProvider(Provider):
                             "type": "function",
                             "function": {
                                 "name": fc.get("name", ""),
-                                "arguments": json.dumps(
-                                    fc.get("args", {}), ensure_ascii=False
-                                ),
+                                "arguments": json.dumps(fc.get("args", {}), ensure_ascii=False),
                             },
                         }
                     )
@@ -293,7 +290,7 @@ class GeminiProvider(Provider):
         system_instruction, contents = self._convert_messages(req.messages)
         model = req.model
         if model.startswith("models/"):
-            model = model[len("models/"):]
+            model = model[len("models/") :]
 
         url = f"{self.api_base}/v1beta/models/{model}:streamGenerateContent?alt=sse"
 
@@ -324,7 +321,7 @@ class GeminiProvider(Provider):
                 async for line in resp.aiter_lines():
                     if not line or not line.startswith("data:"):
                         continue
-                    chunk = line[len("data:"):].strip()
+                    chunk = line[len("data:") :].strip()
                     if chunk == "[DONE]":
                         break
                     try:

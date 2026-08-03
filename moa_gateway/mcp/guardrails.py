@@ -1,9 +1,11 @@
 """Tool call guardrails - pre/post call safety hooks."""
+
 from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Callable, List, Optional
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -22,16 +24,15 @@ _BLOCKED_PATTERNS = [
 class GuardrailEngine:
     """Pre/Post call guardrails for tool safety."""
 
-    def __init__(self, blocked_patterns: Optional[List[str]] = None):
-        self._pre_hooks: List[Callable] = []
-        self._post_hooks: List[Callable] = []
+    def __init__(self, blocked_patterns: list[str] | None = None):
+        self._pre_hooks: list[Callable] = []
+        self._post_hooks: list[Callable] = []
         self._blocked_patterns = [
-            re.compile(p, re.IGNORECASE)
-            for p in (blocked_patterns or _BLOCKED_PATTERNS)
+            re.compile(p, re.IGNORECASE) for p in (blocked_patterns or _BLOCKED_PATTERNS)
         ]
 
     async def pre_call(
-        self, tool_name: str, arguments: dict[str, Any], user: Optional[dict] = None
+        self, tool_name: str, arguments: dict[str, Any], user: dict | None = None
     ) -> dict[str, Any]:
         """Pre-call validation: check for dangerous patterns in arguments."""
         self._check_dangerous_input(arguments)
@@ -41,9 +42,7 @@ class GuardrailEngine:
 
         return arguments
 
-    async def post_call(
-        self, tool_name: str, result: Any, user: Optional[dict] = None
-    ) -> Any:
+    async def post_call(self, tool_name: str, result: Any, user: dict | None = None) -> Any:
         """Post-call processing: output filtering, PII redaction, etc."""
         for hook in self._post_hooks:
             result = await hook(tool_name, result, user)
@@ -68,9 +67,7 @@ class GuardrailEngine:
                             key,
                             pattern.pattern,
                         )
-                        raise ValueError(
-                            f"Blocked dangerous pattern in argument '{key}'"
-                        )
+                        raise ValueError(f"Blocked dangerous pattern in argument '{key}'")
             elif isinstance(value, dict):
                 self._check_dangerous_input(value)
             elif isinstance(value, list):
@@ -78,8 +75,6 @@ class GuardrailEngine:
                     if isinstance(item, str):
                         for pattern in self._blocked_patterns:
                             if pattern.search(item):
-                                raise ValueError(
-                                    f"Blocked dangerous pattern in argument '{key}'"
-                                )
+                                raise ValueError(f"Blocked dangerous pattern in argument '{key}'")
                     elif isinstance(item, dict):
                         self._check_dangerous_input(item)

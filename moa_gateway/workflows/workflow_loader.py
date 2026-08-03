@@ -3,6 +3,7 @@
 Supports loading individual workflow files or scanning a directory
 for all ``.yaml`` / ``.yml`` workflow definitions.
 """
+
 from __future__ import annotations
 
 import logging
@@ -51,9 +52,7 @@ class WorkflowLoader:
         content = path.read_text(encoding="utf-8")
         return WorkflowYAML(content)
 
-    def load_from_dir(
-        self, dir_path: str | Path | None = None
-    ) -> list[WorkflowYAML]:
+    def load_from_dir(self, dir_path: str | Path | None = None) -> list[WorkflowYAML]:
         """Load all workflow YAML files from a directory.
 
         Args:
@@ -79,9 +78,7 @@ class WorkflowLoader:
 
         return workflows
 
-    def list_workflows(
-        self, dir_path: str | Path | None = None
-    ) -> list[dict[str, str]]:
+    def list_workflows(self, dir_path: str | Path | None = None) -> list[dict[str, str]]:
         """List available workflows with metadata.
 
         Args:
@@ -99,21 +96,21 @@ class WorkflowLoader:
             for path in sorted(target.glob(ext)):
                 try:
                     wf = self.load_from_file(path)
-                    result.append({
-                        "name": wf.name,
-                        "description": wf.description,
-                        "version": wf.version,
-                        "file": path.name,
-                        "steps": str(len(wf.steps)),
-                    })
+                    result.append(
+                        {
+                            "name": wf.name,
+                            "description": wf.description,
+                            "version": wf.version,
+                            "file": path.name,
+                            "steps": str(len(wf.steps)),
+                        }
+                    )
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("Failed to list workflow %s: %s", path, exc)
 
         return result
 
-    def get_workflow(
-        self, name: str, dir_path: str | Path | None = None
-    ) -> WorkflowYAML | None:
+    def get_workflow(self, name: str, dir_path: str | Path | None = None) -> WorkflowYAML | None:
         """Find a workflow by name.
 
         Args:
@@ -164,9 +161,7 @@ class WorkflowLoader:
         target.mkdir(parents=True, exist_ok=True)
 
         # Sanitize filename
-        safe_name = "".join(
-            c if c.isalnum() or c in "-_" else "_" for c in name
-        )
+        safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)
         file_path = target / f"{safe_name}.yaml"
         file_path.write_text(yaml_content, encoding="utf-8")
 

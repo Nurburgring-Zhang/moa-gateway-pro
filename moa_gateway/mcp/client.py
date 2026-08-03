@@ -1,9 +1,10 @@
 """MCP Client - connects to external MCP servers to discover and call tools."""
+
 from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, List, Optional
+from typing import Any
 
 import httpx
 
@@ -15,12 +16,12 @@ logger = logging.getLogger(__name__)
 class MCPClient:
     """Client for connecting to external MCP servers."""
 
-    def __init__(self, server_url: str, api_key: Optional[str] = None, timeout: float = 30.0):
+    def __init__(self, server_url: str, api_key: str | None = None, timeout: float = 30.0):
         self.server_url = server_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
-        self._client: Optional[httpx.AsyncClient] = None
-        self._tools: List[ToolDefinition] = []
+        self._client: httpx.AsyncClient | None = None
+        self._tools: list[ToolDefinition] = []
         self._server_info: dict[str, Any] = {}
         self._connected = False
 
@@ -29,7 +30,7 @@ class MCPClient:
         return self._connected
 
     @property
-    def tools(self) -> List[ToolDefinition]:
+    def tools(self) -> list[ToolDefinition]:
         return self._tools
 
     @property
@@ -63,16 +64,14 @@ class MCPClient:
             self._connected = True
         return resp.result or {}
 
-    async def list_tools(self) -> List[ToolDefinition]:
+    async def list_tools(self) -> list[ToolDefinition]:
         """Discover tools from the remote server."""
         resp = await self._send(JSONRPCRequest(method="tools/list"))
         if resp.result:
-            self._tools = [
-                ToolDefinition(**t) for t in resp.result.get("tools", [])
-            ]
+            self._tools = [ToolDefinition(**t) for t in resp.result.get("tools", [])]
         return self._tools
 
-    async def call_tool(self, name: str, arguments: Optional[dict] = None) -> dict[str, Any]:
+    async def call_tool(self, name: str, arguments: dict | None = None) -> dict[str, Any]:
         """Call a tool on the remote server."""
         resp = await self._send(
             JSONRPCRequest(

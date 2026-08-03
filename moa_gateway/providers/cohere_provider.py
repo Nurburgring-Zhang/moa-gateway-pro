@@ -1,4 +1,4 @@
-﻿"""moa_gateway.providers.cohere_provider -- Cohere v2 API adapter
+"""moa_gateway.providers.cohere_provider -- Cohere v2 API adapter
 
 Cohere v2 uses /v2/chat endpoint, differs from OpenAI format:
 - Auth: Bearer token
@@ -172,7 +172,7 @@ class CohereProvider(Provider):
                 async for line in resp.aiter_lines():
                     if not line or not line.startswith("data:"):
                         continue
-                    chunk = line[len("data:"):].strip()
+                    chunk = line[len("data:") :].strip()
                     if chunk == "[DONE]":
                         break
                     try:

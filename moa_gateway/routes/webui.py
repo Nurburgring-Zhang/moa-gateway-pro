@@ -1,4 +1,5 @@
 """WebUI static file serving endpoints."""
+
 from __future__ import annotations
 
 import logging
@@ -44,7 +45,7 @@ async def webui_assets(name: str):
     except HTTPException:
         raise
     except Exception:
-        raise HTTPException(404, "not found")
+        raise HTTPException(404, "not found") from None
     if not p.exists() or not p.is_file():
         raise HTTPException(404, "not found")
     return FileResponse(str(p))

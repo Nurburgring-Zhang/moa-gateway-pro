@@ -4,6 +4,7 @@ Inspired by Paseo's paseo-loop verify-check mechanism (shell command verificatio
 and verify-prompt mechanism (LLM judgment verification). Adapted for
 moa-gateway-pro's ToolExecutor interface.
 """
+
 from __future__ import annotations
 
 import ipaddress
@@ -108,9 +109,7 @@ async def api_verify(
     if url:
         target_url = url
     elif endpoint_id:
-        gw = base_url or os.environ.get(
-            "MOA_GATEWAY_URL", "http://127.0.0.1:8910"
-        )
+        gw = base_url or os.environ.get("MOA_GATEWAY_URL", "http://127.0.0.1:8910")
         target_url = f"{gw}/v1/chat/completions"
     else:
         return {
@@ -161,9 +160,7 @@ async def api_verify(
             )
     except httpx.ConnectError as exc:
         latency = (time.time() - start) * 1000
-        checks.append(
-            {"name": "connectivity", "passed": False, "error": str(exc)}
-        )
+        checks.append({"name": "connectivity", "passed": False, "error": str(exc)})
         errors.append(f"Connection failed: {exc}")
         return {
             "success": False,
@@ -174,9 +171,7 @@ async def api_verify(
         }
     except httpx.TimeoutException as exc:
         latency = (time.time() - start) * 1000
-        checks.append(
-            {"name": "connectivity", "passed": False, "error": "timeout"}
-        )
+        checks.append({"name": "connectivity", "passed": False, "error": "timeout"})
         errors.append(f"Request timed out after {timeout}s")
         return {
             "success": False,
@@ -187,9 +182,7 @@ async def api_verify(
         }
     except Exception as exc:  # noqa: BLE001
         latency = (time.time() - start) * 1000
-        checks.append(
-            {"name": "connectivity", "passed": False, "error": str(exc)}
-        )
+        checks.append({"name": "connectivity", "passed": False, "error": str(exc)})
         errors.append(f"Request failed: {exc}")
         return {
             "success": False,
@@ -202,9 +195,7 @@ async def api_verify(
     latency_ms = (time.time() - start) * 1000
 
     # --- Check 1: Connectivity (we got a response) ---
-    checks.append(
-        {"name": "connectivity", "passed": True, "latency_ms": round(latency_ms, 2)}
-    )
+    checks.append({"name": "connectivity", "passed": True, "latency_ms": round(latency_ms, 2)})
 
     # --- Check 2: Status code ---
     status_ok = response.status_code == expected_status
@@ -218,8 +209,7 @@ async def api_verify(
     )
     if not status_ok:
         errors.append(
-            f"Status code mismatch: expected {expected_status}, "
-            f"got {response.status_code}"
+            f"Status code mismatch: expected {expected_status}, got {response.status_code}"
         )
 
     # --- Check 3: JSON format ---
@@ -244,9 +234,7 @@ async def api_verify(
         }
     )
     if not latency_ok:
-        errors.append(
-            f"Latency too high: {latency_ms:.0f}ms > {latency_threshold}ms"
-        )
+        errors.append(f"Latency too high: {latency_ms:.0f}ms > {latency_threshold}ms")
 
     # --- Check 5: Content quality ---
     content = ""
@@ -285,9 +273,7 @@ async def api_verify(
     if expected_fields and resp_json is not None:
         for field in expected_fields:
             exists = _field_exists(resp_json, field)
-            checks.append(
-                {"name": f"field_exists:{field}", "passed": exists}
-            )
+            checks.append({"name": f"field_exists:{field}", "passed": exists})
             if not exists:
                 errors.append(f"Missing field: {field}")
 
@@ -307,10 +293,7 @@ async def api_verify(
                 }
             )
             if not passed:
-                errors.append(
-                    f"Assertion failed: {field} {op} {expected_val}, "
-                    f"got {actual_val}"
-                )
+                errors.append(f"Assertion failed: {field} {op} {expected_val}, got {actual_val}")
 
     success = len(errors) == 0
     if success:

@@ -1,15 +1,17 @@
-"""MoA Gateway Pro CLI — argparse-based entry point (no click/typer dependency)."""
+﻿"""MoA Gateway Pro CLI 鈥?argparse-based entry point (no click/typer dependency)."""
+
 from __future__ import annotations
 
 import argparse
 import os
 import sys
+from pathlib import Path
 
 
 def main():
     parser = argparse.ArgumentParser(
         prog="moa",
-        description="MoA Gateway Pro — Commercial-grade Multi-Model AI Gateway",
+        description="MoA Gateway Pro 鈥?Commercial-grade Multi-Model AI Gateway",
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -74,7 +76,6 @@ def main():
     p_show2 = p_params_sub.add_parser("show", help="Show a parameter template")
     p_show2.add_argument("task_type", help="Task type")
 
-
     # workflow
     p_workflow = subparsers.add_parser("workflow", help="Workflow management")
     p_workflow_sub = p_workflow.add_subparsers(dest="workflow_command")
@@ -84,6 +85,11 @@ def main():
     p_wf_run.add_argument("-c", "--context", help="JSON context string")
     p_wf_show = p_workflow_sub.add_parser("show", help="Show workflow details")
     p_wf_show.add_argument("name", help="Workflow name")
+
+    # setup
+    p_setup = subparsers.add_parser("setup", help="Auto-setup configuration wizard")
+    p_setup.add_argument("--auto", action="store_true", help="Auto mode (generate keys, skip optional)")
+    p_setup.add_argument("--check", action="store_true", help="Check current configuration status")
 
     # ask (AI command suggestion)
     p_ask = subparsers.add_parser("ask", help="AI command suggestion")
@@ -124,6 +130,8 @@ def _dispatch(args):
         _cmd_workflow(args)
     elif cmd == "ask":
         _cmd_ask(args)
+    elif cmd == "setup":
+        _cmd_setup(args)
     else:
         print(f"Unknown command: {cmd}")
 
@@ -156,9 +164,16 @@ def _cmd_serve(args):
 
     python = sys.executable
     cmd = [
-        python, "-m", "uvicorn", "moa_gateway.server:app",
-        "--host", args.host, "--port", str(args.port),
-        "--workers", str(args.workers),
+        python,
+        "-m",
+        "uvicorn",
+        "moa_gateway.server:app",
+        "--host",
+        args.host,
+        "--port",
+        str(args.port),
+        "--workers",
+        str(args.workers),
     ]
     subprocess.run(cmd)
 
@@ -195,11 +210,7 @@ def _send_chat(model, message, stream=False):
         )
         if r.status_code == 200:
             data = r.json()
-            content = (
-                data.get("choices", [{}])[0]
-                .get("message", {})
-                .get("content", "")
-            )
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
             print(content)
         else:
             print(f"Error {r.status_code}: {r.text}")
@@ -228,16 +239,12 @@ def _cmd_run_moa(args):
         )
         if r.status_code == 200:
             data = r.json()
-            content = (
-                data.get("final_content")
-                or data.get("aggregated_content")
-                or str(data)[:500]
-            )
+            content = data.get("final_content") or data.get("aggregated_content") or str(data)[:500]
             print(content)
             # Print extra metadata if available
             refs = data.get("references", [])
             if refs:
-                print(f"\n--- MOA metadata ---")
+                print("\n--- MOA metadata ---")
                 print(f"  preset:     {data.get('preset', '?')}")
                 print(f"  strategy:   {data.get('strategy', '?')}")
                 print(f"  references: {len(refs)} models")
@@ -270,7 +277,7 @@ def _cmd_models(args):
                 models = data.get("data", [])
                 print(f"\nAvailable models ({len(models)}):")
                 print(f"  {'ID':<30s}  {'Provider':<20s}  Description")
-                print(f"  {'-'*30}  {'-'*20}  {'-'*40}")
+                print(f"  {'-' * 30}  {'-' * 20}  {'-' * 40}")
                 for m in models:
                     mid = m.get("id", "?")
                     owner = m.get("owned_by", "?")
@@ -326,10 +333,7 @@ def _cmd_discover(args):
         print(f"{'Platform':<20} {'Base URL':<50} {'Auth':<15} {'Free Type'}")
         print("-" * 100)
         for p in platforms:
-            print(
-                f"{p.platform_id:<20} {p.base_url:<50} "
-                f"{p.auth_type:<15} {p.free_tier_type}"
-            )
+            print(f"{p.platform_id:<20} {p.base_url:<50} {p.auth_type:<15} {p.free_tier_type}")
     elif args.run:
         import asyncio
 
@@ -339,10 +343,7 @@ def _cmd_discover(args):
         print("Discovering free models...")
         models = asyncio.run(engine.discover_all())
         platform_ids = set(m.platform_id for m in models)
-        print(
-            f"\nDiscovered {len(models)} free models "
-            f"from {len(platform_ids)} platforms"
-        )
+        print(f"\nDiscovered {len(models)} free models from {len(platform_ids)} platforms")
         for m in models[:20]:
             print(f"  [{m.platform_id}] {m.model_id} (tier={m.inferred_tier})")
         if len(models) > 20:
@@ -355,7 +356,7 @@ def _cmd_prompts(args):
     """Prompt template management.
 
     FIX: list_templates() returns list[dict] with name/source/category keys.
-    FIX: list_categories() does not exist — derive from list_templates().
+    FIX: list_categories() does not exist 鈥?derive from list_templates().
     """
     if args.prompts_command == "list" or not args.prompts_command:
         try:
@@ -364,7 +365,7 @@ def _cmd_prompts(args):
             templates = list_templates()
             print(f"\nPrompt templates ({len(templates)}):")
             print(f"  {'Name':<30s}  {'Category':<15s}  {'Source':<10s}  Size")
-            print(f"  {'-'*30}  {'-'*15}  {'-'*10}  {'-'*8}")
+            print(f"  {'-' * 30}  {'-' * 15}  {'-' * 10}  {'-' * 8}")
             for t in templates:
                 name = t.get("name", "?")
                 cat = t.get("category") or "-"
@@ -441,7 +442,7 @@ def _cmd_mcp(args):
                 total = data.get("total", len(tools))
                 print(f"\nMCP tools ({total}):")
                 print(f"  {'Name':<30s}  Description")
-                print(f"  {'-'*30}  {'-'*60}")
+                print(f"  {'-' * 30}  {'-' * 60}")
                 for t in tools:
                     name = t.get("name", "?")
                     desc = (t.get("description") or "")[:60]
@@ -461,7 +462,7 @@ def _cmd_config(args):
             from moa_gateway.config import get_settings
 
             s = get_settings()
-            print(f"\n=== MoA Gateway Pro Configuration ===")
+            print("\n=== MoA Gateway Pro Configuration ===")
             print(f"Server:     {s.server.host}:{s.server.port}")
             print(f"Workers:    {s.server.workers}")
             print(f"Log level:  {s.server.log_level}")
@@ -469,10 +470,8 @@ def _cmd_config(args):
             print(f"  enabled:  {sum(1 for m in s.models if m.enabled)}")
             print(f"Discovery:  enabled={s.discovery.enabled}")
             print(f"Cache:      enabled={s.cache.enabled}")
-            print(f"RateLimit:  enabled={s.ratelimit.enabled}, "
-                  f"rpm={s.ratelimit.per_key_rpm}")
-            print(f"MoA:        enabled={s.moa.enabled}, "
-                  f"default={s.moa.default_preset}")
+            print(f"RateLimit:  enabled={s.ratelimit.enabled}, rpm={s.ratelimit.per_key_rpm}")
+            print(f"MoA:        enabled={s.moa.enabled}, default={s.moa.default_preset}")
             print(f"  presets:  {list(s.moa.presets.keys())}")
         except Exception as e:
             print(f"Error: {e}")
@@ -506,8 +505,10 @@ def _cmd_params(args):
             overrides = data.get("model_overrides", {})
             total = data.get("total", len(templates))
             print(f"\nParameter templates ({total}):")
-            print(f"  {'Task Type':<20s}  {'Temp':<6s}  {'Top P':<6s}  {'Max Tok':<8s}  Description")
-            print(f"  {'-'*20}  {'-'*6}  {'-'*6}  {'-'*8}  {'-'*40}")
+            print(
+                f"  {'Task Type':<20s}  {'Temp':<6s}  {'Top P':<6s}  {'Max Tok':<8s}  Description"
+            )
+            print(f"  {'-' * 20}  {'-' * 6}  {'-' * 6}  {'-' * 8}  {'-' * 40}")
             for name in sorted(templates.keys()):
                 p = templates[name]
                 if not isinstance(p, dict):
@@ -540,7 +541,6 @@ def _cmd_params(args):
             print(f"Error: {e}")
 
 
-
 def _cmd_workflow(args):
     """Workflow management."""
     import asyncio
@@ -553,9 +553,11 @@ def _cmd_workflow(args):
             workflows = loader.list_workflows()
             print(f"\nAvailable workflows ({len(workflows)}):")
             print(f"  {'Name':<30s}  {'Version':<8s}  Steps  Description")
-            print(f"  {'-'*30}  {'-'*8}  {'-'*5}  {'-'*40}")
+            print(f"  {'-' * 30}  {'-' * 8}  {'-' * 5}  {'-' * 40}")
             for w in workflows:
-                print(f"  {w['name']:<30s}  {w['version']:<8s}  {w['steps']:<5s}  {w['description'][:40]}")
+                print(
+                    f"  {w['name']:<30s}  {w['version']:<8s}  {w['steps']:<5s}  {w['description'][:40]}"
+                )
             if not workflows:
                 print("  (no workflows found)")
         except Exception as e:
@@ -634,5 +636,31 @@ def _cmd_ask(args):
     print()
 
 
+
+def _cmd_setup(args):
+    """Auto-setup configuration wizard."""
+    # Import from the project-root auto_setup module
+    setup_path = Path(__file__).parent.parent.parent / "auto_setup.py"
+    if not setup_path.exists():
+        print(f"Error: auto_setup.py not found at {setup_path}")
+        print("Please ensure auto_setup.py exists in the project root.")
+        return
+
+    # Add project root to path and import
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("auto_setup", str(setup_path))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    if args.check:
+        mod.check_status()
+    elif args.auto:
+        mod.auto_setup()
+    else:
+        mod.interactive_setup()
+
+
 if __name__ == "__main__":
     main()
+

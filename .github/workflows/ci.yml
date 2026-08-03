@@ -87,7 +87,7 @@ jobs:
           # Import smoke test
           python -c "from moa_gateway.server import app; print('import OK')"
           # Pytest
-          python -m pytest moa_gateway/capability/tests/ -q --tb=short
+          python -m pytest tests/ -q --tb=short
 
   # ============ Security audit ============
   audit:

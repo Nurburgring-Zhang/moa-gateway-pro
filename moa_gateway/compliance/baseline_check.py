@@ -1,9 +1,9 @@
 """Security Configuration Baseline Check — SOC2 compliance."""
+
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import List
 
 
 @dataclass
@@ -20,7 +20,7 @@ class CheckResult:
 class SecurityBaselineChecker:
     """SOC2 security configuration baseline checker — 10 checks."""
 
-    def run_all_checks(self) -> List[CheckResult]:
+    def run_all_checks(self) -> list[CheckResult]:
         """Run all security baseline checks."""
         return [
             self._check_jwt_secret(),
@@ -62,13 +62,17 @@ class SecurityBaselineChecker:
         secret = os.getenv("MOA_JWT_SECRET", "")
         if not secret:
             return CheckResult(
-                "jwt_secret", False, "critical",
+                "jwt_secret",
+                False,
+                "critical",
                 "JWT secret not configured",
                 "Set MOA_JWT_SECRET env var with 32+ char secret",
             )
         if len(secret) < 32:
             return CheckResult(
-                "jwt_secret", False, "high",
+                "jwt_secret",
+                False,
+                "high",
                 f"JWT secret too short ({len(secret)} chars)",
                 "Use 32+ character secret",
             )
@@ -78,7 +82,9 @@ class SecurityBaselineChecker:
         key = os.getenv("MOA_ENCRYPTION_KEY", "")
         if not key:
             return CheckResult(
-                "encryption_key", False, "high",
+                "encryption_key",
+                False,
+                "high",
                 "Encryption key not set — data at rest not encrypted",
                 "Set MOA_ENCRYPTION_KEY for field-level encryption",
             )
@@ -88,7 +94,9 @@ class SecurityBaselineChecker:
         pwd = os.getenv("MOA_ADMIN_PASSWORD", "")
         if not pwd or len(pwd) < 12:
             return CheckResult(
-                "admin_password", False, "critical",
+                "admin_password",
+                False,
+                "critical",
                 "Admin password weak or missing",
                 "Use 12+ char complex password",
             )
@@ -98,7 +106,9 @@ class SecurityBaselineChecker:
         debug = os.getenv("MOA_DEBUG", "false").lower()
         if debug in ("true", "1", "yes"):
             return CheckResult(
-                "debug_mode", False, "high",
+                "debug_mode",
+                False,
+                "high",
                 "Debug mode enabled in production",
                 "Set MOA_DEBUG=false",
             )
@@ -108,7 +118,9 @@ class SecurityBaselineChecker:
         cors = os.getenv("MOA_CORS_ORIGINS", "*")
         if cors == "*":
             return CheckResult(
-                "cors", False, "medium",
+                "cors",
+                False,
+                "medium",
                 "CORS allows all origins",
                 "Restrict to specific domains",
             )
@@ -118,7 +130,9 @@ class SecurityBaselineChecker:
         cert = os.getenv("MOA_TLS_CERT", "")
         if not cert:
             return CheckResult(
-                "tls", False, "medium",
+                "tls",
+                False,
+                "medium",
                 "TLS not configured (relying on reverse proxy)",
                 "Configure TLS or ensure reverse proxy handles it",
             )
@@ -128,7 +142,9 @@ class SecurityBaselineChecker:
         level = os.getenv("MOA_LOG_LEVEL", "INFO").upper()
         if level == "DEBUG":
             return CheckResult(
-                "log_level", False, "medium",
+                "log_level",
+                False,
+                "medium",
                 "Debug logging may expose sensitive data",
                 "Set MOA_LOG_LEVEL=INFO or WARNING in production",
             )
@@ -138,7 +154,9 @@ class SecurityBaselineChecker:
         limit = os.getenv("PROXY_RATE_LIMIT", "")
         if not limit:
             return CheckResult(
-                "rate_limit", False, "medium",
+                "rate_limit",
+                False,
+                "medium",
                 "Rate limiting not explicitly configured",
                 "Set PROXY_RATE_LIMIT to prevent abuse",
             )
@@ -150,7 +168,9 @@ class SecurityBaselineChecker:
             val = int(timeout)
             if val > 86400:
                 return CheckResult(
-                    "session_timeout", False, "medium",
+                    "session_timeout",
+                    False,
+                    "medium",
                     f"Session timeout too long ({val}s)",
                     "Set to <= 24h (86400s)",
                 )
@@ -162,7 +182,9 @@ class SecurityBaselineChecker:
         days = os.getenv("MOA_KEY_ROTATION_DAYS", "")
         if not days:
             return CheckResult(
-                "key_rotation", False, "medium",
+                "key_rotation",
+                False,
+                "medium",
                 "Key rotation not configured",
                 "Set MOA_KEY_ROTATION_DAYS=90",
             )

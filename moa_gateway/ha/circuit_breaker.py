@@ -84,7 +84,10 @@ class CircuitBreaker:
             self._failure_count += 1
             self._last_failure_time = time.time()
 
-            if self._state == CircuitState.HALF_OPEN or self._failure_count >= self.config.failure_threshold:
+            if (
+                self._state == CircuitState.HALF_OPEN
+                or self._failure_count >= self.config.failure_threshold
+            ):
                 self._state = CircuitState.OPEN
 
     def reset(self) -> None:

@@ -7,6 +7,7 @@ Extends existing prometheus_client usage with LLM-specific metrics:
 - Cache performance
 - Provider health
 """
+
 from __future__ import annotations
 
 import logging
@@ -23,6 +24,7 @@ try:
         Info,
         generate_latest,
     )
+
     _PROM_OK = True
 except ImportError:
     _PROM_OK = False
@@ -30,17 +32,24 @@ except ImportError:
     class _Dummy:
         def labels(self, **kw):
             return self
+
         def inc(self, n=1):
             pass
+
         def observe(self, v):
             pass
+
         def set(self, v):
             pass
+
         def info(self, d):
             pass
 
     Counter = Histogram = Gauge = Info = lambda *a, **kw: _Dummy()
-    def generate_latest(x): return b""
+
+    def generate_latest(x):
+        return b""
+
     CONTENT_TYPE_LATEST = "text/plain; version=0.0.4"
     REGISTRY = None
 
@@ -200,12 +209,21 @@ def prometheus_response():
 
 
 # ============ Helper Functions ============
-def record_llm_request(model: str, provider: str, status: str, duration_s: float,
-                       input_tokens: int = 0, output_tokens: int = 0,
-                       cost_usd: float = 0.0, org_id: str = "default"):
+def record_llm_request(
+    model: str,
+    provider: str,
+    status: str,
+    duration_s: float,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    cost_usd: float = 0.0,
+    org_id: str = "default",
+):
     """Record a complete LLM request with all metrics."""
     status_label = "success" if status == "success" else "error"
-    llm_request_duration_seconds.labels(model=model, provider=provider, status=status_label).observe(duration_s)
+    llm_request_duration_seconds.labels(
+        model=model, provider=provider, status=status_label
+    ).observe(duration_s)
     llm_requests_total.labels(model=model, provider=provider, status=status_label).inc()
 
     if input_tokens > 0:

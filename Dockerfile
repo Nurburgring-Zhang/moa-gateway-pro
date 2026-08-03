@@ -1,8 +1,8 @@
 FROM python:3.11-slim
 
 LABEL maintainer="MoA Gateway Pro Team"
-LABEL description="Industrial-grade Multi-Model Orchestration Gateway - v1.7.3"
-LABEL version="1.7.3"
+LABEL description="Industrial-grade Multi-Model Orchestration Gateway - v1.9.0"
+LABEL version="1.9.0"
 
 # Set working directory
 WORKDIR /app

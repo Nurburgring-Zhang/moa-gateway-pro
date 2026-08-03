@@ -133,44 +133,39 @@ class FreeModelDiscoveryEngine:
         api_format: str = "openai",
     ) -> bool:
         """Probe a single model availability by sending a minimal ping request."""
-        async with self._semaphore:
-            async with httpx.AsyncClient() as client:
-                headers: dict[str, str] = {}
-                if api_key and api_format != "google_gemini":
-                    headers["Authorization"] = f"Bearer {api_key}"
+        async with self._semaphore, httpx.AsyncClient() as client:
+            headers: dict[str, str] = {}
+            if api_key and api_format != "google_gemini":
+                headers["Authorization"] = f"Bearer {api_key}"
 
-                try:
-                    if api_format == "google_gemini":
-                        url = f"{base_url}/models/{model_id}:generateContent"
-                        params = {"key": api_key} if api_key else {}
-                        body: dict[str, Any] = {
-                            "contents": [{"parts": [{"text": "ping"}]}],
-                        }
-                        resp = await client.post(
-                            url, json=body, params=params, headers=headers, timeout=10.0
-                        )
-                    elif api_format == "cohere":
-                        url = f"{base_url}/chat"
-                        body = {"model": model_id, "message": "ping", "max_tokens": 1}
-                        resp = await client.post(
-                            url, json=body, headers=headers, timeout=10.0
-                        )
-                    else:
-                        url = f"{base_url}/chat/completions"
-                        body = {
-                            "model": model_id,
-                            "messages": [{"role": "user", "content": "ping"}],
-                            "max_tokens": 1,
-                            "stream": False,
-                        }
-                        resp = await client.post(
-                            url, json=body, headers=headers, timeout=10.0
-                        )
+            try:
+                if api_format == "google_gemini":
+                    url = f"{base_url}/models/{model_id}:generateContent"
+                    params = {"key": api_key} if api_key else {}
+                    body: dict[str, Any] = {
+                        "contents": [{"parts": [{"text": "ping"}]}],
+                    }
+                    resp = await client.post(
+                        url, json=body, params=params, headers=headers, timeout=10.0
+                    )
+                elif api_format == "cohere":
+                    url = f"{base_url}/chat"
+                    body = {"model": model_id, "message": "ping", "max_tokens": 1}
+                    resp = await client.post(url, json=body, headers=headers, timeout=10.0)
+                else:
+                    url = f"{base_url}/chat/completions"
+                    body = {
+                        "model": model_id,
+                        "messages": [{"role": "user", "content": "ping"}],
+                        "max_tokens": 1,
+                        "stream": False,
+                    }
+                    resp = await client.post(url, json=body, headers=headers, timeout=10.0)
 
-                    return resp.status_code == 200
-                except Exception as e:
-                    logger.warning("Probe failed for %s/%s: %s", base_url, model_id, e)
-                    return False
+                return resp.status_code == 200
+            except Exception as e:
+                logger.warning("Probe failed for %s/%s: %s", base_url, model_id, e)
+                return False
 
     async def _discover_one(
         self, client: httpx.AsyncClient, platform: PlatformInfo
@@ -234,9 +229,7 @@ class FreeModelDiscoveryEngine:
             logger.warning("Platform %s: request timeout", platform.platform_id)
             return {}
         except httpx.HTTPStatusError as e:
-            logger.warning(
-                "Platform %s: HTTP %d", platform.platform_id, e.response.status_code
-            )
+            logger.warning("Platform %s: HTTP %d", platform.platform_id, e.response.status_code)
             return {}
         except Exception as e:
             logger.warning("Platform %s: %s", platform.platform_id, e)

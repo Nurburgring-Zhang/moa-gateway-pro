@@ -4,6 +4,7 @@ Uses character n-gram TF-IDF vectors for local similarity matching.
 Production deployments can replace _text_to_vector with embedding API calls
 (e.g., OpenAI text-embedding-3-small, sentence-transformers).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -65,9 +66,7 @@ class SemanticCache(CacheBackend):
     @staticmethod
     def messages_to_text(messages: list) -> str:
         """Extract text content from message list."""
-        return " ".join(
-            m.get("content", "") for m in messages if m.get("content")
-        )
+        return " ".join(m.get("content", "") for m in messages if m.get("content"))
 
     async def get(self, key: str) -> CacheEntry | None:
         """Find best semantic match above threshold.
@@ -123,9 +122,7 @@ class SemanticCache(CacheBackend):
 
     async def delete(self, key: str) -> None:
         target_hash = hashlib.md5(key.encode()).hexdigest()
-        self._entries = [
-            (v, e) for v, e in self._entries if e.key != target_hash
-        ]
+        self._entries = [(v, e) for v, e in self._entries if e.key != target_hash]
 
     async def clear(self) -> None:
         self._entries.clear()

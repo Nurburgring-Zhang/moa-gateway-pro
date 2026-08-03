@@ -162,3 +162,7 @@ scripts/test_*.py
 test_*.err
 test_*.log
 bench_*.log
+
+# Node / Next.js build artifacts
+node_modules/
+.next/

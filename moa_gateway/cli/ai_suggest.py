@@ -4,6 +4,7 @@ Fuses Warp's # prefix AI command suggestion with Terax's slash command
 system. Provides keyword-based intent matching and optional LLM-enhanced
 suggestions.
 """
+
 from __future__ import annotations
 
 import logging
@@ -113,7 +114,15 @@ INTENT_MAP: list[dict[str, Any]] = [
         "explanation": "Add a new model endpoint",
     },
     {
-        "keywords": ["发现免费", "搜索免费", "找免费模型", "discover", "free models", "免费模型", "免费"],
+        "keywords": [
+            "发现免费",
+            "搜索免费",
+            "找免费模型",
+            "discover",
+            "free models",
+            "免费模型",
+            "免费",
+        ],
         "cmd": "discover",
         "args": ["--run"],
         "confidence": 0.95,
@@ -215,17 +224,21 @@ class AICommandSuggester:
                 boost = 1.0 + (len(matched_keywords) * 0.05) + (score / 10.0)
                 confidence = min(rule["confidence"] * boost, 1.0)
                 full_cmd = self._build_command(rule["cmd"], rule["args"])
-                suggestions.append({
-                    "cmd": rule["cmd"],
-                    "args": rule["args"],
-                    "confidence": round(confidence, 4),
-                    "explanation": rule["explanation"],
-                    "matched_keywords": matched_keywords,
-                    "full_command": full_cmd,
-                })
+                suggestions.append(
+                    {
+                        "cmd": rule["cmd"],
+                        "args": rule["args"],
+                        "confidence": round(confidence, 4),
+                        "explanation": rule["explanation"],
+                        "matched_keywords": matched_keywords,
+                        "full_command": full_cmd,
+                    }
+                )
 
         # Sort by confidence descending
-        suggestions.sort(key=lambda x: (x["confidence"], len(x.get("matched_keywords", []))), reverse=True)
+        suggestions.sort(
+            key=lambda x: (x["confidence"], len(x.get("matched_keywords", []))), reverse=True
+        )
 
         # Return top 5 suggestions
         return suggestions[:5]
@@ -263,10 +276,12 @@ class AICommandSuggester:
             )
             user_prompt = f"Natural language: {natural_language}"
 
-            response = await llm_call([
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ])
+            response = await llm_call(
+                [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ]
+            )
 
             # Parse LLM response
             cleaned = re.sub(r"```(?:json)?\s*", "", response).strip()
@@ -283,9 +298,7 @@ class AICommandSuggester:
                         )
                         base_suggestions.append(ls)
 
-                base_suggestions.sort(
-                    key=lambda x: x.get("confidence", 0), reverse=True
-                )
+                base_suggestions.sort(key=lambda x: x.get("confidence", 0), reverse=True)
                 return base_suggestions[:5]
 
         except Exception as exc:  # noqa: BLE001

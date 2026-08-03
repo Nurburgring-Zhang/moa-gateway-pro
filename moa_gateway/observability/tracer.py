@@ -6,6 +6,7 @@ Provides:
 - Context propagation via contextvars
 - Span creation with attributes and events
 """
+
 from __future__ import annotations
 
 import logging
@@ -49,6 +50,7 @@ def clear_trace_context():
 @dataclass
 class SpanRecord:
     """Recorded span data."""
+
     trace_id: str
     span_id: str
     parent_span_id: str | None
@@ -63,11 +65,13 @@ class SpanRecord:
         self.attributes[key] = value
 
     def add_event(self, name: str, attributes: dict = None):
-        self.events.append({
-            "name": name,
-            "timestamp": time.time(),
-            "attributes": attributes or {},
-        })
+        self.events.append(
+            {
+                "name": name,
+                "timestamp": time.time(),
+                "attributes": attributes or {},
+            }
+        )
 
     def end(self, status: str = "OK"):
         self.end_time = time.time()
@@ -150,7 +154,9 @@ class GatewayTracer:
         """Create a new span context manager."""
         return SpanContext(self, name, attributes)
 
-    def create_span(self, name: str, trace_id: str = None, parent_span_id: str = None) -> SpanRecord:
+    def create_span(
+        self, name: str, trace_id: str = None, parent_span_id: str = None
+    ) -> SpanRecord:
         """Create a span directly (without context manager)."""
         tid = trace_id or get_current_trace_id() or uuid.uuid4().hex
         span = SpanRecord(
@@ -165,7 +171,7 @@ class GatewayTracer:
     def _record_span(self, span: SpanRecord):
         """Record a completed span."""
         if len(self._spans) >= self._max_spans:
-            self._spans = self._spans[self._max_spans // 2:]
+            self._spans = self._spans[self._max_spans // 2 :]
         self._spans.append(span)
         for exporter in self._exporters:
             try:
@@ -208,6 +214,7 @@ def setup_tracer(service_name: str = "moa-gateway-pro", otlp_endpoint: str = Non
                 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (  # noqa: PLC0415
                     OTLPSpanExporter,
                 )
+
                 otlp_exporter = OTLPSpanExporter(endpoint=otlp_endpoint)
                 provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
                 logger.info("OTLP trace exporter configured: %s", otlp_endpoint)

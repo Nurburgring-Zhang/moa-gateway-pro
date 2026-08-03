@@ -1,9 +1,9 @@
 """MCP Server - handles tool registration, discovery, and invocation."""
+
 from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Optional
 
 from .guardrails import GuardrailEngine
 from .protocol import JSONRPCRequest, JSONRPCResponse, MCPMethod
@@ -19,16 +19,16 @@ class MCPServer:
 
     def __init__(
         self,
-        registry: Optional[ToolRegistry] = None,
-        guardrails: Optional[GuardrailEngine] = None,
+        registry: ToolRegistry | None = None,
+        guardrails: GuardrailEngine | None = None,
     ):
         self.registry = registry or ToolRegistry()
         self.guardrails = guardrails or GuardrailEngine()
         self.server_info = {"name": "moa-gateway-mcp", "version": "2.0.0"}
 
     async def handle_request(
-        self, request: JSONRPCRequest, user: Optional[dict] = None
-    ) -> Optional[JSONRPCResponse]:
+        self, request: JSONRPCRequest, user: dict | None = None
+    ) -> JSONRPCResponse | None:
         """Process a JSON-RPC 2.0 MCP request."""
         method = request.method
 
@@ -69,9 +69,7 @@ class MCPServer:
             },
         )
 
-    def _handle_list_tools(
-        self, req: JSONRPCRequest, user: Optional[dict]
-    ) -> JSONRPCResponse:
+    def _handle_list_tools(self, req: JSONRPCRequest, user: dict | None) -> JSONRPCResponse:
         role = user.get("role", "readonly") if user else None
         tools = self.registry.list_tools(user_role=role)
         return JSONRPCResponse(
@@ -79,9 +77,7 @@ class MCPServer:
             result={"tools": [t.model_dump() for t in tools]},
         )
 
-    async def _handle_call_tool(
-        self, req: JSONRPCRequest, user: Optional[dict]
-    ) -> JSONRPCResponse:
+    async def _handle_call_tool(self, req: JSONRPCRequest, user: dict | None) -> JSONRPCResponse:
         params = req.params or {}
         tool_name = params.get("name", "")
         arguments = params.get("arguments", {})
@@ -131,7 +127,10 @@ class MCPServer:
                 id=req.id,
                 result={
                     "content": [
-                        {"type": "text", "text": json.dumps(result, ensure_ascii=False, default=str)}
+                        {
+                            "type": "text",
+                            "text": json.dumps(result, ensure_ascii=False, default=str),
+                        }
                     ],
                     "isError": False,
                 },

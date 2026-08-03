@@ -304,32 +304,41 @@ class MoAOrchestrator:
                 await self._run_ranker(
                     result, messages, tools, preset_cfg, agg_id, ref_temp, max_tok, start
                 )
-            elif strat in (
-                "cost_first",
-                "latency_first",
-                "diversity_moa",
-                "capability_aware",
-                "adaptive_ensemble",
-            ):
-                # Task #45: Strategy-based model selection
-                await self._run_strategy_based(
-                    result, messages, tools, preset_cfg, strat,
-                    ref_n, agg_id, ref_temp, agg_temp, max_tok, start,
-                )
-            else:  # parallel
-                await self._run_parallel(
-                    result,
-                    messages,
-                    tools,
-                    preset_cfg,
-                    ref_n,
-                    agg_id,
-                    rounds,
-                    ref_temp,
-                    agg_temp,
-                    max_tok,
-                    start,
-                )
+            else:
+                # STRATEGY_REGISTRY lookup: prioritize registered strategies over fallback
+                from .moa_strategies import get_strategy as _get_strat
+
+                _strat_obj = _get_strat(strat)
+                if _strat_obj is not None:
+                    # Delegate to strategy-based execution path
+                    await self._run_strategy_based(
+                        result,
+                        messages,
+                        tools,
+                        preset_cfg,
+                        strat,
+                        ref_n,
+                        agg_id,
+                        ref_temp,
+                        agg_temp,
+                        max_tok,
+                        start,
+                    )
+                else:
+                    # Default fallback: parallel
+                    await self._run_parallel(
+                        result,
+                        messages,
+                        tools,
+                        preset_cfg,
+                        ref_n,
+                        agg_id,
+                        rounds,
+                        ref_temp,
+                        agg_temp,
+                        max_tok,
+                        start,
+                    )
         except Exception as e:
             logger.exception("MoA execute failed: %s", e)
             raise RuntimeError(f"MoA execute failed: {e}") from e
@@ -875,17 +884,25 @@ class MoAOrchestrator:
         start: float,
     ):
         """Task #45: Run MOA with a pluggable strategy for model selection."""
-        from .moa_strategies import get_strategy, build_candidates
         from .benchmark import get_benchmark_engine, get_capability_probe
         from .health import get_health_checker
+        from .moa_strategies import build_candidates, get_strategy
 
         strat = get_strategy(strategy_name)
         if strat is None:
             result.strategy = "parallel"
             await self._run_parallel(
-                result, messages, tools, preset_cfg,
-                ref_n, aggregator_id, preset_cfg.critic_rounds,
-                ref_temp, agg_temp, max_tokens, start,
+                result,
+                messages,
+                tools,
+                preset_cfg,
+                ref_n,
+                aggregator_id,
+                preset_cfg.critic_rounds,
+                ref_temp,
+                agg_temp,
+                max_tokens,
+                start,
             )
             return
 
@@ -962,7 +979,9 @@ class MoAOrchestrator:
         selected_candidates = [c for c in candidates if c.endpoint_id in selected_ids]
 
         try:
-            strat_aggregated = strat.aggregate(ref_contents, selected_candidates, selected_ids=ref_endpoint_ids)
+            strat_aggregated = strat.aggregate(
+                ref_contents, selected_candidates, selected_ids=ref_endpoint_ids
+            )
         except Exception:
             strat_aggregated = ""
 
@@ -1697,9 +1716,28 @@ Ranking should be from best to worst. "winner" must equal ranking[0].
         # 找出 winner 对应的内容
         winner_idx = -1
         if scores_json and "winner" in scores_json:
+            winner_raw = str(scores_json.get("winner", ""))
             try:
-                winner_idx = int(str(scores_json["winner"]).split("_")[-1]) - 1
-            except Exception:
+                # Strategy 1: pure digit "1", "2" etc.
+                if winner_raw.isdigit():
+                    winner_idx = int(winner_raw) - 1
+                # Strategy 2: "candidate_N" format
+                elif "_" in winner_raw:
+                    last_part = winner_raw.rsplit("_", maxsplit=1)[-1]
+                    if last_part.isdigit():
+                        winner_idx = int(last_part) - 1
+                # Strategy 3: use ranking array's first element
+                if winner_idx < 0 and "ranking" in scores_json:
+                    ranking = scores_json["ranking"]
+                    if isinstance(ranking, list) and ranking:
+                        first = str(ranking[0])
+                        if first.isdigit():
+                            winner_idx = int(first) - 1
+                        elif "_" in first:
+                            last_part = first.rsplit("_", maxsplit=1)[-1]
+                            if last_part.isdigit():
+                                winner_idx = int(last_part) - 1
+            except (ValueError, IndexError, TypeError):
                 winner_idx = -1
 
         if 0 <= winner_idx < len(ref_results) and ref_results[winner_idx].success:

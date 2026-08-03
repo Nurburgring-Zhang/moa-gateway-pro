@@ -1,4 +1,5 @@
 """Workflow API routes — execute, list, and manage YAML workflows."""
+
 from __future__ import annotations
 
 import logging
@@ -6,6 +7,8 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+
+from ..auth import require_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +48,10 @@ def _get_loader():
 
 
 @router.post("/v1/workflows/execute")
-async def execute_workflow(req: WorkflowExecuteRequest) -> dict[str, Any]:
+async def execute_workflow(
+    req: WorkflowExecuteRequest,
+    key_info: dict[str, Any] = Depends(require_api_key),
+) -> dict[str, Any]:
     """Execute a named workflow with the given context.
 
     The workflow must exist in the workflow directory. Execution
@@ -58,15 +64,21 @@ async def execute_workflow(req: WorkflowExecuteRequest) -> dict[str, Any]:
 
     try:
         result = await wf.execute(req.context)
+    except ValueError as exc:
+        raise HTTPException(400, f"Invalid workflow input: {exc}") from exc
+    except (ConnectionError, TimeoutError) as exc:
+        raise HTTPException(503, f"Upstream service unavailable: {exc}") from exc
     except Exception as exc:  # noqa: BLE001
         logger.exception("Workflow execution failed: %s", exc)
-        raise HTTPException(502, f"Workflow execution failed: {exc}")
+        raise HTTPException(500, "Internal error during workflow execution") from exc
 
     return result
 
 
 @router.get("/v1/workflows")
-async def list_workflows() -> dict[str, Any]:
+async def list_workflows(
+    key_info: dict[str, Any] = Depends(require_api_key),
+) -> dict[str, Any]:
     """List all available workflows."""
     loader = _get_loader()
     workflows = loader.list_workflows()
@@ -74,7 +86,10 @@ async def list_workflows() -> dict[str, Any]:
 
 
 @router.get("/v1/workflows/{name}")
-async def get_workflow(name: str) -> dict[str, Any]:
+async def get_workflow(
+    name: str,
+    key_info: dict[str, Any] = Depends(require_api_key),
+) -> dict[str, Any]:
     """Get details of a specific workflow."""
     loader = _get_loader()
     wf = loader.get_workflow(name)
@@ -98,7 +113,10 @@ async def get_workflow(name: str) -> dict[str, Any]:
 
 
 @router.post("/v1/workflows")
-async def create_workflow(req: WorkflowCreateRequest) -> dict[str, Any]:
+async def create_workflow(
+    req: WorkflowCreateRequest,
+    key_info: dict[str, Any] = Depends(require_api_key),
+) -> dict[str, Any]:
     """Create or upload a new workflow.
 
     The YAML content is validated before saving. If a workflow with
@@ -108,10 +126,12 @@ async def create_workflow(req: WorkflowCreateRequest) -> dict[str, Any]:
     try:
         path = loader.save_workflow(req.name, req.yaml_content)
     except ValueError as exc:
-        raise HTTPException(400, f"Invalid workflow YAML: {exc}")
+        raise HTTPException(400, f"Invalid workflow YAML: {exc}") from exc
+    except (ConnectionError, TimeoutError) as exc:
+        raise HTTPException(503, f"Upstream service unavailable: {exc}") from exc
     except Exception as exc:  # noqa: BLE001
         logger.exception("Failed to save workflow: %s", exc)
-        raise HTTPException(500, f"Failed to save workflow: {exc}")
+        raise HTTPException(500, "Failed to save workflow") from exc
 
     return {
         "name": req.name,

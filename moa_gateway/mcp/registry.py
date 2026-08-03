@@ -1,8 +1,9 @@
 """Tool registry - manages available tools and their access roles."""
+
 from __future__ import annotations
 
 import logging
-from typing import Callable, Optional, Set
+from collections.abc import Callable
 
 from .protocol import ToolDefinition
 
@@ -15,13 +16,13 @@ class ToolRegistry:
     def __init__(self):
         self._tools: dict[str, ToolDefinition] = {}
         self._handlers: dict[str, Callable] = {}
-        self._tool_roles: dict[str, Set[str]] = {}  # tool_name -> allowed roles
+        self._tool_roles: dict[str, set[str]] = {}  # tool_name -> allowed roles
 
     def register(
         self,
         tool: ToolDefinition,
         handler: Callable,
-        allowed_roles: Optional[Set[str]] = None,
+        allowed_roles: set[str] | None = None,
     ) -> None:
         """Register a tool with its handler and optional role restrictions."""
         self._tools[tool.name] = tool
@@ -39,7 +40,7 @@ class ToolRegistry:
             return True
         return False
 
-    def list_tools(self, user_role: Optional[str] = None) -> list[ToolDefinition]:
+    def list_tools(self, user_role: str | None = None) -> list[ToolDefinition]:
         """List tools accessible to a given role. None = all tools."""
         if not user_role:
             return list(self._tools.values())
@@ -49,11 +50,11 @@ class ToolRegistry:
             if name not in self._tool_roles or user_role in self._tool_roles[name]
         ]
 
-    def get_handler(self, name: str) -> Optional[Callable]:
+    def get_handler(self, name: str) -> Callable | None:
         """Get the handler callable for a tool."""
         return self._handlers.get(name)
 
-    def get_tool(self, name: str) -> Optional[ToolDefinition]:
+    def get_tool(self, name: str) -> ToolDefinition | None:
         """Get tool definition by name."""
         return self._tools.get(name)
 

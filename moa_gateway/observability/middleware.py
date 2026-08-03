@@ -7,6 +7,7 @@ Automatically:
 - Injects trace headers into responses
 - Correlates logs with traces
 """
+
 from __future__ import annotations
 
 import logging
@@ -113,7 +114,11 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
 
             logger.error(
                 "Request failed: %s %s [trace=%s] error=%s duration=%.3fs",
-                request.method, request.url.path, trace_id, exc, duration,
+                request.method,
+                request.url.path,
+                trace_id,
+                exc,
+                duration,
             )
             raise
 

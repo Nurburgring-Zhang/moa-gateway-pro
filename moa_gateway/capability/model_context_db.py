@@ -249,10 +249,10 @@ MODEL_DATABASE: dict[str, ModelSpec] = {
         supports_vision=False,
         notes="百川 3 Turbo 32K",
     ),
-    "lingyi": ModelSpec(
-        id="lingyi",
+    "lingyiwanwu": ModelSpec(
+        id="lingyiwanwu",
         provider="zero-one",
-        family="lingyi",
+        family="lingyiwanwu",
         context_window=16000,
         max_output=2000,
         input_cost_per_1k=0.001,

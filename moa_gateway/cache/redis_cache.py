@@ -2,6 +2,7 @@
 
 Gracefully degrades when Redis is unavailable.
 """
+
 from __future__ import annotations
 
 import json
@@ -39,9 +40,7 @@ class RedisCache(CacheBackend):
         try:
             import redis.asyncio as aioredis  # noqa: PLC0415
 
-            self._redis = aioredis.from_url(
-                self._url, decode_responses=True, socket_timeout=5
-            )
+            self._redis = aioredis.from_url(self._url, decode_responses=True, socket_timeout=5)
             await self._redis.ping()
             self._available = True
             logger.info("Redis cache connected: %s", self._url.split("@")[-1])
@@ -119,9 +118,7 @@ class RedisCache(CacheBackend):
         try:
             cursor = 0
             while True:
-                cursor, keys = await self._redis.scan(
-                    cursor, match=f"{self._prefix}*", count=100
-                )
+                cursor, keys = await self._redis.scan(cursor, match=f"{self._prefix}*", count=100)
                 if keys:
                     await self._redis.delete(*keys)
                 if cursor == 0:
@@ -136,9 +133,7 @@ class RedisCache(CacheBackend):
             cursor = 0
             count = 0
             while True:
-                cursor, keys = await self._redis.scan(
-                    cursor, match=f"{self._prefix}*", count=100
-                )
+                cursor, keys = await self._redis.scan(cursor, match=f"{self._prefix}*", count=100)
                 count += len(keys)
                 if cursor == 0:
                     break

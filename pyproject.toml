@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "moa-gateway-pro"
-version = "1.8.1"
+version = "1.9.0"
 description = "Industrial-grade multi-model collaboration gateway - one OpenAI key for all LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -51,6 +51,9 @@ dev = [
     "mypy>=1.5.0",
     "pre-commit>=3.5.0",
 ]
+
+[tool.setuptools.packages.find]
+include = ["moa_gateway*"]
 
 [project.urls]
 Homepage = "https://github.com/Nurburgring-Zhang/moa-gateway-pro"
@@ -135,7 +138,7 @@ addopts = [
     "--showlocals",
     "--tb=short",
 ]
-testpaths = ["moa_gateway/capability/tests"]
+testpaths = ["tests"]
 asyncio_mode = "auto"
 filterwarnings = [
     "ignore::DeprecationWarning:jose.*",

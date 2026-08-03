@@ -37,7 +37,9 @@ class DallECompatImageProvider(ImageGenerationProvider):
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(url, json=payload, headers=headers)
             if resp.status_code != 200:
-                raise RuntimeError(f"Image generation failed: HTTP {resp.status_code}: {resp.text[:500]}")
+                raise RuntimeError(
+                    f"Image generation failed: HTTP {resp.status_code}: {resp.text[:500]}"
+                )
             data = resp.json()
         images: list[str] = []
         for item in data.get("data", []):
@@ -57,8 +59,16 @@ class WanxImageProvider(ImageGenerationProvider):
 
     async def _create_task(self, prompt: str, n: int) -> str:
         url = f"{self.api_base}/services/aigc/text2image/image-synthesis"
-        headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}", "X-DashScope-Async": "enable"}
-        payload: dict[str, Any] = {"model": "wanx-v1", "input": {"prompt": prompt}, "parameters": {"n": n}}
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.api_key}",
+            "X-DashScope-Async": "enable",
+        }
+        payload: dict[str, Any] = {
+            "model": "wanx-v1",
+            "input": {"prompt": prompt},
+            "parameters": {"n": n},
+        }
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             resp = await client.post(url, json=payload, headers=headers)
             if resp.status_code != 200:
@@ -69,7 +79,9 @@ class WanxImageProvider(ImageGenerationProvider):
             raise RuntimeError(f"Wanx: no task_id in response: {data}")
         return task_id
 
-    async def _poll_task(self, task_id: str, interval: float = 2.0, max_wait: float = 120.0) -> list[str]:
+    async def _poll_task(
+        self, task_id: str, interval: float = 2.0, max_wait: float = 120.0
+    ) -> list[str]:
         url = f"{self.api_base}/tasks/{task_id}"
         headers = {"Authorization": f"Bearer {self.api_key}"}
         start = time.time()

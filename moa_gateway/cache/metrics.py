@@ -1,4 +1,5 @@
 """Cache metrics — hit/miss tracking and statistics."""
+
 from __future__ import annotations
 
 import time
@@ -52,9 +53,7 @@ class CacheMetrics:
             total = sum(self._hits.values()) + self._misses
             hits = sum(self._hits.values())
             avg_latency = (
-                self._total_latency_ms / self._lookup_count
-                if self._lookup_count > 0
-                else 0
+                self._total_latency_ms / self._lookup_count if self._lookup_count > 0 else 0
             )
             return {
                 "enabled": True,

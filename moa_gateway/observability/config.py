@@ -1,4 +1,5 @@
 """Observability configuration."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,6 +8,7 @@ from dataclasses import dataclass
 @dataclass
 class OTelConfig:
     """OpenTelemetry configuration."""
+
     service_name: str = "moa-gateway-pro"
     service_version: str = "1.8.1"
     environment: str = "development"
@@ -34,6 +36,7 @@ class OTelConfig:
 def get_otel_config() -> OTelConfig:
     """Build OTelConfig from environment variables."""
     import os  # noqa: PLC0415
+
     return OTelConfig(
         service_name=os.getenv("OTEL_SERVICE_NAME", "moa-gateway-pro"),
         service_version=os.getenv("MOA_VERSION", "1.8.1"),

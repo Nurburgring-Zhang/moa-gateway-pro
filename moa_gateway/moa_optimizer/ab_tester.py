@@ -1,13 +1,14 @@
 """A/B tester for comparing MOA strategies head-to-head."""
+
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 import uuid
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ExperimentResult:
     """Result of a single A/B experiment."""
+
     experiment_id: str
     name: str
     strategy_a: str
@@ -97,6 +99,7 @@ class ABTester:
         if moa_orchestrator is None:
             try:
                 from ..moa import get_moa
+
                 moa_orchestrator = get_moa()
             except Exception as e:
                 logger.error("Cannot get MoA orchestrator: %s", e)
@@ -130,12 +133,14 @@ class ABTester:
                 score_a = 0.0
             scores_a.append(score_a)
             latencies_a.append(lat_a)
-            result.details_a.append({
-                "task_type": task_type,
-                "score": round(score_a, 4),
-                "latency_ms": round(lat_a, 1),
-                "success": res_a is not None,
-            })
+            result.details_a.append(
+                {
+                    "task_type": task_type,
+                    "score": round(score_a, 4),
+                    "latency_ms": round(lat_a, 1),
+                    "success": res_a is not None,
+                }
+            )
             if res_a is not None:
                 result.cases_a_success += 1
 
@@ -156,12 +161,14 @@ class ABTester:
                 score_b = 0.0
             scores_b.append(score_b)
             latencies_b.append(lat_b)
-            result.details_b.append({
-                "task_type": task_type,
-                "score": round(score_b, 4),
-                "latency_ms": round(lat_b, 1),
-                "success": res_b is not None,
-            })
+            result.details_b.append(
+                {
+                    "task_type": task_type,
+                    "score": round(score_b, 4),
+                    "latency_ms": round(lat_b, 1),
+                    "success": res_b is not None,
+                }
+            )
             if res_b is not None:
                 result.cases_b_success += 1
 
@@ -192,9 +199,13 @@ class ABTester:
         logger.info(
             "A/B experiment '%s' complete: winner=%s confidence=%.2f "
             "(A: score=%.3f lat=%.0fms | B: score=%.3f lat=%.0fms)",
-            name, result.winner, result.confidence,
-            result.avg_score_a, result.avg_latency_a,
-            result.avg_score_b, result.avg_latency_b,
+            name,
+            result.winner,
+            result.confidence,
+            result.avg_score_a,
+            result.avg_latency_a,
+            result.avg_score_b,
+            result.avg_latency_b,
         )
         return result
 
