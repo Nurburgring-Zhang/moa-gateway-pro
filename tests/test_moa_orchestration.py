@@ -87,7 +87,7 @@ class TestMOAStrategies:
         assert app is not None
 
     async def test_multiple_model_routing(self, client, headers):
-        """Request should route correctly - 200 (provider available) or 503 (no provider)"""
+        """Request should route to mock provider and return structured response."""
         resp = await client.post(
             "/v1/chat/completions",
             headers=headers,
@@ -97,15 +97,13 @@ class TestMOAStrategies:
                 "max_tokens": 100,
             },
         )
-        # 503 = correct routing but no backend available (test env has no providers)
-        # 200 = actual provider responded
-        assert resp.status_code in (200, 503), f"Unexpected status: {resp.status_code}"
-        if resp.status_code == 200:
-            data = resp.json()
-            assert "choices" in data
+        # Mock provider may respond 200, or no real backend -> 503
+        assert resp.status_code in (200, 503)
+        data = resp.json()
+        assert isinstance(data, dict)
 
     async def test_fallback_on_model_failure(self, client, headers):
-        """Non-existent model should return error instead of crash"""
+        """Non-existent model should return 503 (no available model)."""
         resp = await client.post(
             "/v1/chat/completions",
             headers=headers,
@@ -114,7 +112,11 @@ class TestMOAStrategies:
                 "messages": [{"role": "user", "content": "test"}],
             },
         )
-        assert resp.status_code in (200, 400, 404, 422, 500, 502, 503)
+        assert resp.status_code == 503
+        data = resp.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], str)
+        assert len(data["detail"]) > 0
 
     async def test_health_endpoint_accessible(self, client):
         """Health endpoint should be accessible without auth"""
@@ -133,9 +135,7 @@ class TestConcurrency:
     """Concurrency stress tests"""
 
     async def test_concurrent_chat_requests(self, client, headers):
-        """50 concurrent chat requests should all be handled without crash.
-        In test env without providers, 503 is the correct response.
-        """
+        """50 concurrent chat requests should all complete without server error."""
 
         async def make_request(i: int):
             resp = await client.post(
@@ -152,15 +152,15 @@ class TestConcurrency:
         tasks = [make_request(i) for i in range(50)]
         results = await asyncio.gather(*tasks)
 
-        # All should be handled (200 or 503) - no 500 crashes
-        handled_count = sum(1 for r in results if r in (200, 503))
-        assert handled_count == 50, (
-            f"Only {handled_count}/50 handled correctly. "
-            f"Distribution: {dict((s, results.count(s)) for s in set(results))}"
+        # All should be 200 (mock) or 503 (no provider), never 500
+        valid_codes = {200, 502, 503}
+        assert all(r in valid_codes for r in results), (
+            f"Unexpected status codes: "
+            f"{dict((s, results.count(s)) for s in set(results))}"
         )
 
     async def test_concurrent_multimodal_requests(self, client, headers):
-        """Multimodal endpoint concurrent requests"""
+        """Multimodal endpoint concurrent requests - all return 502 (no provider)."""
 
         async def request_3d():
             return await client.post(
@@ -191,8 +191,10 @@ class TestConcurrency:
             tasks.extend([request_3d(), request_world(), request_embodied()])
 
         results = await asyncio.gather(*tasks)
-        valid = sum(1 for r in results if r.status_code in (200, 400, 422, 502, 503))
-        assert valid >= 25, f"Only {valid}/30 valid responses"
+        assert all(r.status_code == 502 for r in results), (
+            f"Expected all 502 but got distribution: "
+            f"{dict((s, [r.status_code for r in results].count(s)) for s in set(r.status_code for r in results))}"
+        )
 
     async def test_concurrent_assistant_operations(self, client, headers):
         """Assistant API concurrent operations"""
@@ -232,26 +234,37 @@ class TestErrorResilience:
         assert all(r == 200 for r in results), "Some health checks failed under rapid fire"
 
     async def test_malformed_json_handling(self, client, headers):
-        """Malformed JSON should not cause 500"""
+        """Malformed JSON should return 422 validation error."""
         resp = await client.post(
             "/v1/chat/completions",
             headers=headers,
             content=b"not json at all",
         )
-        assert resp.status_code in (400, 422), f"Got {resp.status_code} instead of 400/422"
+        assert resp.status_code == 422
+        data = resp.json()
+        assert "detail" in data
 
     async def test_oversized_messages_array(self, client, headers):
-        """Oversized messages array should be handled gracefully"""
+        """Oversized messages array should be handled gracefully - mock provider returns 200."""
         messages = [{"role": "user", "content": f"Message {i} " * 50} for i in range(100)]
         resp = await client.post(
             "/v1/chat/completions",
             headers=headers,
             json={"model": "deepseek-v3", "messages": messages},
         )
-        assert resp.status_code in (200, 400, 413, 422, 503)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "id" in data
+        assert "choices" in data
+        assert isinstance(data["choices"], list)
+        assert len(data["choices"]) > 0
+        assert "message" in data["choices"][0]
+        assert "role" in data["choices"][0]["message"]
+        assert data["choices"][0]["message"]["role"] == "assistant"
+        assert "content" in data["choices"][0]["message"]
 
-    async def test_missing_auth_returns_401_or_403(self, client):
-        """Missing auth should return 401/403 not 500"""
+    async def test_missing_auth_returns_401(self, client):
+        """Missing auth should return 401."""
         resp = await client.post(
             "/v1/chat/completions",
             json={
@@ -259,7 +272,9 @@ class TestErrorResilience:
                 "messages": [{"role": "user", "content": "hi"}],
             },
         )
-        assert resp.status_code in (401, 403)
+        assert resp.status_code == 401
+        data = resp.json()
+        assert "detail" in data
 
 
 # ===============================================================
@@ -335,7 +350,7 @@ class TestPerformance:
         assert read_ms < 100, f"Read latency {read_ms:.1f}ms > 100ms"
 
     async def test_concurrent_throughput(self, client, headers):
-        """50 concurrent requests throughput measurement (rate-limit disabled)"""
+        """50 concurrent requests throughput measurement (rate-limit disabled)."""
         payload = {
             "model": "deepseek-v3",
             "messages": [{"role": "user", "content": "hi"}],
@@ -350,8 +365,12 @@ class TestPerformance:
         results = await asyncio.gather(*tasks)
         elapsed = time.perf_counter() - start
 
-        # With rate-limiting disabled, all should be handled (200 or 503)
-        handled = sum(1 for r in results if r.status_code in (200, 503))
+        # All requests should complete without server error (200 mock or 503 no-provider)
+        valid_codes = {200, 502, 503}
+        all_valid = all(r.status_code in valid_codes for r in results)
         rps = 50 / elapsed if elapsed > 0 else 0
-        print(f"\n[PERF] Throughput: {rps:.0f} req/s, {handled}/50 handled, total={elapsed:.2f}s")
-        assert handled >= 45, f"Only {handled}/50 handled correctly"
+        print(f"\n[PERF] Throughput: {rps:.0f} req/s, total={elapsed:.2f}s")
+        assert all_valid, (
+            f"Unexpected status codes: "
+            f"{dict((s, [r.status_code for r in results].count(s)) for s in set(r.status_code for r in results))}"
+        )

@@ -62,6 +62,8 @@ async def edit_image(
 
         data = [{"url": url, "revised_prompt": prompt} for url in urls]
         return ImageEditResponse(created=int(time.time()), data=data)
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}")
     except Exception as e:
         logger.error("Image edit failed: %s", e)
         raise HTTPException(status_code=502, detail=f"Image edit error: {str(e)}")
@@ -93,6 +95,8 @@ async def create_image_variation(
         urls = await provider.create_variation(image=image_bytes, n=n, size=size)
         data = [{"url": url} for url in urls]
         return ImageEditResponse(created=int(time.time()), data=data)
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}")
     except Exception as e:
         logger.error("Image variation failed: %s", e)
         raise HTTPException(status_code=502, detail=f"Image variation error: {str(e)}")

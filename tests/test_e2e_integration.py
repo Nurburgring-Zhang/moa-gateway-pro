@@ -198,14 +198,17 @@ class TestChatCompletions:
 
     @pytest.mark.anyio
     async def test_chat_empty_messages_400(self, client):
-        """空messages列表应返回400或422。"""
+        """空messages列表应返回400。"""
         resp = await client.post(
             "/v1/chat/completions",
             headers=HEADERS,
             json={"model": "auto", "messages": []},
         )
-        # Empty messages should be rejected (min_length or custom validation)
-        assert resp.status_code in (400, 422)
+        assert resp.status_code == 400
+        data = resp.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], str)
+        assert len(data["detail"]) > 0
 
     @pytest.mark.anyio
     async def test_chat_invalid_temperature(self, client):
@@ -294,7 +297,7 @@ class TestVision:
 
     @pytest.mark.anyio
     async def test_vision_analyze_provider_call(self, client):
-        """Vision分析请求传入正确格式 - 验证走到provider层。"""
+        """Vision分析请求传入正确格式 - 无配置provider时返回502。"""
         resp = await client.post(
             "/v1/vision/analyze",
             headers=HEADERS,
@@ -304,8 +307,11 @@ class TestVision:
                 "model": "auto",
             },
         )
-        # Provider will fail (no real API key) -> 502 or internal error
-        assert resp.status_code in (200, 502, 500)
+        assert resp.status_code == 502
+        data = resp.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], str)
+        assert len(data["detail"]) > 0
 
 
 # ============================================================
@@ -322,7 +328,7 @@ class TestImageEdit:
 
     @pytest.mark.anyio
     async def test_image_edit_with_file(self, client):
-        """图片编辑上传文件 - 验证完整链路。"""
+        """图片编辑上传文件 - 无配置provider时返回502。"""
         # Create a minimal PNG file (1x1 pixel)
         png_data = (
             b'\x89PNG\r\n\x1a\n'
@@ -336,8 +342,11 @@ class TestImageEdit:
         # Remove Content-Type from headers for multipart
         headers = {"Authorization": f"Bearer {API_KEY}"}
         resp = await client.post("/v1/images/edits", headers=headers, files=files, data=data)
-        # Provider not configured -> 502
-        assert resp.status_code in (200, 502)
+        assert resp.status_code == 502
+        resp_data = resp.json()
+        assert "detail" in resp_data
+        assert isinstance(resp_data["detail"], str)
+        assert len(resp_data["detail"]) > 0
 
     @pytest.mark.anyio
     async def test_image_variations_no_file_422(self, client):
@@ -367,18 +376,17 @@ class TestThreeDGeneration:
 
     @pytest.mark.anyio
     async def test_3d_generate_with_prompt(self, client):
-        """3D生成带prompt - 验证走到provider层。"""
+        """3D生成带prompt - 无配置provider时返回502。"""
         resp = await client.post(
             "/v1/3d/generate",
             headers=HEADERS,
             json={"prompt": "A red sports car", "model": "auto"},
         )
-        # Provider not configured -> 502
-        assert resp.status_code in (200, 502)
-        if resp.status_code == 200:
-            data = resp.json()
-            assert "task_id" in data
-            assert "status" in data
+        assert resp.status_code == 502
+        data = resp.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], str)
+        assert len(data["detail"]) > 0
 
     @pytest.mark.anyio
     async def test_3d_generate_invalid_format(self, client):
@@ -409,7 +417,7 @@ class TestWorldModel:
 
     @pytest.mark.anyio
     async def test_world_simulate(self, client):
-        """世界模型模拟请求 - 验证走到provider层。"""
+        """世界模型模拟请求 - 无配置provider时返回502。"""
         resp = await client.post(
             "/v1/world/simulate",
             headers=HEADERS,
@@ -418,12 +426,15 @@ class TestWorldModel:
                 "steps": 5,
             },
         )
-        # Provider not configured -> 502
-        assert resp.status_code in (200, 502)
+        assert resp.status_code == 502
+        data = resp.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], str)
+        assert len(data["detail"]) > 0
 
     @pytest.mark.anyio
     async def test_world_predict(self, client):
-        """状态预测请求 - 验证走到provider层。"""
+        """状态预测请求 - 无配置provider时返回502。"""
         resp = await client.post(
             "/v1/world/predict",
             headers=HEADERS,
@@ -432,7 +443,11 @@ class TestWorldModel:
                 "action": "release ball",
             },
         )
-        assert resp.status_code in (200, 502)
+        assert resp.status_code == 502
+        data = resp.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], str)
+        assert len(data["detail"]) > 0
 
     @pytest.mark.anyio
     async def test_world_simulate_invalid_steps(self, client):
@@ -463,7 +478,7 @@ class TestEmbodied:
 
     @pytest.mark.anyio
     async def test_embodied_plan(self, client):
-        """动作规划请求 - 验证走到provider层。"""
+        """动作规划请求 - 无配置provider时返回502。"""
         resp = await client.post(
             "/v1/embodied/plan",
             headers=HEADERS,
@@ -472,12 +487,15 @@ class TestEmbodied:
                 "goal": "Pick up the cup",
             },
         )
-        # Provider not configured -> 502
-        assert resp.status_code in (200, 502)
+        assert resp.status_code == 502
+        data = resp.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], str)
+        assert len(data["detail"]) > 0
 
     @pytest.mark.anyio
     async def test_embodied_execute(self, client):
-        """动作执行请求 - 验证走到provider层。"""
+        """动作执行请求 - 内置模拟器处理返回200。"""
         resp = await client.post(
             "/v1/embodied/execute",
             headers=HEADERS,
@@ -485,13 +503,22 @@ class TestEmbodied:
                 "action": {"action": "move", "target": {"x": 2.0, "y": 0.0, "z": 0.0}},
             },
         )
-        assert resp.status_code in (200, 502)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "success" in data
+        assert data["success"] is True
+        assert "new_state" in data
 
     @pytest.mark.anyio
     async def test_embodied_status(self, client):
-        """状态查询请求 - 验证走到provider层。"""
+        """状态查询请求 - 返回模拟器当前状态。"""
         resp = await client.get("/v1/embodied/status", headers=HEADERS)
-        assert resp.status_code in (200, 502)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "robot_id" in data
+        assert "state" in data
+        assert "position" in data
+        assert "battery" in data
 
 
 # ============================================================
@@ -512,7 +539,7 @@ class TestAudio:
 
     @pytest.mark.anyio
     async def test_audio_tts(self, client):
-        """TTS请求 - 验证走到provider层。"""
+        """TTS请求 - 无配置provider时返回501。"""
         resp = await client.post(
             "/v1/audio/speech",
             headers=HEADERS,
@@ -522,8 +549,11 @@ class TestAudio:
                 "voice": "alloy",
             },
         )
-        # Provider not configured -> 502 or 501
-        assert resp.status_code in (200, 501, 502)
+        assert resp.status_code == 501
+        data = resp.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], str)
+        assert len(data["detail"]) > 0
 
     @pytest.mark.anyio
     async def test_audio_tts_invalid_format(self, client):
@@ -559,7 +589,7 @@ class TestVideo:
 
     @pytest.mark.anyio
     async def test_video_generate(self, client):
-        """视频生成请求 - 验证走到provider层。"""
+        """视频生成请求 - 无配置provider时返回502。"""
         resp = await client.post(
             "/v1/video/generate",
             headers=HEADERS,
@@ -568,8 +598,11 @@ class TestVideo:
                 "duration": 4,
             },
         )
-        # Provider not configured -> 502
-        assert resp.status_code in (200, 502)
+        assert resp.status_code == 502
+        data = resp.json()
+        assert "detail" in data
+        assert isinstance(data["detail"], str)
+        assert len(data["detail"]) > 0
 
     @pytest.mark.anyio
     async def test_video_generate_invalid_duration(self, client):
@@ -730,7 +763,9 @@ class TestErrorHandling:
     async def test_404_unknown_route(self, client):
         """未知路由返回404。"""
         resp = await client.get("/v1/nonexistent/endpoint", headers=HEADERS)
-        assert resp.status_code in (404, 405)
+        assert resp.status_code == 404
+        data = resp.json()
+        assert "detail" in data
 
     @pytest.mark.anyio
     async def test_method_not_allowed(self, client):
@@ -740,13 +775,15 @@ class TestErrorHandling:
 
     @pytest.mark.anyio
     async def test_invalid_json_body(self, client):
-        """无效JSON body应返回400或422。"""
+        """无效JSON body应返回422。"""
         resp = await client.post(
             "/v1/chat/completions",
             headers={**HEADERS, "Content-Type": "application/json"},
             content=b"not valid json{{{",
         )
-        assert resp.status_code in (400, 422)
+        assert resp.status_code == 422
+        data = resp.json()
+        assert "detail" in data
 
     @pytest.mark.anyio
     async def test_request_body_too_large(self, client):

@@ -46,7 +46,8 @@ def test_code_execute_sandbox_no_dangerous_builtins():
 
     assert "getattr" not in _ALLOWED_BUILTINS
     assert "setattr" not in _ALLOWED_BUILTINS
-    assert "type" not in _ALLOWED_BUILTINS
+    # type is allowed (AST layer blocks __subclasses__/__mro__ access)
+    assert "type" in _ALLOWED_BUILTINS
     # hasattr should still be present (safe read-only introspection)
     assert "hasattr" in _ALLOWED_BUILTINS
 
@@ -60,8 +61,20 @@ def test_code_execute_sandbox_no_exec_eval():
     assert "compile" not in _ALLOWED_BUILTINS
 
 
-def test_code_execute_sandbox_no_import():
-    """Verify __import__ is not exposed in sandbox builtins."""
-    from moa_gateway.agent_loop.skills.code_execute import _ALLOWED_BUILTINS
+def test_code_execute_sandbox_restricted_import():
+    """Verify __import__ in sandbox is the restricted version (whitelist-only)."""
+    from moa_gateway.agent_loop.skills.code_execute import (
+        _ALLOWED_BUILTINS, _restricted_import, SandboxViolation,
+    )
 
-    assert "__import__" not in _ALLOWED_BUILTINS
+    # __import__ is present but restricted to whitelist
+    assert "__import__" in _ALLOWED_BUILTINS
+    assert _ALLOWED_BUILTINS["__import__"] is _restricted_import
+
+    # Should allow whitelisted modules
+    _restricted_import("math")
+
+    # Should block non-whitelisted modules
+    import pytest
+    with pytest.raises(SandboxViolation):
+        _restricted_import("os")

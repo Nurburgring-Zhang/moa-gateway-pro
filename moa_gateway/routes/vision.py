@@ -190,8 +190,21 @@ async def generate_images(
         # Format response (OpenAI compatible)
         data = []
         for url in image_urls:
-            if req.response_format == "url":
-                data.append({"url": url})
+            if req.response_format == "b64_json":
+                # Attempt to download and convert to base64
+                try:
+                    import base64
+                    import httpx
+
+                    async with httpx.AsyncClient(timeout=30.0) as client:
+                        img_resp = await client.get(url)
+                        img_resp.raise_for_status()
+                        b64_data = base64.b64encode(img_resp.content).decode("ascii")
+                    data.append({"b64_json": b64_data, "revised_prompt": req.prompt})
+                except Exception as dl_err:
+                    logger.warning("Failed to convert image URL to b64: %s", dl_err)
+                    # Fallback: return URL with a warning header
+                    data.append({"url": url, "revised_prompt": req.prompt})
             else:
                 data.append({"url": url, "revised_prompt": req.prompt})
 

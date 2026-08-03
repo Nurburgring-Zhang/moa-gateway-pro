@@ -73,7 +73,7 @@ async def health_detailed():
 
 
 @router.get("/v1/health")
-async def api_health_overview():
+async def api_health_overview(key_info: dict = Depends(require_api_key)):
     """All endpoint health overview."""
     from ..health import get_health_checker
 
@@ -82,7 +82,7 @@ async def api_health_overview():
 
 
 @router.get("/v1/health/{endpoint_id}")
-async def api_health_detail(endpoint_id: str):
+async def api_health_detail(endpoint_id: str, key_info: dict = Depends(require_api_key)):
     """Single endpoint detailed health status."""
     from fastapi import HTTPException
 
@@ -119,7 +119,7 @@ async def api_health_probe(endpoint_id: str, key_info: dict = Depends(require_ap
 
 
 @router.get("/v1/health/purge/history")
-async def api_purge_history():
+async def api_purge_history(key_info: dict = Depends(require_api_key)):
     """Get purge history."""
     from ..health import get_purge_manager
 

@@ -88,6 +88,8 @@ async def generate_3d(
             _task_owners[task_id] = key_info.get("key_id", "")
 
         return ThreeDCreateResponse(task_id=task_id, status="processing")
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}")
     except Exception as e:
         logger.error("3D generation failed: %s", e)
         raise HTTPException(status_code=502, detail=f"3D generation error: {str(e)}")
@@ -110,6 +112,8 @@ async def get_3d_task(
     try:
         result = await provider.query_task(task_id)
         return ThreeDTaskResponse(**result)
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}")
     except Exception as e:
         logger.error("3D task query failed: %s", e)
         raise HTTPException(status_code=502, detail=f"Task query error: {str(e)}")

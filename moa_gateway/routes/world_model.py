@@ -83,6 +83,8 @@ async def simulate_world(
             initial_state=req.initial_state,
         )
         return SimulateResponse(**result)
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}")
     except Exception as e:
         logger.error("World simulation failed: %s", e)
         raise HTTPException(status_code=502, detail=f"Simulation error: {str(e)}")
@@ -106,6 +108,8 @@ async def predict_state(
             context=req.context,
         )
         return PredictResponse(**result)
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}")
     except Exception as e:
         logger.error("State prediction failed: %s", e)
         raise HTTPException(status_code=502, detail=f"Prediction error: {str(e)}")
@@ -134,6 +138,8 @@ async def understand_scene(
             description=req.description,
         )
         return SceneResponse(**result)
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}")
     except Exception as e:
         logger.error("Scene understanding failed: %s", e)
         raise HTTPException(status_code=502, detail=f"Scene analysis error: {str(e)}")

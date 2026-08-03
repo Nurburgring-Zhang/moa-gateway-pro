@@ -91,6 +91,8 @@ async def generate_video(
             _task_owners[task_id] = key_info.get("key_id", "")
 
         return VideoCreateResponse(task_id=task_id, status="processing")
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}")
     except Exception as e:
         logger.error("Video generation failed: %s", e)
         raise HTTPException(status_code=502, detail=f"Video generation error: {str(e)}")
@@ -114,6 +116,8 @@ async def edit_video(
         if task_id:
             _task_owners[task_id] = key_info.get("key_id", "")
         return VideoCreateResponse(task_id=task_id, status="processing")
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}")
     except Exception as e:
         logger.error("Video edit failed: %s", e)
         raise HTTPException(status_code=502, detail=f"Video edit error: {str(e)}")
@@ -136,6 +140,8 @@ async def get_video_task(
     try:
         result = await provider.query_task(task_id)
         return VideoTaskResponse(**result)
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}")
     except Exception as e:
         logger.error("Video task query failed: %s", e)
         raise HTTPException(status_code=502, detail=f"Task query error: {str(e)}")

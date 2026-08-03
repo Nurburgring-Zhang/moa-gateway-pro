@@ -75,32 +75,43 @@ def _ensure_gateway_key(settings) -> None:
         settings.auth.gateway_api_keys = [auto_key]
         logger.warning(
             "\n" + "=" * 60 + "\n"
-            "  \u26a0 未配置 gateway_api_keys，已自动生成临时Key:\n"
+            "  [!] \u672a\u914d\u7f6e gateway_api_keys\uff0c\u5df2\u81ea\u52a8\u751f\u6210\u4e34\u65f6Key:\n"
             f"  {auto_key}\n"
-            "  请将此Key用于API调用的 Authorization: Bearer <key>\n"
-            "  建议在 .env 文件中设置 MOA_GATEWAY_KEY 以持久化\n"
+            "  \u8bf7\u5c06\u6b64Key\u7528\u4e8eAPI\u8c03\u7528\u7684 Authorization: Bearer <key>\n"
+            "  \u5efa\u8bae\u5728 .env \u6587\u4ef6\u4e2d\u8bbe\u7f6e MOA_GATEWAY_KEY \u4ee5\u6301\u4e45\u5316\n"
             + "=" * 60
         )
 
 
 def _ensure_admin_password(settings) -> None:
-    """确保admin密码已设置"""
-    if settings.auth.admin_password:
-        return
-    env_pwd = os.environ.get("MOA_ADMIN_PASSWORD", "").strip()
-    if env_pwd:
-        settings.auth.admin_password = env_pwd
-        logger.info("admin_password loaded from MOA_ADMIN_PASSWORD env var")
-    else:
-        auto_pwd = secrets.token_urlsafe(12)
-        settings.auth.admin_password = auto_pwd
-        logger.warning(
-            "  \u26a0 未配置admin密码，已自动生成: %s", auto_pwd
+    """确保admin密码存在且强度足够"""
+    password = settings.auth.admin_password or os.environ.get("MOA_ADMIN_PASSWORD", "").strip()
+
+    if not password:
+        # 自动生成强密码
+        password = secrets.token_urlsafe(16)
+        logger.warning("[!] No admin password configured. Auto-generated: %s", password)
+        logger.warning("[!] Set MOA_ADMIN_PASSWORD environment variable for persistence")
+
+    if len(password) < 8:
+        raise SystemExit(
+            "FATAL: Admin password must be at least 8 characters. "
+            "Set MOA_ADMIN_PASSWORD or update config.yaml"
         )
+
+    settings.auth.admin_password = password
+
+
+def _safe_print(text: str) -> None:
+    """Safe print that won't crash on GBK/non-UTF8 consoles."""
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        print(text.encode("ascii", errors="replace").decode("ascii"))
 
 
 def _print_startup_summary(settings) -> None:
-    """打印启动配置摘要"""
+    """打印启动配置摘要（ASCII-safe, no Unicode symbols）"""
     lines = []
     lines.append("")
     lines.append("=" * 60)
@@ -111,9 +122,9 @@ def _print_startup_summary(settings) -> None:
     keys = settings.auth.gateway_api_keys
     if keys:
         display_key = keys[0] if len(keys[0]) <= 24 else keys[0][:20] + "..."
-        lines.append(f"  \u2713 Gateway API Key: {display_key}")
+        lines.append(f"  [OK] Gateway API Key: {display_key}")
     else:
-        lines.append("  \u2717 Gateway API Key: 未配置（所有请求将被拒绝）")
+        lines.append("  [X] Gateway API Key: 未配置（所有请求将被拒绝）")
 
     # 检查有哪些真实Provider
     real_providers = []
@@ -129,14 +140,14 @@ def _print_startup_summary(settings) -> None:
         display = ", ".join(real_providers[:5])
         if len(real_providers) > 5:
             display += "..."
-        lines.append(f"  \u2713 真实模型: {len(real_providers)}个 ({display})")
+        lines.append(f"  [OK] 真实模型: {len(real_providers)}个 ({display})")
     else:
-        lines.append("  \u26a0 真实模型: 0个（全部使用MockProvider）")
-        lines.append("    \u2192 请在 .env 中配置至少一个LLM Key")
-        lines.append("    \u2192 推荐: GROQ_API_KEY (免费) https://console.groq.com/keys")
+        lines.append("  [!] 真实模型: 0个（全部使用MockProvider）")
+        lines.append("    -> 请在 .env 中配置至少一个LLM Key")
+        lines.append("    -> 推荐: GROQ_API_KEY (免费) https://console.groq.com/keys")
 
     if mock_providers:
-        lines.append(f"  \u25cb Mock模型: {len(mock_providers)}个")
+        lines.append(f"  [ ] Mock模型: {len(mock_providers)}个")
 
     # 多模态状态
     multimodal_keys = {
@@ -145,14 +156,14 @@ def _print_startup_summary(settings) -> None:
     }
     for env_key, desc in multimodal_keys.items():
         if os.environ.get(env_key):
-            lines.append(f"  \u2713 {desc}: 已配置")
+            lines.append(f"  [OK] {desc}: 已配置")
 
     port = settings.server.port
     lines.append(f"\n  [i] API文档: http://localhost:{port}/docs")
     lines.append("=" * 60)
     lines.append("")
 
-    print("\n".join(lines))
+    _safe_print("\n".join(lines))
 
 
 async def _daily_purge_loop(purge_manager) -> None:
@@ -470,6 +481,13 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=422,
             content={"detail": f"division by zero: {exc}"},
+        )
+
+    @app.exception_handler(NotImplementedError)
+    async def _not_implemented_handler(request, exc: NotImplementedError):
+        return JSONResponse(
+            status_code=501,
+            content={"detail": f"Not Implemented: {str(exc)}"},
         )
 
     # ============ Middleware ============

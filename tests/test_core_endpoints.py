@@ -63,7 +63,7 @@ class TestHealthEndpoints:
         assert resp.status_code == 200
         data = resp.json()
         assert "status" in data
-        assert data["status"] in ("ok", "healthy", "running")
+        assert data["status"] == "ok"
 
     @pytest.mark.anyio
     async def test_health_detailed_returns_200(self, client):
@@ -96,30 +96,35 @@ class TestAuthEndpoints:
     @pytest.mark.anyio
     async def test_login_correct_credentials_200(self, client):
         """POST /api/auth/login with correct creds returns 200 + token."""
-        # We need to set up the admin user in storage first
         from moa_gateway.storage import get_storage
 
         storage = get_storage()
-        # Ensure admin user exists
-        try:
-            storage.ensure_admin_user("admin", "TestP@ss123!")
-        except Exception:
-            pass  # May already exist or method name differs
+        # Delete existing admin user if any, then create with known password
+        with storage.conn() as c:
+            existing = c.execute(
+                "SELECT id FROM admin_users WHERE username = ?", ("testlogin_user",)
+            ).fetchone()
+            if existing:
+                c.execute("DELETE FROM admin_users WHERE id = ?", (existing["id"],))
+        storage.create_admin_user("testlogin_user", "TestP@ss123!", role="admin")
 
         resp = await client.post(
             "/api/auth/login",
-            json={"username": "admin", "password": "TestP@ss123!"},
+            json={"username": "testlogin_user", "password": "TestP@ss123!"},
         )
-        # If ensure_admin_user works, we get 200; otherwise skip
-        if resp.status_code == 200:
-            data = resp.json()
-            assert "token" in data or "access_token" in data
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "token" in data
+        assert isinstance(data["token"], str)
+        assert len(data["token"]) > 0
 
     @pytest.mark.anyio
     async def test_auth_me_without_token_401(self, client):
-        """GET /api/auth/me without token returns 401/403."""
+        """GET /api/auth/me without token returns 401."""
         resp = await client.get("/api/auth/me")
-        assert resp.status_code in (401, 403)
+        assert resp.status_code == 401
+        data = resp.json()
+        assert "detail" in data
 
     @pytest.mark.anyio
     async def test_auth_me_with_valid_token(self, client, admin_token):
@@ -146,7 +151,13 @@ class TestModelsEndpoint:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert "data" in data or "models" in data or isinstance(data, list)
+        assert "data" in data
+        assert isinstance(data["data"], list)
+        assert len(data["data"]) > 0
+        for model in data["data"]:
+            assert "id" in model
+            assert "object" in model
+            assert model["object"] == "model"
 
     @pytest.mark.anyio
     async def test_models_no_auth_returns_401(self, client):
@@ -202,9 +213,11 @@ class TestAdminEndpoints:
 
     @pytest.mark.anyio
     async def test_endpoints_list_no_auth_401(self, client):
-        """GET /api/endpoints without admin JWT returns 401/403."""
+        """GET /api/endpoints without admin JWT returns 401."""
         resp = await client.get("/api/endpoints")
-        assert resp.status_code in (401, 403)
+        assert resp.status_code == 401
+        data = resp.json()
+        assert "detail" in data
 
     @pytest.mark.anyio
     async def test_endpoints_list_with_admin(self, client, admin_token):
@@ -217,9 +230,11 @@ class TestAdminEndpoints:
 
     @pytest.mark.anyio
     async def test_api_keys_list_no_auth_401(self, client):
-        """GET /api/api-keys without admin JWT returns 401/403."""
+        """GET /api/api-keys without admin JWT returns 401."""
         resp = await client.get("/api/api-keys")
-        assert resp.status_code in (401, 403)
+        assert resp.status_code == 401
+        data = resp.json()
+        assert "detail" in data
 
     @pytest.mark.anyio
     async def test_api_keys_list_with_admin(self, client, admin_token):
@@ -232,15 +247,19 @@ class TestAdminEndpoints:
 
     @pytest.mark.anyio
     async def test_stats_no_auth_401(self, client):
-        """GET /api/stats without admin JWT returns 401/403."""
+        """GET /api/stats without admin JWT returns 401."""
         resp = await client.get("/api/stats")
-        assert resp.status_code in (401, 403)
+        assert resp.status_code == 401
+        data = resp.json()
+        assert "detail" in data
 
     @pytest.mark.anyio
     async def test_logs_no_auth_401(self, client):
-        """GET /api/logs without admin JWT returns 401/403."""
+        """GET /api/logs without admin JWT returns 401."""
         resp = await client.get("/api/logs")
-        assert resp.status_code in (401, 403)
+        assert resp.status_code == 401
+        data = resp.json()
+        assert "detail" in data
 
 
 # ============================================================

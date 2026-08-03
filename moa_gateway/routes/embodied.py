@@ -86,6 +86,8 @@ async def plan_actions(
             available_actions=req.available_actions,
         )
         return PlanResponse(**result)
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}")
     except Exception as e:
         logger.error("Action planning failed: %s", e)
         raise HTTPException(status_code=502, detail=f"Planning error: {str(e)}")
@@ -109,6 +111,8 @@ async def execute_action(
             robot_id=req.robot_id,
         )
         return ExecuteResponse(**result)
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}")
     except Exception as e:
         logger.error("Action execution failed: %s", e)
         raise HTTPException(status_code=502, detail=f"Execution error: {str(e)}")
@@ -126,6 +130,8 @@ async def get_robot_status(
     try:
         result = await provider.get_status(robot_id=robot_id)
         return StatusResponse(**result)
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}")
     except Exception as e:
         logger.error("Status query failed: %s", e)
         raise HTTPException(status_code=502, detail=f"Status error: {str(e)}")
