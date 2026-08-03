@@ -459,9 +459,9 @@ def _cmd_config(args):
     """Configuration."""
     if args.config_command == "show":
         try:
-            from moa_gateway.config import get_settings
+            from moa_gateway import config as _cfg
 
-            s = get_settings()
+            s = _cfg.get_settings()
             print("\n=== MoA Gateway Pro Configuration ===")
             print(f"Server:     {s.server.host}:{s.server.port}")
             print(f"Workers:    {s.server.workers}")

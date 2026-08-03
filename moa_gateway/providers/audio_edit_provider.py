@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import struct
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -116,9 +117,15 @@ class ElevenLabsEditProvider(AudioEditProvider):
                 resp.raise_for_status()
                 return resp.content
 
-        elif operation in ("speed_adjust", "pitch_shift"):
-            logger.info("Audio %s: params=%s (local processing)", operation, params)
-            return audio_data  # Placeholder for local processing
+        elif operation == "speed_adjust":
+            speed_factor = params.get("speed", 1.0)
+            logger.info("Audio speed_adjust: factor=%s (local processing)", speed_factor)
+            return _adjust_speed(audio_data, speed_factor)
+
+        elif operation == "pitch_shift":
+            semitones = params.get("semitones", 0)
+            logger.info("Audio pitch_shift: semitones=%s (local processing)", semitones)
+            return _shift_pitch(audio_data, semitones)
 
         else:
             raise ValueError(f"Unsupported audio operation: {operation}")
@@ -225,11 +232,13 @@ class OpenSourceAudioEditProvider(AudioEditProvider):
         logger.info("Local audio edit: operation=%s", operation)
 
         if operation == "denoise":
-            return audio_data
+            return _denoise(audio_data)
         elif operation == "speed_adjust":
-            return audio_data
+            speed_factor = params.get("speed", 1.0)
+            return _adjust_speed(audio_data, speed_factor)
         elif operation == "pitch_shift":
-            return audio_data
+            semitones = params.get("semitones", 0)
+            return _shift_pitch(audio_data, semitones)
         else:
             raise ValueError(f"Unsupported local operation: {operation}")
 
@@ -254,3 +263,168 @@ class OpenSourceAudioEditProvider(AudioEditProvider):
         response_format: str = "json",
     ) -> dict[str, Any]:
         raise NotImplementedError("Transcription requires Whisper API")
+
+# =============================================================================
+# Pure-Python audio processing helpers (no external dependencies)
+# =============================================================================
+
+
+def _adjust_speed(audio_data: bytes, speed_factor: float) -> bytes:
+    """Adjust audio playback speed via linear-interpolation resampling.
+
+    Operates on raw WAV (PCM 16-bit) data. Preserves the 44-byte header and
+    updates relevant header fields (file size, data chunk size).
+
+    Args:
+        audio_data: WAV file bytes (must include standard 44-byte header).
+        speed_factor: >1.0 speeds up (shorter), <1.0 slows down (longer).
+
+    Returns:
+        Processed WAV bytes.
+    """
+    if abs(speed_factor - 1.0) < 0.01:
+        return audio_data
+    if speed_factor <= 0:
+        return audio_data
+    if len(audio_data) < 44:
+        return audio_data
+
+    header = audio_data[:44]
+    pcm_data = audio_data[44:]
+
+    # Determine sample size from header (bytes 34-35 = bits per sample)
+    bits_per_sample = struct.unpack_from("<H", header, 34)[0]
+    num_channels = struct.unpack_from("<H", header, 22)[0]
+    sample_size = (bits_per_sample // 8) * num_channels
+    if sample_size == 0:
+        return audio_data
+
+    # For 16-bit mono/stereo, process per-frame
+    bytes_per_frame = sample_size
+    num_frames = len(pcm_data) // bytes_per_frame
+    if num_frames < 2:
+        return audio_data
+
+    # Decode samples (16-bit signed)
+    samples_per_frame = num_channels
+    total_samples = num_frames * samples_per_frame
+    fmt = f"<{total_samples}h"
+    if len(pcm_data) < total_samples * 2:
+        total_samples = len(pcm_data) // 2
+        fmt = f"<{total_samples}h"
+        num_frames = total_samples // samples_per_frame
+
+    samples = struct.unpack(fmt, pcm_data[: total_samples * 2])
+
+    # Linear interpolation resampling
+    new_num_frames = int(num_frames / speed_factor)
+    if new_num_frames < 1:
+        new_num_frames = 1
+
+    new_samples: list[int] = []
+    for i in range(new_num_frames):
+        src_pos = i * speed_factor
+        idx = int(src_pos)
+        frac = src_pos - idx
+        for ch in range(samples_per_frame):
+            pos_a = idx * samples_per_frame + ch
+            pos_b = (idx + 1) * samples_per_frame + ch
+            if pos_b < total_samples:
+                val = int(samples[pos_a] * (1 - frac) + samples[pos_b] * frac)
+            elif pos_a < total_samples:
+                val = samples[pos_a]
+            else:
+                val = 0
+            new_samples.append(max(-32768, min(32767, val)))
+
+    # Encode back
+    new_pcm = struct.pack(f"<{len(new_samples)}h", *new_samples)
+
+    # Update WAV header
+    new_header = bytearray(header)
+    data_size = len(new_pcm)
+    file_size = 36 + data_size
+    struct.pack_into("<I", new_header, 4, file_size)   # RIFF chunk size
+    struct.pack_into("<I", new_header, 40, data_size)  # data sub-chunk size
+
+    return bytes(new_header) + new_pcm
+
+
+def _shift_pitch(audio_data: bytes, semitones: int) -> bytes:
+    """Shift pitch by resampling at a different rate.
+
+    This is a simplified pitch shift: it changes pitch by resampling, which
+    also changes duration (like speeding up/slowing down a vinyl record).
+    For production use, a proper phase vocoder would preserve duration.
+
+    Args:
+        audio_data: WAV file bytes.
+        semitones: Number of semitones to shift (positive=higher, negative=lower).
+
+    Returns:
+        Processed WAV bytes.
+    """
+    if semitones == 0:
+        return audio_data
+
+    # Semitone ratio: 2^(n/12)
+    pitch_factor = 2.0 ** (semitones / 12.0)
+    # Higher pitch = faster playback = speed_factor > 1
+    return _adjust_speed(audio_data, pitch_factor)
+
+
+def _denoise(audio_data: bytes) -> bytes:
+    """Simple noise reduction using a moving-average low-pass filter.
+
+    Applies a 5-point moving average to smooth out high-frequency noise.
+    This is a basic approach suitable for light noise reduction.
+
+    Args:
+        audio_data: WAV file bytes.
+
+    Returns:
+        Filtered WAV bytes.
+    """
+    if len(audio_data) < 44:
+        return audio_data
+
+    header = audio_data[:44]
+    pcm_data = audio_data[44:]
+
+    num_channels = struct.unpack_from("<H", header, 22)[0]
+    bits_per_sample = struct.unpack_from("<H", header, 34)[0]
+    if bits_per_sample != 16:
+        return audio_data  # Only handle 16-bit
+
+    samples_per_frame = num_channels
+    total_samples = len(pcm_data) // 2
+    if total_samples < 5 * samples_per_frame:
+        return audio_data
+
+    fmt = f"<{total_samples}h"
+    samples = list(struct.unpack(fmt, pcm_data[: total_samples * 2]))
+
+    num_frames = total_samples // samples_per_frame
+    window = 5
+
+    # Apply moving average per channel
+    filtered = [0] * total_samples
+    for ch in range(samples_per_frame):
+        for i in range(num_frames):
+            start = max(0, i - window // 2)
+            end = min(num_frames, i + window // 2 + 1)
+            total = 0
+            for j in range(start, end):
+                total += samples[j * samples_per_frame + ch]
+            filtered[i * samples_per_frame + ch] = total // (end - start)
+
+    new_pcm = struct.pack(f"<{len(filtered)}h", *filtered)
+
+    # Header stays the same size (same number of samples for denoise)
+    new_header = bytearray(header)
+    data_size = len(new_pcm)
+    struct.pack_into("<I", new_header, 4, 36 + data_size)
+    struct.pack_into("<I", new_header, 40, data_size)
+
+    return bytes(new_header) + new_pcm
+

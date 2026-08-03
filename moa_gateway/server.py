@@ -24,7 +24,7 @@ from fastapi.responses import JSONResponse
 
 from .audit import setup_audit_logging
 from .cache.manager import get_cache_manager
-from .config import get_settings
+from . import config as _cfg
 from .model_pool import get_model_pool
 from .health import init_health_system, shutdown_health_system
 from .benchmark import init_benchmark_system, shutdown_benchmark_system
@@ -180,7 +180,7 @@ def create_app() -> FastAPI:
     # Auto-Bootstrap: 加载.env文件（在任何配置加载之前）
     _load_dotenv()
 
-    settings = get_settings()
+    settings = _cfg.get_settings()
 
     # Auto-Bootstrap: 确保关键配置存在
     _ensure_gateway_key(settings)
@@ -199,7 +199,7 @@ def create_app() -> FastAPI:
 
         # SEC-002: Security config check on startup
         _security_warnings = []
-        _sec_settings = get_settings()
+        _sec_settings = _cfg.get_settings()
         if not _sec_settings.auth.jwt_secret:
             _security_warnings.append("jwt_secret is empty — JWT tokens will be insecure")
         elif len(_sec_settings.auth.jwt_secret) < 32:
@@ -363,7 +363,7 @@ def create_app() -> FastAPI:
         from .storage import get_storage
 
         storage = get_storage()
-        settings = get_settings()
+        settings = _cfg.get_settings()
         last_log_cleanup = 0
         last_rl_cleanup = 0
         while True:
@@ -584,7 +584,7 @@ from .routes.chat import ChatCompletionRequest, ChatMessage  # noqa: E402,F401
 if __name__ == "__main__":
     import uvicorn
 
-    s = get_settings()
+    s = _cfg.get_settings()
     uvicorn.run(
         "moa_gateway.server:app",
         host=s.server.host,

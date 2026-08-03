@@ -166,3 +166,8 @@ bench_*.log
 # Node / Next.js build artifacts
 node_modules/
 .next/
+
+# === Allow committed test suite ===
+!tests/
+!tests/*.py
+!tests/conftest.py

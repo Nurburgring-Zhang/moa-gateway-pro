@@ -12,8 +12,8 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import APIKeyHeader, HTTPBearer
 from jose import JWTError, jwt
 
-from .config import get_settings
-from .storage import get_storage
+from . import config as _cfg
+from . import storage as _stor
 
 logger = logging.getLogger(__name__)
 # 注:passlib bcrypt 在新版下有兼容问题,storage.py 已用 bcrypt 原生 API
@@ -68,7 +68,7 @@ async def authenticate_api_key(request: Request) -> dict[str, Any] | None:
             }
 
     # 先查 storage 里的 API Key(优先)
-    storage = get_storage()
+    storage = _stor.get_storage()
     rec = storage.find_api_key(token)
     if rec:
         return {
@@ -80,7 +80,7 @@ async def authenticate_api_key(request: Request) -> dict[str, Any] | None:
         }
 
     # fallback:检查 config.yaml 里配的 gateway_api_keys
-    settings = get_settings()
+    settings = _cfg.get_settings()
     for k in settings.auth.gateway_api_keys:
         if k and hmac.compare_digest(k, token):
             return {
@@ -110,7 +110,7 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 def create_jwt_token(subject: str, role: str = "admin", expires_minutes: int | None = None) -> str:
-    settings = get_settings()
+    settings = _cfg.get_settings()
     expires_minutes = expires_minutes or settings.auth.jwt_expire_minutes
     payload = {
         "sub": subject,
@@ -124,7 +124,7 @@ def create_jwt_token(subject: str, role: str = "admin", expires_minutes: int | N
 
 
 def decode_jwt_token(token: str) -> dict[str, Any] | None:
-    settings = get_settings()
+    settings = _cfg.get_settings()
     # SEC-003: 防御 alg=none 攻击 (CVE-2024-33663)
     try:
         header = jwt.get_unverified_header(token)

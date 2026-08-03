@@ -8,7 +8,7 @@ from typing import Any
 
 from fastapi import HTTPException, status
 
-from .config import get_settings
+from . import config as _cfg
 from .storage import get_storage
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class RateLimiter:
     """
 
     def __init__(self):
-        self.settings = get_settings().ratelimit
+        self.settings = _cfg.get_settings().ratelimit
         self.storage = get_storage()
 
     def check_and_incr(self, key_info: dict[str, Any]) -> tuple[int, int, int, int]:

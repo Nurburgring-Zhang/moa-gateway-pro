@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import time
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -92,6 +94,22 @@ Output format (JSON):
         if not self.api_base:
             self.api_base = "https://api.openai.com/v1"
         self.model = "gpt-4o"
+        # State machine: track robot states for simulation
+        self._robot_states: dict[str, dict[str, Any]] = {}
+
+    def _get_robot_state(self, robot_id: str) -> dict[str, Any]:
+        """Get or initialize robot state."""
+        if robot_id not in self._robot_states:
+            self._robot_states[robot_id] = {
+                "position": {"x": 0.0, "y": 0.0, "z": 0.0},
+                "orientation": {"yaw": 0.0, "pitch": 0.0, "roll": 0.0},
+                "gripper": "open",
+                "holding": None,
+                "energy": 100.0,
+                "status": "idle",
+                "action_history": [],
+            }
+        return self._robot_states[robot_id]
 
     async def _chat(self, system: str, user_content: list[dict] | str) -> str:
         """Call VLM for planning."""
@@ -160,32 +178,167 @@ Output format (JSON):
         action: dict[str, Any],
         robot_id: str = "default",
     ) -> dict[str, Any]:
-        """Simulate action execution (no real hardware)."""
+        """Execute action using physics-based state machine simulation."""
+        state = self._get_robot_state(robot_id)
+        action_type = action.get("action", "")
+        target = action.get("target", {})
+        params = action.get("params", {})
+
         logger.info(
-            "VLM embodied: simulating action %s on robot %s",
-            action.get("action"),
+            "VLM embodied: executing action %s on robot %s",
+            action_type,
             robot_id,
         )
-        return {
-            "success": True,
-            "result": f"Simulated: {action.get('action', 'unknown')} on {action.get('target', 'unknown')}",
-            "new_state": {
-                "position": "updated",
-                "gripper": "closed" if action.get("action") == "pick" else "open",
-            },
+
+        start_time = time.time()
+        result: dict[str, Any] = {
+            "success": False,
+            "action": action_type,
+            "robot_id": robot_id,
             "simulated": True,
         }
 
+        if action_type == "move" or action_type == "move_to":
+            # Calculate movement
+            dest = target if isinstance(target, dict) else {"x": 0, "y": 0, "z": 0}
+            if isinstance(dest, str):
+                # Named location - use a hash to generate deterministic coords
+                h = hash(dest) % 1000
+                dest = {"x": float(h % 10), "y": float((h // 10) % 10), "z": 0.0}
+            dx = float(dest.get("x", 0)) - state["position"]["x"]
+            dy = float(dest.get("y", 0)) - state["position"]["y"]
+            dz = float(dest.get("z", 0)) - state["position"]["z"]
+            distance = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+            # Energy cost: 1% per meter
+            energy_cost = distance * 1.0
+            if state["energy"] < energy_cost:
+                result["error"] = "Insufficient energy"
+            else:
+                state["position"] = {
+                    "x": float(dest.get("x", 0)),
+                    "y": float(dest.get("y", 0)),
+                    "z": float(dest.get("z", 0)),
+                }
+                state["energy"] -= energy_cost
+                state["status"] = "moving"
+                result["success"] = True
+                result["distance_moved"] = round(distance, 3)
+                result["energy_remaining"] = round(state["energy"], 1)
+
+        elif action_type == "pick":
+            obj_name = target.get("object", target) if isinstance(target, dict) else str(target)
+            if state["gripper"] != "open":
+                result["error"] = "Gripper not open"
+            elif state["holding"] is not None:
+                result["error"] = f"Already holding: {state['holding']}"
+            else:
+                state["gripper"] = "closed"
+                state["holding"] = obj_name
+                state["energy"] -= 2.0
+                result["success"] = True
+                result["picked"] = obj_name
+
+        elif action_type == "place":
+            if state["holding"] is None:
+                result["error"] = "Not holding anything"
+            else:
+                placed = state["holding"]
+                state["gripper"] = "open"
+                state["holding"] = None
+                state["energy"] -= 1.5
+                result["success"] = True
+                result["placed"] = placed
+                result["location"] = state["position"].copy()
+
+        elif action_type == "rotate":
+            angle = float(params.get("angle", 0))
+            state["orientation"]["yaw"] = (state["orientation"]["yaw"] + angle) % 360
+            state["energy"] -= 0.5
+            result["success"] = True
+            result["new_orientation"] = state["orientation"].copy()
+
+        elif action_type == "look" or action_type == "look_at":
+            # Observation action, no energy cost
+            result["success"] = True
+            result["observation"] = (
+                f"Looking from position {state['position']}, "
+                f"orientation {state['orientation']}"
+            )
+
+        elif action_type == "open":
+            state["energy"] -= 1.0
+            result["success"] = True
+            result["result"] = f"Opened: {target}"
+
+        elif action_type == "close":
+            state["energy"] -= 1.0
+            result["success"] = True
+            result["result"] = f"Closed: {target}"
+
+        elif action_type == "push":
+            direction = params.get("direction", "forward")
+            force = params.get("force", "normal")
+            state["energy"] -= 3.0 if force == "strong" else 1.5
+            result["success"] = True
+            result["result"] = f"Pushed {target} {direction} with {force} force"
+
+        elif action_type == "wait":
+            duration = float(params.get("duration", 1.0))
+            # Waiting recovers a small amount of energy
+            state["energy"] = min(100.0, state["energy"] + duration * 0.1)
+            result["success"] = True
+            result["result"] = f"Waited {duration}s"
+
+        elif action_type == "speak":
+            message = params.get("message", "")
+            result["success"] = True
+            result["result"] = f"Spoke: {message}"
+
+        else:
+            result["error"] = f"Unknown action type: {action_type}"
+
+        # Clamp energy
+        state["energy"] = max(0.0, min(100.0, state["energy"]))
+
+        # Record execution time and state
+        elapsed = round(time.time() - start_time, 4)
+        result["execution_time_sec"] = elapsed
+        result["new_state"] = {
+            "position": state["position"].copy(),
+            "orientation": state["orientation"].copy(),
+            "gripper": state["gripper"],
+            "holding": state["holding"],
+            "energy": round(state["energy"], 1),
+        }
+
+        # Record in history
+        state["action_history"].append({
+            "action": action_type,
+            "success": result["success"],
+            "time": elapsed,
+        })
+        state["status"] = "idle"
+
+        return result
+
     async def get_status(self, robot_id: str = "default") -> dict[str, Any]:
-        """Return simulated robot status."""
+        """Return current robot state from the state machine."""
+        state = self._get_robot_state(robot_id)
+        last_action = (
+            state["action_history"][-1] if state["action_history"] else None
+        )
         return {
             "robot_id": robot_id,
-            "state": "idle",
-            "position": {"x": 0.0, "y": 0.0, "z": 0.0},
-            "orientation": {"roll": 0, "pitch": 0, "yaw": 0},
-            "battery": 100,
+            "state": state["status"],
+            "position": state["position"].copy(),
+            "orientation": state["orientation"].copy(),
+            "gripper": state["gripper"],
+            "holding": state["holding"],
+            "battery": round(state["energy"], 1),
             "sensors": {"camera": "active", "lidar": "active", "force": "active"},
-            "last_action": None,
+            "last_action": last_action,
+            "total_actions": len(state["action_history"]),
             "mode": "simulation",
         }
 

@@ -435,9 +435,9 @@ _router: IntelligentRouter | None = None
 def get_router() -> IntelligentRouter:
     global _router
     if _router is None:
-        from .config import get_settings
+        from . import config as _cfg
 
-        s = get_settings()
+        s = _cfg.get_settings()
         _router = IntelligentRouter(
             thresholds=s.routing.thresholds,
             tier_mapping=s.routing.tier_mapping,
