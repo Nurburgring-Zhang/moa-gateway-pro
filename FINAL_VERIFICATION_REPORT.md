@@ -1,4 +1,4 @@
-﻿# MoA Gateway Pro - 最终综合验证报告
+# MoA Gateway Pro - 最终综合验证报告
 
 > **报告编号**: Task #71 | 最终综合报告
 > **项目**: moa-gateway-pro -- 工业级多模型协作网关
