@@ -168,6 +168,7 @@ bench_*.log
 # Node / Next.js build artifacts
 node_modules/
 .next/
+*.tsbuildinfo
 
 # === Allow committed test suite ===
 !tests/
