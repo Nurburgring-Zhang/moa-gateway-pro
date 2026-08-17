@@ -16,7 +16,7 @@ aiohttp>=3.11.0
 websockets>=13.1
 
 # 数据 / 存储 (verified)
-sqlalchemy==2.0.35
+sqlalchemy==2.0.52
 aiosqlite>=0.20.0
 
 # 安全 / 认证 (verified)
