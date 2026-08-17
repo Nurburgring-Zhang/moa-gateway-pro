@@ -1,52 +1,49 @@
-# MoA Gateway Pro 鈥?宸ヤ笟绾у妯″瀷鍗忎綔缃戝叧
-# 渚濊禆娓呭崟銆傞攣瀹氫富鐗堟湰,閬垮厤澶х増鏈吋瀹规€ч棶棰樸€?
+# MoA Gateway Pro — 工业级多模型协作网关
+# 生产环境依赖清单。
+# audit F1 修复: 核心框架锁定到已验证通过的运行时版本(与 venv 实测一致),
+# 消除"声明版本"与"实际运行版本"漂移。其余给出已验证的下限区间。
 
-# Web 鏈嶅姟
-fastapi==0.115.0
-uvicorn[standard]==0.32.0
-pydantic==2.9.2
-pydantic-settings==2.5.2
+# Web 服务 (verified runtime versions)
+fastapi==0.141.1
+uvicorn[standard]>=0.30.0,<1.0
+pydantic==2.13.4
+pydantic-settings==2.15.0
 python-multipart>=0.0.18
 
-# HTTP 瀹㈡埛绔?
-httpx==0.27.2
+# HTTP 客户端 (verified)
+httpx==0.28.1
 aiohttp>=3.11.0
-websockets==13.1
+websockets>=13.1
 
-# 鏁版嵁 / 瀛樺偍
+# 数据 / 存储 (verified)
 sqlalchemy==2.0.35
-aiosqlite==0.20.0
+aiosqlite>=0.20.0
 
-# 宸ュ叿
-PyYAML==6.0.2
-rich==13.9.4            # CLI 杈撳嚭缇庡寲
-typer==0.12.5           # CLI 宸ュ叿
-tenacity==9.0.0         # 閲嶈瘯閫€閬?
-python-jose[cryptography]>=3.4.0   # JWT - SEC-003: 鍗囩骇淇 CVE-2024-33663
-passlib[bcrypt]==1.7.4  # 瀵嗙爜鍝堝笇
-cryptography==43.0.1    # 鍔犲瘑
-psutil==6.1.0           # 绯荤粺鐩戞帶
+# 安全 / 认证 (verified)
+python-jose[cryptography]>=3.4.0   # JWT - SEC-003: CVE-2024-33663
+bcrypt>=4.1.0                       # 密码哈希 (直接使用,非passlib)
+cryptography>=43.0.1                # AES-256-GCM 加密 (verified on 50.x)
 
-# 鍙€?鍚戦噺/缂撳瓨(鑻ヨ鍚敤璇箟缂撳瓨)
-# numpy==2.1.2
-# faiss-cpu==1.9.0.post1
-
-# 娴嬭瘯
-pytest==8.3.3
-pytest-asyncio==0.24.0
-httpx>=0.27
-# Desktop UI(鍩轰簬 flet,Flutter for Python,鑷甫 Skia 娓叉煋)
-flet>=0.27
-
-# Discovery & Templates
+# 工具 (verified lower bounds)
+PyYAML>=6.0.2
+rich>=13.9.4
+typer>=0.12.5
+tenacity>=9.0.0
+psutil>=6.1.0
 jinja2>=3.1.0
 
-# Web search providers
+# 可观测性 (生产必需)
+prometheus_client>=0.20.0
+
+# 分布式缓存 (生产推荐)
+redis>=5.0.0
+
+# Web search providers (可选,按需启用)
 tavily-python>=0.5.0
 duckduckgo-search>=6.0.0
 
-# Audio editing
+# Audio editing (可选)
 elevenlabs>=1.0.0
 
-# 3D mesh processing
+# 3D mesh processing (可选)
 trimesh>=4.0.0

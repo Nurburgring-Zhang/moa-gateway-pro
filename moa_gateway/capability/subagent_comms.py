@@ -106,7 +106,7 @@ class SubagentHub:
             to_session=to_session,
             content=content,
             timestamp=time.time(),
-            kind=kind,
+            kind=kind,  # type: ignore[arg-type]
             parent_msg_id=parent_msg_id,
         )
 
@@ -251,7 +251,7 @@ class TaskBoard:
             t = self._tasks.get(task_id)
             if t is None:
                 raise KeyError(f"task not found: {task_id!r}")
-            t.status = status
+            t.status = status  # type: ignore[assignment]
 
     def get_task(self, task_id: str) -> TaskCreate | None:
         with self._lock:
@@ -290,6 +290,159 @@ class TaskBoard:
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False)
+
+
+class SqliteTaskBoard:
+    """SQLite-backed TaskBoard (D13).
+
+    Same behavioural contract as the in-memory :class:`TaskBoard` (status
+    validation, parent existence check, filtered listing) but every mutation
+    is persisted to the ``agent_tasks`` table, so tasks survive gateway
+    restarts and are visible to the ``/v1/agent/tasks`` REST endpoints.
+    """
+
+    def __init__(self, storage: Any | None = None) -> None:
+        # Lazy import keeps capability/ importable without a live DB.
+        if storage is None:
+            from ..storage import get_storage
+
+            storage = get_storage()
+        self._storage = storage
+        self._lock: threading.RLock = threading.RLock()
+
+    @staticmethod
+    def _row_to_task(row: dict[str, Any]) -> TaskCreate:
+        return TaskCreate(
+            task_id=row["task_id"],
+            title=row["title"],
+            assignee_session=row.get("assignee_session"),
+            parent_task_id=row.get("parent_task_id"),
+            status=row.get("status", "pending"),  # type: ignore[arg-type]
+            created_at=row.get("created_at") or time.time(),
+        )
+
+    def create_task(
+        self,
+        title: str,
+        assignee: str | None = None,
+        parent: str | None = None,
+    ) -> str:
+        """创建任务并落库,返回 task_id"""
+        with self._lock:
+            if parent is not None and self._storage.get_agent_task(parent) is None:
+                raise KeyError(f"parent task not found: {parent!r}")
+            task_id = f"t_{uuid.uuid4().hex[:12]}"
+            self._storage.create_agent_task(
+                task_id=task_id,
+                title=title,
+                assignee_session=assignee,
+                parent_task_id=parent,
+            )
+            return task_id
+
+    def update_status(self, task_id: str, status: str) -> None:
+        if status not in _VALID_TASK_STATUS:
+            raise ValueError(f"invalid status: {status!r}; must be one of {_VALID_TASK_STATUS}")
+        with self._lock:
+            if not self._storage.update_agent_task(task_id, status=status):
+                raise KeyError(f"task not found: {task_id!r}")
+
+    def update_task(
+        self,
+        task_id: str,
+        *,
+        title: str | None = None,
+        assignee: str | None = None,
+        status: str | None = None,
+        clear_assignee: bool = False,
+    ) -> None:
+        """REST 侧的通用更新入口(校验 status 合法性)
+
+        ``clear_assignee=True`` 显式取消指派(assignee 置 NULL)。
+        """
+        if status is not None and status not in _VALID_TASK_STATUS:
+            raise ValueError(f"invalid status: {status!r}; must be one of {_VALID_TASK_STATUS}")
+        with self._lock:
+            ok = self._storage.update_agent_task(
+                task_id,
+                title=title,
+                assignee_session=assignee,
+                status=status,
+                clear_assignee=clear_assignee,
+            )
+            if not ok:
+                raise KeyError(f"task not found: {task_id!r}")
+
+    def delete_task(self, task_id: str) -> bool:
+        with self._lock:
+            return bool(self._storage.delete_agent_task(task_id))
+
+    def get_task(self, task_id: str) -> TaskCreate | None:
+        row = self._storage.get_agent_task(task_id)
+        return self._row_to_task(row) if row else None
+
+    def list_tasks(
+        self,
+        status: str | None = None,
+        assignee: str | None = None,
+    ) -> list[TaskCreate]:
+        rows = self._storage.list_agent_tasks(status=status, assignee=assignee)
+        return [self._row_to_task(r) for r in rows]
+
+    def list_page(
+        self,
+        status: str | None = None,
+        assignee: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> tuple[list[TaskCreate], bool]:
+        """Paginated listing; returns (tasks, has_more).
+
+        Fetches ``limit + 1`` rows so ``has_more`` is exact without a second
+        round-trip — clients must never silently receive a truncated board.
+        """
+        rows = self._storage.list_agent_tasks(
+            status=status, assignee=assignee, limit=limit + 1, offset=offset
+        )
+        has_more = len(rows) > limit
+        return [self._row_to_task(r) for r in rows[:limit]], has_more
+
+    def count_tasks(
+        self,
+        status: str | None = None,
+        assignee: str | None = None,
+    ) -> int:
+        return int(self._storage.count_agent_tasks(status=status, assignee=assignee))
+
+    def get_subtasks(self, parent_task_id: str) -> list[TaskCreate]:
+        rows = self._storage.list_agent_tasks(parent_task_id=parent_task_id)
+        return [self._row_to_task(r) for r in rows]
+
+    def to_dict(self) -> dict[str, Any]:
+        tasks = self.list_tasks()
+        return {
+            "session_id": "persistent",
+            # exact count via COUNT(*): `tasks` below is capped by the storage
+            # list limit, so its length must not be mistaken for the total.
+            "task_count": self.count_tasks(),
+            "tasks": [t.to_dict() for t in tasks],
+        }
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), ensure_ascii=False)
+
+
+_board_singleton: SqliteTaskBoard | None = None
+_board_lock = threading.Lock()
+
+
+def get_task_board() -> SqliteTaskBoard:
+    """Process-wide persistent TaskBoard singleton (D13)."""
+    global _board_singleton
+    with _board_lock:
+        if _board_singleton is None:
+            _board_singleton = SqliteTaskBoard()
+        return _board_singleton
 
 
 # ============ AdvisoryLock ============
@@ -406,10 +559,10 @@ class AdvisoryLock:
             return _LOCK_STATE[lock_id]
 
     def _current_holder(self) -> str | None:
-        return AdvisoryLock._state(self.lock_id)["holder"]
+        return AdvisoryLock._state(self.lock_id)["holder"]  # type: ignore[no-any-return]
 
     def _acquired_at_snapshot(self) -> float | None:
-        return AdvisoryLock._state(self.lock_id)["acquired_at"]
+        return AdvisoryLock._state(self.lock_id)["acquired_at"]  # type: ignore[no-any-return]
 
     def _try_claim(self, now: float) -> bool:
         """原子地检查并占槽;成功返回 True"""

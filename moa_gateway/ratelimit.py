@@ -43,6 +43,12 @@ class RateLimiter:
         # 修 37: admin_jwt/yaml-config 没 key_id,直接返回全局视图
         if not key_info.get("key_id"):
             return 0, self.settings.per_key_rpm, 0, self.settings.per_key_daily_tokens
+        # B3 互审 M1: yaml-configured trusted keys are also used by internal
+        # loopback callbacks (workflows / assistant runs). Counting them into
+        # the shared 60-RPM bucket lets a busy workflow 429 itself and lock
+        # out external users of the same key. Treat them like admin JWT.
+        if key_info.get("source") == "yaml":
+            return 0, self.settings.per_key_rpm, 0, self.settings.per_key_daily_tokens
         key_id = key_info["key_id"]
         # 修 36: per-key 限流 — 用 key 自身的 quota_rpm
         rpm_limit = key_info.get("quota_rpm") or self.settings.per_key_rpm
@@ -61,27 +67,29 @@ class RateLimiter:
         return used_rpm, rpm_limit, 0, daily_limit
 
     def incr_tokens(self, key_info: dict[str, Any], tokens: int):
-        """修 P1-1: 先检查再 incr,避免超额后 counter 永远卡在 limit+1
-        原: 累加 → 判定 → 超 429,但 counter 已被加,用户永久锁死到下一天
+        """Atomic check-and-increment to prevent TOCTOU race on token quota.
+        Uses storage.atomic_incr_daily_tokens which does the check+incr in one
+        serialized transaction.
         """
         if not self.settings.enabled or tokens <= 0:
             return
         # 修 37: admin_jwt/yaml-config 没 key_id,跳过
         if not key_info.get("key_id"):
             return
+        # B3 互审 M1: yaml trusted keys (incl. internal loopback) skip daily
+        # token accounting for the same reason they skip RPM above.
+        if key_info.get("source") == "yaml":
+            return
         key_id = key_info["key_id"]
         # 修 36: per-key 限流
         daily_limit = key_info.get("quota_daily_tokens") or self.settings.per_key_daily_tokens
         day = _today()
-        # 修 P1-1: 先读 current,够才 incr
-        current = self.storage.get_daily_tokens(key_id, day)
-        if current + tokens > daily_limit:
+        new_total = self.storage.atomic_check_and_incr_tokens(key_id, day, tokens, daily_limit)
+        if new_total < 0:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"Daily token quota exceeded: {current} + {tokens} > {daily_limit}",
+                detail=f"Daily token quota exceeded: limit {daily_limit}",
             )
-        # 修 P1-1: 检查通过,再累加
-        self.storage.incr_daily_tokens(key_id, day, tokens)
 
     def get_quota(self, key_info: dict[str, Any]) -> dict[str, int]:
         # 修 37: admin_jwt/yaml-config 没 key_id,返回全局视图

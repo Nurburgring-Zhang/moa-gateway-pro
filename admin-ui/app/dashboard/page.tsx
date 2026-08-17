@@ -10,31 +10,26 @@ import type { DashboardStats } from '@/types';
 export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadStats();
   }, []);
 
   async function loadStats() {
+    setError(null);
     try {
       const data = await api.getStats() as unknown as DashboardStats;
-      setStats(data);
-    } catch {
-      // Use mock data for demo
+      // Normalize to guarantee the fields the render code relies on.
       setStats({
-        total_requests: 1284567,
-        active_models: 12,
-        tokens_today: 8945200,
-        avg_latency_ms: 234,
-        requests_trend: [120, 150, 180, 220, 190, 250, 280, 310, 290, 340, 380, 420],
-        model_health: [
-          { name: 'gpt-4o', status: 'healthy', requests: 45230 },
-          { name: 'claude-3.5-sonnet', status: 'healthy', requests: 38100 },
-          { name: 'gemini-pro', status: 'degraded', requests: 12500 },
-          { name: 'qwen-max', status: 'healthy', requests: 28900 },
-          { name: 'deepseek-v2', status: 'healthy', requests: 19800 },
-        ],
+        ...data,
+        requests_trend: Array.isArray(data.requests_trend) ? data.requests_trend : [],
+        model_health: Array.isArray(data.model_health) ? data.model_health : [],
       });
+    } catch (e) {
+      // Honest failure — show the real error, never fabricated stats (audit F6).
+      setStats(null);
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -48,9 +43,18 @@ export default function DashboardPage() {
     );
   }
 
-  if (!stats) return null;
+  if (error || !stats) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-bold text-gray-900">仪表板</h1>
+        <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          无法加载统计数据:{error ?? '未知错误'}。请确认网关已启动且已登录。
+        </div>
+      </div>
+    );
+  }
 
-  const maxTrend = Math.max(...stats.requests_trend);
+  const maxTrend = stats.requests_trend.length ? Math.max(...stats.requests_trend) : 1;
 
   return (
     <div className="space-y-6">
@@ -63,7 +67,6 @@ export default function DashboardPage() {
           value={stats.total_requests}
           icon="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
           color="blue"
-          trend={12}
         />
         <StatsCard
           title="活跃模型"
@@ -76,14 +79,12 @@ export default function DashboardPage() {
           value={stats.tokens_today}
           icon="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
           color="purple"
-          trend={-3}
         />
         <StatsCard
           title="平均延迟"
           value={`${stats.avg_latency_ms}ms`}
           icon="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
           color="orange"
-          trend={-8}
         />
       </div>
 

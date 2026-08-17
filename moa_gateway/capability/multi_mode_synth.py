@@ -70,7 +70,7 @@ SENTENCE_SPLIT_RE = re.compile(r"[。.!?！？;；\n]+")
 WORD_RE = re.compile(r"[a-zA-Z][a-zA-Z\-]*|[\u4e00-\u9fff]|\d+")
 
 # 停用词 (精简版, 专供 synth 用)
-STOPWORDS: set[str] = frozenset(
+STOPWORDS: set[str] = frozenset(  # type: ignore[assignment]
     {
         "the",
         "a",
@@ -642,7 +642,7 @@ def integrated_synthesis(
     # 3. 累加到 target_chars
     selected: list[tuple[str, list[int]]] = []
     total_chars = 0
-    for score, sent, pidxs in scored:
+    for _score, sent, pidxs in scored:
         if total_chars + len(sent) > target_chars and selected:
             # 已至少选 1 句, 超出则停
             break

@@ -12,6 +12,15 @@ class ApiClient {
   }
 
   private async request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
+    // Audit fix (P1): React runs child effects before the parent layout's
+    // initAuth() effect, so after a hard refresh / direct link the first
+    // request could fire while this.token is still empty. Recover the token
+    // synchronously from localStorage before sending (browser only).
+    if (!this.token && typeof window !== 'undefined') {
+      const stored = window.localStorage.getItem('moa_admin_token');
+      if (stored) this.token = stored;
+    }
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
@@ -24,7 +33,11 @@ class ApiClient {
 
     if (res.status === 401) {
       if (typeof window !== 'undefined') {
-        localStorage.removeItem('token');
+        // Audit fix: clear the SAME keys auth.ts stores ('moa_admin_token' /
+        // 'moa_admin_user'), otherwise a stale JWT persists after logout.
+        localStorage.removeItem('moa_admin_token');
+        localStorage.removeItem('moa_admin_user');
+        this.token = '';
         window.location.href = '/login';
       }
       throw new Error('Unauthorized');
@@ -47,9 +60,11 @@ class ApiClient {
     );
   }
 
-  // Models
+  // Models — admin view (real endpoint shapes), NOT the OpenAI /v1/models list.
+  // Audit fix: /v1/models returns {id,object,created,owned_by,...} which has none
+  // of the name/provider/status/weight/capabilities fields the admin table renders.
   getModels() {
-    return this.request<{ data: Array<Record<string, unknown>> }>('/v1/models');
+    return this.request<{ data: Array<Record<string, unknown>> }>('/api/admin/models');
   }
 
   createModel(data: Record<string, unknown>) {
@@ -64,18 +79,24 @@ class ApiClient {
     return this.request(`/api/admin/models/${id}`, { method: 'DELETE' });
   }
 
-  // Endpoints
-  getEndpoints() {
-    return this.request<Array<Record<string, unknown>>>('/api/admin/endpoints');
+  // Endpoints — backend returns a snapshot envelope; unwrap to the endpoint list.
+  async getEndpoints(): Promise<Array<Record<string, unknown>>> {
+    const snap = await this.request<{ endpoints?: Array<Record<string, unknown>> }>(
+      '/api/admin/endpoints'
+    );
+    return snap.endpoints ?? [];
   }
 
   updateEndpoint(id: string, data: Record<string, unknown>) {
     return this.request(`/api/admin/endpoints/${id}`, { method: 'PUT', body: JSON.stringify(data) });
   }
 
-  // Capability
-  getCapabilities() {
-    return this.request<Array<Record<string, unknown>>>('/api/admin/capabilities');
+  // Capability — backend returns {capabilities: [...]}; unwrap to the list.
+  async getCapabilities(): Promise<Array<Record<string, unknown>>> {
+    const body = await this.request<{ capabilities?: Array<Record<string, unknown>> }>(
+      '/api/admin/capabilities'
+    );
+    return body.capabilities ?? [];
   }
 
   updateCapability(name: string, data: Record<string, unknown>) {
@@ -92,38 +113,60 @@ class ApiClient {
     return this.request<Record<string, unknown>>('/api/admin/stats');
   }
 
-  // Logs
-  getLogs(limit = 100, level?: string) {
+  // Logs — backend returns {total, logs: [...]}; unwrap to the list.
+  async getLogs(limit = 100, level?: string): Promise<Array<Record<string, unknown>>> {
     const params = new URLSearchParams({ limit: String(limit) });
     if (level) params.set('level', level);
-    return this.request<Array<Record<string, unknown>>>(`/v1/observability/logs?${params}`);
+    const body = await this.request<{ logs?: Array<Record<string, unknown>> }>(
+      `/v1/observability/logs?${params}`
+    );
+    return body.logs ?? [];
   }
 
-  // Workflows
-  getWorkflows() {
-    return this.request<Array<Record<string, unknown>>>('/v1/workflows');
+  // Workflows — backend returns {workflows: [...], total}; unwrap to the list.
+  async getWorkflows(): Promise<Array<Record<string, unknown>>> {
+    const body = await this.request<{ workflows?: Array<Record<string, unknown>> }>(
+      '/v1/workflows'
+    );
+    return body.workflows ?? [];
   }
 
   triggerWorkflow(id: string) {
     return this.request(`/v1/workflows/${id}/trigger`, { method: 'POST' });
   }
 
-  // API Keys
-  getApiKeys() {
-    return this.request<Array<Record<string, unknown>>>('/api/admin/api-keys');
+  // API Keys — backend returns a bare array.
+  async getApiKeys(): Promise<Array<Record<string, unknown>>> {
+    const body = await this.request<unknown>('/api/admin/api-keys');
+    return Array.isArray(body) ? body : [];
   }
 
   createApiKey(name: string, quota?: number) {
-    return this.request('/api/admin/api-keys', { method: 'POST', body: JSON.stringify({ name, quota }) });
+    return this.request('/api/admin/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({ name, quota_rpm: quota ?? 60 }),
+    });
   }
 
   deleteApiKey(id: string) {
     return this.request(`/api/admin/api-keys/${id}`, { method: 'DELETE' });
   }
 
-  // Users
-  getUsers() {
-    return this.request<Array<Record<string, unknown>>>('/api/admin/users');
+  // Users — backend returns {users: [...]}; unwrap to the list.
+  async getUsers(): Promise<Array<Record<string, unknown>>> {
+    const body = await this.request<{ users?: Array<Record<string, unknown>> }>('/api/admin/users');
+    return body.users ?? [];
+  }
+
+  createUser(username: string, password: string, role: string) {
+    return this.request('/api/admin/users', {
+      method: 'POST',
+      body: JSON.stringify({ username, password, role }),
+    });
+  }
+
+  deleteUser(id: string) {
+    return this.request(`/api/admin/users/${id}`, { method: 'DELETE' });
   }
 
   updateUserRole(id: string, role: string) {

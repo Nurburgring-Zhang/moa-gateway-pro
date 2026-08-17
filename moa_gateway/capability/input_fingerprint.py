@@ -18,11 +18,6 @@ import threading
 import unicodedata
 from collections import Counter
 
-try:
-    from typing import Literal
-except ImportError:  # pragma: no cover - py<3.8
-    pass  # type: ignore
-
 __all__ = [
     "exact_hash",
     "normalized_hash",
@@ -78,7 +73,7 @@ def normalized_hash(text: str) -> str:
         return _sha256("")
 
     def _is_cjk(t: str) -> bool:
-        return t and "\u4e00" <= t[0] <= "\u9fff"
+        return t and "\u4e00" <= t[0] <= "\u9fff"  # type: ignore[return-value]
 
     pieces: list[str] = []
     for t in toks:

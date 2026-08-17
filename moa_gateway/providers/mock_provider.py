@@ -49,9 +49,34 @@ MOCK_RESPONSES = {
 }
 
 
+def _content_to_text(content) -> str:
+    """Normalize OpenAI-style message content to plain text.
+
+    Content may be a str, or a multimodal list of parts
+    ([{"type":"text","text":...}, {"type":"image_url",...}, ...]).
+    Extract and join the text parts (audit F28 fix — vision/analyze sends lists).
+    """
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for p in content:
+            if isinstance(p, dict):
+                if p.get("type") == "text" and isinstance(p.get("text"), str):
+                    parts.append(p["text"])
+                elif isinstance(p.get("text"), str):
+                    parts.append(p["text"])
+            elif isinstance(p, str):
+                parts.append(p)
+        return "\n".join(parts)
+    return str(content)
+
+
 def _detect_query_type(query: str) -> str:
     """根据 query 关键字检测类型"""
-    q = query.lower()
+    q = (query or "").lower()
     if re.search(
         r"代码|编程|实现|写一个|写一段|python|java|c\+\+|function|class|算法|code", q, re.I
     ):
@@ -67,8 +92,9 @@ def _detect_query_type(query: str) -> str:
     return "general"
 
 
-def _generate_response(query: str, model: str) -> tuple:
+def _generate_response(query, model: str) -> tuple:
     """生成 (content, prompt_tokens, completion_tokens)"""
+    query = _content_to_text(query)
     qtype = _detect_query_type(query)
     candidates = MOCK_RESPONSES.get(qtype, MOCK_RESPONSES["general"])
     content = random.choice(candidates)
@@ -124,11 +150,11 @@ class MockProvider(Provider):
             delay *= 2.0
         await asyncio.sleep(delay)
 
-        # 提取用户问题
+        # 提取用户问题 (content 可能是多模态 list — 归一化为文本, audit F28)
         user_msg = ""
         for m in reversed(req.messages):
             if m.get("role") == "user":
-                user_msg = m.get("content", "")
+                user_msg = _content_to_text(m.get("content", ""))
                 break
         if not user_msg:
             user_msg = "Hello"

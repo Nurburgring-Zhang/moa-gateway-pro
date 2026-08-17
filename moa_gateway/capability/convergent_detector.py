@@ -38,7 +38,7 @@ __all__ = [
 # ============ 启发式常量 ============
 
 # 停用词 (中英) — 关键词过滤
-STOPWORDS: set[str] = frozenset(
+STOPWORDS: set[str] = frozenset(  # type: ignore[assignment]
     {
         "the",
         "a",
@@ -537,7 +537,7 @@ def detect_conflicting(proposals: list[Proposal]) -> list[ConflictPair]:
     conflicts: list[ConflictPair] = []
     seen_pairs: set[tuple[str, str]] = set()
 
-    for key, items in groups.items():
+    for _key, items in groups.items():
         positives = [(o, p) for o, p, pol in items if pol == "positive"]
         negatives = [(o, p) for o, p, pol in items if pol == "negative"]
         if not positives or not negatives:
@@ -555,7 +555,7 @@ def detect_conflicting(proposals: list[Proposal]) -> list[ConflictPair]:
         pair_key = tuple(sorted([pos_text, neg_text]))
         if pair_key in seen_pairs:
             continue
-        seen_pairs.add(pair_key)
+        seen_pairs.add(pair_key)  # type: ignore[arg-type]
 
         sup_a = sorted({p for o, p in positives})
         sup_b = sorted({p for o, p in negatives})

@@ -21,38 +21,16 @@ def _is_safe_url(url: str) -> tuple[bool, str]:
     """Validate URL to prevent SSRF attacks.
 
     Returns (is_safe, error_message).
+
+    v3.1.1 audit P1-5 fix: delegates to the hardened shared validator.
+    The v3.1.0 version only checked literal IP strings, so encoded IPs
+    (http://2130706433/, http://0x7f000001/) and any hostname resolving to
+    an internal address bypassed it. The shared validator resolves every
+    hostname via getaddrinfo and rejects any internal result.
     """
-    try:
-        parsed = urllib.parse.urlparse(url)
-    except Exception:
-        return False, "Invalid URL format"
+    from ...utils.url_validator import is_safe_external_url
 
-    # Only allow http/https protocols
-    if parsed.scheme not in ("http", "https"):
-        return False, f"Unsupported protocol: {parsed.scheme}"
-
-    hostname = parsed.hostname
-    if not hostname:
-        return False, "No hostname in URL"
-
-    # Block cloud metadata endpoints
-    metadata_hosts = {"169.254.169.254", "metadata.google.internal", "metadata"}
-    if hostname.lower() in metadata_hosts:
-        return False, f"Blocked metadata endpoint: {hostname}"
-
-    # Check if hostname is an IP address
-    try:
-        ip = ipaddress.ip_address(hostname)
-        # Block private, loopback, link-local, reserved, multicast
-        if ip.is_private or ip.is_loopback or ip.is_link_local:
-            return False, f"Blocked internal IP: {hostname}"
-        if ip.is_reserved or ip.is_multicast:
-            return False, f"Blocked reserved IP: {hostname}"
-    except ValueError:
-        # It is a domain name, not an IP - allow it
-        pass
-
-    return True, ""
+    return is_safe_external_url(url)
 
 
 async def api_verify(
@@ -361,20 +339,20 @@ def _eval_assertion(op: str, actual: Any, expected: Any) -> bool:
         "exists": lambda a, e: a is not None,
         "not_exists": lambda a, e: a is None,
     }
-    return ops.get(op, lambda a, e: False)(actual, expected)
+    return ops.get(op, lambda a, e: False)(actual, expected)  # type: ignore[no-any-return]
 
 
 def _safe_compare(a: Any, b: Any, operator: str) -> bool:
     """Safely compare two values, returning False on type errors."""
     try:
         if operator == ">":
-            return a > b
+            return a > b  # type: ignore[no-any-return]
         elif operator == "<":
-            return a < b
+            return a < b  # type: ignore[no-any-return]
         elif operator == ">=":
-            return a >= b
+            return a >= b  # type: ignore[no-any-return]
         elif operator == "<=":
-            return a <= b
+            return a <= b  # type: ignore[no-any-return]
     except TypeError:
         return False
     return False

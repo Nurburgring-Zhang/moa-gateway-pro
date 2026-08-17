@@ -8,12 +8,21 @@ import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from .base import AgentContext, AgentLoop, LoopResult, ToolCall, ToolExecutor, ToolResult
+from .base import (
+    AgentContext,
+    AgentLoop,
+    LlmOutcome,
+    LoopResult,
+    ToolCall,
+    ToolExecutor,
+    ToolResult,
+    normalize_llm_outcome,
+)
 
 logger = logging.getLogger(__name__)
 
-# Type alias: async (messages, **params) -> str
-LlmCall = Callable[..., Awaitable[str]]
+# Type alias: async (messages, **params) -> str | LlmOutcome
+LlmCall = Callable[..., Awaitable[str | LlmOutcome]]
 
 REACT_SYSTEM_PROMPT = """\
 You are a ReAct agent. For each step, respond in EXACTLY one of these two formats:
@@ -115,7 +124,7 @@ class ReActLoop(AgentLoop):
 
             # --- Call LLM ---
             try:
-                llm_response = await self._llm_call(work_messages)
+                raw_response = await self._llm_call(work_messages)
             except Exception as exc:  # noqa: BLE001
                 logger.exception("LLM call failed at iteration %d", iteration)
                 return LoopResult(
@@ -128,6 +137,14 @@ class ReActLoop(AgentLoop):
                     total_tokens=total_tokens,
                     error=f"LLM call failed: {exc}",
                 )
+
+            outcome = normalize_llm_outcome(raw_response)
+            llm_response = outcome.content
+            # D7: accumulate real usage reported by the provider; callbacks
+            # without usage accounting contribute zero rather than fake data.
+            if outcome.usage is not None:
+                total_cost += outcome.usage.cost
+                total_tokens += outcome.usage.total_tokens
 
             ctx.add_message("assistant", llm_response, iteration=iteration)
 

@@ -12,9 +12,10 @@
   check     自检(环境 / 端口 / 端点 / 鉴权)
 """
 from __future__ import annotations
-import sys
+
 import argparse
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -28,8 +29,9 @@ def cmd_bootstrap(args):
 
 def cmd_direct(args):
     """直接启动(不创建 venv、不 watchdog)— 开发用"""
-    from moa_gateway.config import get_settings
     import uvicorn
+
+    from moa_gateway.config import get_settings
     s = get_settings()
     print("=" * 60)
     print(f"  MoA Gateway Pro v{_version()} — DIRECT mode (no watchdog)")
@@ -150,14 +152,17 @@ def cmd_mcp(args):
 def cmd_check(args):
     """自检:环境 / 端口 / 端点 / 鉴权"""
     from moa_gateway.bootstrap import (
-        diagnose_venv, diagnose_packages, diagnose_port, diagnose_data,
         diagnose_app,
+        diagnose_data,
+        diagnose_packages,
+        diagnose_port,
+        diagnose_venv,
     )
     from moa_gateway.config import get_settings
     s = get_settings()
     all_ok = True
     print("=" * 60)
-    print("  MoA Gateway Pro v{} — Self Check".format(_version()))
+    print(f"  MoA Gateway Pro v{_version()} — Self Check")
     print("=" * 60)
     for name, fn in [
         ("venv", lambda: diagnose_venv()),
@@ -189,6 +194,7 @@ def cmd_discover(args):
             print(f"  {p.platform_id:20s} {p.base_url:50s} auth={p.auth_type}")
     elif args.run:
         import asyncio
+
         from moa_gateway.discovery.discovery_engine import FreeModelDiscoveryEngine
         engine = FreeModelDiscoveryEngine()
         models = asyncio.run(engine.discover_all())

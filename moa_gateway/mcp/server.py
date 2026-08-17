@@ -52,10 +52,13 @@ class MCPServer:
             logger.exception("MCP request error: method=%s", method)
             return JSONRPCResponse(
                 id=request.id,
-                error={"code": -32603, "message": f"Internal error: {e}"},
+                error={"code": -32603, "message": "Internal error"},
             )
 
     def _handle_initialize(self, req: JSONRPCRequest) -> JSONRPCResponse:
+        # Audit F13 fix: only advertise capabilities that are actually
+        # implemented. resources/prompts handlers do not exist (they return
+        # -32601), so declaring them would overstate the server's abilities.
         return JSONRPCResponse(
             id=req.id,
             result={
@@ -63,8 +66,6 @@ class MCPServer:
                 "serverInfo": self.server_info,
                 "capabilities": {
                     "tools": {"listChanged": True},
-                    "resources": {},
-                    "prompts": {},
                 },
             },
         )
@@ -140,7 +141,12 @@ class MCPServer:
             return JSONRPCResponse(
                 id=req.id,
                 result={
-                    "content": [{"type": "text", "text": f"Error: {e}"}],
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Tool execution failed due to an internal error.",
+                        }
+                    ],
                     "isError": True,
                 },
             )

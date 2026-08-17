@@ -248,7 +248,7 @@ class SubAgentBoundary:
 
     def can_spawn(self, child_id: str) -> bool:
         """检查 child_id 是否在白名单内"""
-        return child_id in self._allowed_set
+        return child_id in self._allowed_set  # type: ignore[attr-defined]
 
     def cohabitation_check(self, other_parent_id: str) -> bool:
         """与另一个 parent 的边界是否兼容 (同 parent → True, 不同 parent → False)。
@@ -263,7 +263,7 @@ class SubAgentBoundary:
 
     def add_child(self, child_id: str) -> SubAgentBoundary:
         """返回新 SubAgentBoundary, 白名单追加 child_id (去重)"""
-        if child_id in self._allowed_set:
+        if child_id in self._allowed_set:  # type: ignore[attr-defined]
             return self
         new_list = list(self.allowed_children) + [child_id]
         return SubAgentBoundary(parent_id=self.parent_id, allowed_children=new_list)

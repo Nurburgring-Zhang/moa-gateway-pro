@@ -182,21 +182,22 @@ class SQLiteBackend:
 
     @contextmanager
     def conn(self) -> Iterator[sqlite3.Connection]:
-        """获取带事务的 SQLite 连接 (与原 Storage.conn() 行为一致)"""
+        """获取带事务的 SQLite 连接 — reuses persistent connection for performance"""
         with self._conn_lock:
-            c = sqlite3.connect(str(self.db_path), timeout=30)
-            c.row_factory = sqlite3.Row
-            self._apply_pragmas(c)
+            c = self.get_conn()
             try:
                 yield c
                 c.commit()
-            finally:
-                c.close()
+            except Exception:
+                c.rollback()
+                raise
 
     def get_conn(self) -> sqlite3.Connection:
-        """持久连接 (避免频繁 open/close)"""
+        """持久连接 (避免频繁 open/close), thread-safe via check_same_thread=False + lock"""
         if self._persistent_conn is None:
-            self._persistent_conn = sqlite3.connect(str(self.db_path), timeout=30)
+            self._persistent_conn = sqlite3.connect(
+                str(self.db_path), timeout=30, check_same_thread=False
+            )
             self._persistent_conn.row_factory = sqlite3.Row
             self._apply_pragmas(self._persistent_conn)
         return self._persistent_conn
@@ -402,7 +403,7 @@ class _PGCursorWrapper:
 
     @property
     def rowcount(self) -> int:
-        return self._rowcount
+        return self._rowcount  # type: ignore[no-any-return]
 
     def fetchone(self):
         row = self._result.fetchone()
@@ -488,7 +489,7 @@ class DatabaseEngine:
 
                 settings = get_settings()
                 db_path = DATA_DIR / settings.storage.db_path
-            backend = SQLiteBackend(db_path)
+            backend = SQLiteBackend(db_path)  # type: ignore[assignment]
             logger.info("Database engine: SQLite (%s)", db_path)
         return cls(backend)
 
@@ -508,11 +509,11 @@ class DatabaseEngine:
 
     @property
     def is_postgres(self) -> bool:
-        return self.backend_type == "postgresql"
+        return self.backend_type == "postgresql"  # type: ignore[no-any-return]
 
     @property
     def is_sqlite(self) -> bool:
-        return self.backend_type == "sqlite"
+        return self.backend_type == "sqlite"  # type: ignore[no-any-return]
 
 
 # ============ Module-level helpers ============

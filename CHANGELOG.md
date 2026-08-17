@@ -5,7 +5,84 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — v1.8.x
+## [3.1.1] — 2026-08-16 — 十轮全量审计修复（P0/P1 清零）
+
+对 v3.1.0 执行十轮全量审计（243 端点扫描、6 路并行深审、本地真实 LLM 链路注入、
+浏览器 E2E、chaos 故障注入、对抗性复审），修复全部 P0 与 P1，以及对抗复审二轮新发现项。
+测试基线由 593 提升至 **1071 passed, 0 failed**。
+
+### P0 — Agent 沙箱逃逸（RCE）
+- 重写 `agent_loop/skills/code_execute.py` + 新增 `agent_loop/sandbox_exec.py` 子进程隔离执行
+- AST 层：全 dunder 属性封禁、subscript 字符串键封禁、format 属性遍历封禁、**任意含 dunder 的字符串字面量封禁**
+- 导入白名单移除 `operator`（attrgetter/methodcaller）与 `string`（Formatter）——二者可在运行时走属性遍历绕过 AST 封禁
+- 运行时兜底：注入模块统一包 `_ModuleProxy`，封禁一切 dunder 动态访问（拦截 chr() 拼接的 format 攻击）
+- 危险工具（code_execute/file_read/file_write/file_list/api_verify）仅 admin/operator 可用，API-key 用户 403
+
+### 安全 P1
+- **secret-scan**：提权 require_admin + commonpath 限定项目/数据目录 + Finding 源头脱敏（不再回显密钥原文）
+- **in-flight**：忽略调用方 state_dir，固定 `DATA_DIR/in_flight_state`（封堵任意目录写原语）
+- **health restore/purge**：提权 require_admin，restore 用 EndpointUpsert 严格校验
+- **moa prompts PUT/DELETE**：提权 require_admin（封堵跨租户提示词注入）
+- **SSRF 统一强化**（`utils/url_validator.py`）：DNS 解析全部落地地址、编码 IP（十/八/十六进制）、
+  内部域名、IPv4-mapped IPv6，fail-closed；**显式拉黑 IANA 特殊段含 RFC 6598 CGNAT 100.64.0.0/10
+  （阿里云元数据 100.100.100.200 所在段）**；api_verify 与 MCP 外部注册统一委托
+
+### 诚实性 P1（D6 显式 mock 政策闭环）
+- MoA 全链路 provider 追踪（ReferenceResult/CriticResult.provider + MoAResult.mock_used），
+  `/v1/moa/execute` 返回 `X-MOA-Mock` 头 + `mock` 字段
+- MoA 渐进流式补 mock 头（`predict_stream_mock`）
+- channels / reference-router 端点显式 mock 标注（头 + `mock:true` + mock_note）
+- MoA 参考模型全失败 → 显式 `ProviderError(502)` 并保留逐模型失败证据，**不再静默降级**
+- **缓存命中重放 mock 标注**：缓存条目携带 mock 信封，HIT 时重放 `X-MOA-Mock`（修复 mock 输出经缓存后丢标注）
+
+### 功能 P1
+- **服务层死方法清零**：修复 quota/routing/quality/knowledge/config/consensus/agent/safety/moa/observability
+  共 60+ 处 ImportError/签名错配（含 self_heal promote/demote 错接线），全部改走真实 capability 实现
+- **GDPR 被遗忘权真实生效**：路由传真实 db_conn、改删 `admin_users`、按 key_id 解析后匿名化日志；
+  匿名化改**加盐 HMAC-SHA256（盐即弃，不可彩虹表还原）**；删除后清理内存 user_id 残留、审计日志不再留存明文 user_id
+- **流式配额计费**：`stream=true` 计入每日 token 配额（封堵 stream 绕过计费）
+- **MoA 高耗端点限流**：similarity/flask/benchmark/cost-pareto 补 RPM 检查 + token 计费
+- **请求模型真实类型化**：85 个 req_models 改真实类型 + `extra=forbid`（未知字段 422）
+
+### 打包与版本
+- wheel 补数据文件：prompts/、workflows/builtin/、webui/、param_templates/、migrations（v3.1.0 的 wheel 为零数据文件）
+- 版本号四处统一 3.1.1：`__init__.py` / `pyproject.toml` / server.py openapi / routes/health.py
+- 前端 admin-ui 会话修复：硬刷新/深链不再丢登录态（请求时 localStorage 兜底读 token + 模块加载即恢复）
+
+### 测试
+- 新增 `test_sandbox_escape.py`、`test_v311_fixes.py`、`test_v311_round2.py`、`test_service_methods_real.py` 等
+- 全量 **1071 passed, 0 failed**；活体 41/41 + 二轮 4/4；前端 E2E 硬刷新 6/6
+
+## [Unreleased] — v2.1.x
+
+### v2.1.0 (2026-08-06) — 全链路真实化（Wave B1–B5）
+
+#### Wave B1 — 基础修复
+- **D1 HMAC 签名链修复** — `audit.py` 改用 `settings.auth.jwt_secret`，移除 type-ignore hack，补签名/验签往返测试
+- **D11 config.yaml 乱码清理** — GBK/UTF-8 混写行统一 UTF-8（无 BOM/LF）
+- **D9 tri-review 配额对齐** — 三模型互审执行后按真实消耗 `incr_tokens` 记账，记账失败不吞结果仅告警
+- **D8 Agent 沙箱收紧** — 沙箱根由 cwd 改为 `data/agent_sandbox`（自动创建 + 路径逃逸校验）
+
+#### Wave B2 — Mock 显式化 + Purge 自毁拆除
+- **D6 Mock 显式化** — `mock: {mode: explicit|disabled}` 配置；所有 mock 响应注入 `X-MOA-Mock: true` 头 + usage `mock=true`；mode=disabled 时无 Key 调用返回明确 503，严禁静默模拟
+- **T2.4 /health 展示 mock 规模** — 返回 `mock_endpoints_count` / `real_endpoints_count` / `mock_mode`
+- **D3 Purge 自毁拆除** — 首轮 purge 延迟 `purge_initial_delay_seconds`（默认 86400s）；探测/淘汰跳过 mock 端点；`purge_records` 快照恢复机制（快照永不含 API Key）
+
+#### Wave B3 — 数据流转接线
+- **D2/D12 内部回调鉴权** — YAML 工作流 `_http_post` 与 Assistant executor 回调统一注入网关 admin Key，修复 401 断链
+- **D5 Discovery 接线** — `FreeModelDiscoveryEngine` 注入 `settings.discovery.api_keys`
+- **D4 空壳指标接线** — `record_llm_request` / `record_cache_access` 等接入真实调用点，/metrics 非零
+
+#### Wave B4 — Agent/任务系统激活
+- **D7 Agent 计量真实化** — `LlmUsage`/`LlmOutcome` + `normalize_llm_outcome()`；ReAct 局部累加；PlanExecute 改用每次 run 新建的 `_UsageAcc` 显式传参，杜绝并发串数
+- **D12 Runs 健壮化** — `asyncio.wait_for` 超时（先重读落盘终态防覆写）、`_active_run_ids` 409 并发防重、lifespan 僵尸 run 清扫、submit_tool_outputs 状态翻转先持久化再入队
+- **D13 TaskBoard 持久化** — SQLite `agent_tasks` 表 + `/v1/agent/tasks` CRUD；分页 `has_more/total`、显式 null 取消指派（`clear_assignee` 哨兵）
+
+#### Wave B5 — Tracer 接线与总回归
+- **T5.1 Tracer 接线** — HTTP 中间件 root span 之下注入 `model_pool.call` / `workflow.step` / `moa.execute` / `moa.tri_review` / `assistant.run` / `assistant.submit` / `assistant.llm_call` / `agent.run_loop` 子 span；`create_span` 区分显式 None（无父 root）与省略（继承上下文）；root span 的 span_id 与 `X-Span-ID` 响应头一致；`observability.otlp_endpoint` 配置项 + lifespan 按 `trace_enabled` 启用
+- **T5.2 总回归** — 509+ 测试全过、ruff/mypy 零告警、约 30 端点真实 uvicorn 冒烟矩阵
+
+## [Unreleased-old] — v1.8.x
 
 ### v1.8.1 (2026-07-19) — OpenAPI field descriptions + endpoint signature cleanup
 - **Pydantic Field descriptions (401 fields)** — `_gen_descriptions.py` 给 84 个 Pydantic model 的字段加中文 description,Swagger UI 直接展示字段含义

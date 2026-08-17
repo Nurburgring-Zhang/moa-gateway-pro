@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from collections import defaultdict
 from threading import Lock
+
+logger = logging.getLogger(__name__)
+
+# Internal layer name -> Prometheus label
+_PROM_LAYER = {"l1_exact": "exact", "l2_semantic": "semantic", "l3_redis": "redis"}
+
+
+def _emit_prom_cache(layer: str, hit: bool) -> None:
+    """Mirror hit/miss into Prometheus counters (D4); never raises."""
+    try:
+        from ..observability.metrics import record_cache_access
+
+        record_cache_access(_PROM_LAYER.get(layer, layer), hit)
+    except Exception:
+        logger.debug("failed to emit cache metric", exc_info=True)
 
 
 class CacheMetrics:
@@ -21,10 +37,12 @@ class CacheMetrics:
     def record_hit(self, layer: str) -> None:
         with self._lock:
             self._hits[layer] += 1
+        _emit_prom_cache(layer, True)
 
     def record_miss(self) -> None:
         with self._lock:
             self._misses += 1
+        _emit_prom_cache("all", False)
 
     def record_lookup_latency(self, latency_ms: float) -> None:
         with self._lock:

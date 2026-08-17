@@ -10,10 +10,9 @@
   - 配额边界 (打爆 quota, 看是否降级)
 """
 import json
-import time
-import httpx
-import os
 import uuid
+
+import httpx
 
 BASE = "http://127.0.0.1:8088"
 ADMIN_PWD = "TestPass#2024"
@@ -262,7 +261,7 @@ def main():
         if low_key:
             # 6.2 打 3 个不超
             statuses = []
-            for i in range(3):
+            for _i in range(3):
                 s, d = call(c, "POST", "/v1/chat/completions",
                              json={"model": "auto", "messages": [{"role": "user", "content": "ok"}]},
                              headers={"Authorization": f"Bearer {low_key}"}, timeout=10)

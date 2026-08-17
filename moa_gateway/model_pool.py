@@ -21,7 +21,9 @@ from typing import Any
 import httpx
 
 from .config import ModelEndpointConfig, Settings, get_settings, subscribe_settings_change
-from .providers import build_provider
+from .ha.circuit_breaker import CircuitBreakerConfig, CircuitBreakerRegistry, CircuitState
+from .ha.failover import FailoverManager
+from .providers import NO_AUTH_PROVIDERS, MockProvider, build_provider, is_mock_key
 from .providers.base import ChatRequest, ChatResponse, Provider, ProviderError
 from .storage import get_storage
 
@@ -101,9 +103,10 @@ class ModelEndpoint:
             return False
         if self.health_status in ("unhealthy", "dead"):
             return False
-        if time.time() < self.cooldown_until:
+        # Legacy cooldown check kept for backward compat with code that
+        # sets cooldown_until directly (e.g., during mock fallback)
+        if self.cooldown_until and time.time() < self.cooldown_until:
             return False
-        # 没 api_key 仍可用(自动 fallback 到 MockProvider)
         return True
 
     def mark_failure(self, reason: str = ""):
@@ -141,6 +144,19 @@ class ModelPool:
         self._client: httpx.AsyncClient | None = None
         self._health_task: asyncio.Task | None = None
         self._lock = threading.Lock()
+        # Circuit breaker registry — one breaker per endpoint
+        self._breaker_registry = CircuitBreakerRegistry()
+        self._breaker_config = CircuitBreakerConfig(
+            failure_threshold=self.settings.health.failure_threshold,
+            recovery_timeout=float(self.settings.health.cooldown_seconds),
+            half_open_max_calls=3,
+            success_threshold=2,
+        )
+        self._breaker_state_change = self._on_breaker_state_change
+        # Failover manager — provider-level health tracking
+        self._failover = FailoverManager(
+            max_consecutive_failures=self.settings.health.failure_threshold
+        )
         # Round-1 (P0-11): per-endpoint lock for _saved_api_key race
         self._ep_locks: dict[str, asyncio.Lock] = {}
         # 修 P0-2: 同步路径上需要关闭的旧 provider 队列 (stop() 时统一 await aclose)
@@ -210,6 +226,12 @@ class ModelPool:
             ep = ModelEndpoint(config=cfg)
             self._rebuild_provider(ep)
             self.endpoints[eid] = ep
+        # Register providers in failover manager with tier-based priority
+        tier_priority = {"free": 5, "lite": 4, "standard": 3, "premium": 2, "flagship": 1}
+        for eid, ep in self.endpoints.items():
+            if ep.config.enabled:
+                priority = tier_priority.get(ep.config.tier, 3)
+                self._failover.register_provider(eid, priority=priority)
 
     def _apply_storage_overlay(self, ep: ModelEndpoint, s_ep: dict[str, Any]) -> None:
         if s_ep.get("api_key"):
@@ -232,24 +254,25 @@ class ModelPool:
         self._rebuild_provider(ep)
 
     def _rebuild_provider(self, ep: ModelEndpoint) -> None:
-        """修 P0-2: 不再 sync fire-and-forget task (httpx aclose 可能永不执行)
-        - 改用 _pending_close 队列持有旧 provider
-        - ModelPool.stop() (async) 负责 await 所有 pending close
-        - 同步路径上不会触发 RuntimeError
-        """
+        """Rebuild provider instance with per-provider connection pool."""
         if ep.provider_obj:
             self._pending_close.append(ep.provider_obj)
         ep.provider_obj = None
-        # 即便 api_key 为空也创建 provider —— build_provider 会自动 fallback 到 MockProvider
         try:
+            # Use per-provider client if available, else shared fallback
+            client = getattr(self, "_provider_clients", {}).get(
+                ep.config.provider, self._client
+            )
             ep.provider_obj = build_provider(
                 ep.config.provider,
                 api_base=ep.config.api_base,
                 api_key=ep.config.api_key_runtime or "mock",
                 timeout=ep.config.timeout,
-                client=self._client,
+                client=client,
             )
+            ep._last_build_error = None  # type: ignore[attr-defined]
         except Exception as e:
+            ep._last_build_error = e  # type: ignore[attr-defined]
             logger.warning("build_provider(%s) failed: %s", ep.config.provider, e)
 
     def upsert_endpoint(self, ep_dict: dict[str, Any]) -> ModelEndpoint:
@@ -284,6 +307,18 @@ class ModelPool:
         """Get a model endpoint by ID (for health probe integration)."""
         return self.endpoints.get(eid)
 
+    def get_breaker_status(self) -> list[dict]:
+        """Return circuit breaker status for all endpoints (monitoring)."""
+        return self._breaker_registry.get_all_status()
+
+    @staticmethod
+    def _on_breaker_state_change(name: str, new_state: CircuitState) -> None:
+        """Emit Prometheus gauge on circuit breaker state transitions."""
+        from .observability.metrics import provider_circuit_breaker_state
+
+        value = {"closed": 0, "half_open": 0.5, "open": 1}.get(new_state.value, 0)
+        provider_circuit_breaker_state.labels(provider=name).set(value)
+
     def remove_endpoint(self, eid: str) -> bool:
         with self._lock:
             ok = self.storage.delete_endpoint(eid)
@@ -299,7 +334,19 @@ class ModelPool:
             self._refresh_unlocked()
 
     async def start(self) -> None:
-        self._client = httpx.AsyncClient(timeout=httpx.Timeout(300))
+        # Per-provider connection pools for isolation
+        self._provider_clients: dict[str, httpx.AsyncClient] = {}
+        providers = {ep.config.provider for ep in self.endpoints.values()}
+        for prov in providers:
+            self._provider_clients[prov] = httpx.AsyncClient(
+                timeout=httpx.Timeout(120),
+                limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
+            )
+        # Shared fallback client for any new provider added at runtime
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(120),
+            limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
+        )
         for ep in self.endpoints.values():
             self._rebuild_provider(ep)
         if self._health_task is None:
@@ -329,22 +376,23 @@ class ModelPool:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._health_task
             self._health_task = None
-        # 修 P0-10: cancel 后台 close task
         if self._close_task:
             self._close_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._close_task
             self._close_task = None
-        # 修 P0-2: 关闭所有 endpoints 的 provider
         for ep in self.endpoints.values():
             if ep.provider_obj:
                 with contextlib.suppress(Exception):
                     await ep.provider_obj.aclose()
-        # 修 P0-2: 关闭 _pending_close 队列里的旧 provider(sync 路径累积的)
         while self._pending_close:
-            prov = self._pending_close.popleft()  # 修 P0-10: deque 用 popleft
+            prov = self._pending_close.popleft()
             with contextlib.suppress(Exception):
                 await prov.aclose()
+        # Close per-provider connection pools
+        for client in getattr(self, "_provider_clients", {}).values():
+            with contextlib.suppress(Exception):
+                await client.aclose()
         if self._client:
             await self._client.aclose()
             self._client = None
@@ -403,6 +451,7 @@ class ModelPool:
         ep = self.endpoints.get(eid)
         if not ep or not ep.provider_obj:
             return
+        breaker = self._breaker_registry.get_or_create(eid, self._breaker_config, self._breaker_state_change)
         try:
             ok = await asyncio.wait_for(
                 ep.provider_obj.health_check(), timeout=self.settings.health.timeout_seconds
@@ -411,36 +460,37 @@ class ModelPool:
             ep.last_health_check = now
             if ok:
                 ep.last_status_code = 200
-                if ep.cooldown_until and now >= ep.cooldown_until:
-                    ep.recover_breaker()
-                else:
-                    ep.health_status = "healthy"
-                    ep.consecutive_failures = 0
+                breaker.record_success()
+                ep.health_status = "healthy"
+                ep.consecutive_failures = 0
+                ep.cooldown_until = 0.0
             else:
                 ep.last_status_code = None
-                # 失败 1 次就探测 401/403 → 立即切 mock(让 dashboard 显示 mock 模式)
-                # 这样 dashboard 不会红 3 次
                 await self._maybe_fallback_to_mock(ep, "health_check failed")
+                breaker.record_failure()
                 ep.consecutive_failures += 1
-                if ep.consecutive_failures >= self.settings.health.failure_threshold:
-                    ep.trigger_breaker(self.settings.health.cooldown_seconds)
+                if breaker.state == CircuitState.OPEN:
+                    ep.health_status = "unhealthy"
         except asyncio.TimeoutError:
             ep.last_status_code = None
             await self._maybe_fallback_to_mock(ep, "health_check timeout")
+            breaker.record_failure()
             ep.consecutive_failures += 1
-            if ep.consecutive_failures >= self.settings.health.failure_threshold:
-                ep.trigger_breaker(self.settings.health.cooldown_seconds)
+            if breaker.state == CircuitState.OPEN:
+                ep.health_status = "unhealthy"
         except Exception as e:
             ep.last_status_code = getattr(e, "status", None)
             ep.consecutive_failures += 1
             ep.last_error = str(e)
             await self._maybe_fallback_to_mock(ep, str(e))
-            if ep.consecutive_failures >= self.settings.health.failure_threshold:
-                ep.trigger_breaker(self.settings.health.cooldown_seconds)
+            breaker.record_failure()
+            if breaker.state == CircuitState.OPEN:
+                ep.health_status = "unhealthy"
 
     async def _maybe_fallback_to_mock(self, ep, reason: str) -> None:
         """修 P0-8: 只有在 confirm 是 auth 错(401/403)才切 mock,其他错(500/timeout)
-        保留真实 key,让用户自己重试或修复。不再 'len > 8 and sk-' 一刀切。"""
+        保留真实 key,让用户自己重试或修复。不再 'len > 8 and sk-' 一刀切。
+        D6: 切换仅在 mock.mode=explicit 时发生; disabled 时端点保持不可用并明确报错。"""
         if not ep or not ep.config.api_key_runtime:
             return
         # 必须是确认的 auth 错(401/403)才能切
@@ -454,15 +504,23 @@ class ModelPool:
                 last_status,
             )
             return
-        # auth 错确实发生,临时切 mock(session 期间)
+        if self.settings.mock.mode != "explicit":
+            logger.warning(
+                "%s: auth invalid (status=%s) but mock.mode=disabled — endpoint stays "
+                "unavailable until the API key is fixed",
+                ep.id,
+                last_status,
+            )
+            ep.last_error = f"auth invalid (HTTP {last_status}); mock fallback disabled"
+            return
+        # auth 错确实发生,临时显式切 mock(session 期间, 响应带 mock 标注)
         key = ep.config.api_key_runtime
-        from .providers import is_mock_key
 
         if is_mock_key(key):
             return
         logger.warning(
-            "%s: auth invalid (status=%s), temporary auto-fallback to MockProvider. "
-            "Real key saved for restore on next config reload.",
+            "%s: auth invalid (status=%s), temporary EXPLICIT fallback to MockProvider "
+            "(responses labeled X-MOA-Mock). Real key saved for restore on next config reload.",
             ep.id,
             last_status,
         )
@@ -471,7 +529,7 @@ class ModelPool:
         self._rebuild_provider(ep)
         ep.health_status = "healthy"
         ep.consecutive_failures = 0
-        ep.last_error = f"auth invalid (HTTP {last_status}) → auto-fallback to mock"
+        ep.last_error = f"auth invalid (HTTP {last_status}) → explicit mock fallback"
 
     def available_endpoints(
         self,
@@ -579,6 +637,7 @@ class ModelPool:
         max_tokens: int = 4096,
         tools: list[dict] | None = None,
         stream: bool = False,
+        **extra_kwargs,
     ) -> ChatRequest:
         return ChatRequest(
             model=ep.config.model,
@@ -588,6 +647,7 @@ class ModelPool:
             stream=stream,
             tools=tools,
             timeout=ep.config.timeout,
+            extra=extra_kwargs,
         )
 
     async def call(
@@ -599,38 +659,101 @@ class ModelPool:
         tools: list[dict] | None = None,
         stream: bool = False,
         max_retries: int = 3,
+        **extra_kwargs,
     ) -> ChatResponse:
         ep = self.endpoints.get(endpoint_id)
         if not ep:
             raise ValueError(f"endpoint {endpoint_id} not found")
+
+        # T5.1: every LLM dispatch gets a span under the request trace.
+        from .observability.tracer import get_tracer
+
+        with get_tracer().start_span(
+            "model_pool.call",
+            {
+                "endpoint.id": endpoint_id,
+                "model": ep.config.model,
+                "provider": ep.config.provider,
+            },
+        ) as span:
+            resp = await self._call_chain(
+                endpoint_id, ep, messages, temperature, max_tokens, tools, stream, max_retries,
+                **extra_kwargs,
+            )
+            span.set_attribute("llm.mock", self._ep_is_mock(ep))
+            span.set_attribute(
+                "llm.tokens", (resp.prompt_tokens or 0) + (resp.completion_tokens or 0)
+            )
+            return resp
+
+    async def _call_chain(
+        self,
+        endpoint_id: str,
+        ep: ModelEndpoint,
+        messages: list[dict],
+        temperature: float = 0.6,
+        max_tokens: int = 4096,
+        tools: list[dict] | None = None,
+        stream: bool = False,
+        max_retries: int = 3,
+        **extra_kwargs,
+    ) -> ChatResponse:
         chain = [ep] + [
             e for e in self.get_fallback_chain(endpoint_id, max_retries) if e.id != endpoint_id
         ]
         chain = chain[:max_retries]
         last_err: Exception | None = None
+        t_call = time.monotonic()
+        attempted_any = False
         for attempt, cur in enumerate(chain):
+            # Check real circuit breaker first
+            breaker = self._breaker_registry.get_or_create(cur.id, self._breaker_config, self._breaker_state_change)
+            if not breaker.allow_request():
+                # Sync health_status with breaker state for display purposes
+                cur.health_status = "unhealthy"
+                continue
             if not cur.is_available:
                 continue
+            attempted_any = True
             if not cur.provider_obj:
                 self._rebuild_provider(cur)
             if not cur.provider_obj:
-                # 还是没 provider,记一个错
-                last_err = RuntimeError(f"{cur.id} provider_obj is None after rebuild")
+                build_err = getattr(cur, "_last_build_error", None)
+                if isinstance(build_err, ProviderError) and build_err.status:
+                    last_err = build_err
+                else:
+                    last_err = RuntimeError(f"{cur.id} provider_obj is None after rebuild")
                 logger.warning("call %s: provider_obj is None", cur.id)
+                _record_llm_metrics(cur, "error", 0.0, None)
+                breaker.record_failure()
                 continue
-            req = self.build_chat_request(cur, messages, temperature, max_tokens, tools, stream)
+            req = self.build_chat_request(cur, messages, temperature, max_tokens, tools, stream, **extra_kwargs)
+            t0 = time.monotonic()
             try:
                 resp = await cur.provider_obj.chat(req)
                 resp.cost = self._calc_cost(cur, resp.prompt_tokens, resp.completion_tokens)
+                _record_llm_metrics(
+                    cur,
+                    "success",
+                    time.monotonic() - t0,
+                    resp,
+                    is_mock=isinstance(cur.provider_obj, MockProvider),
+                )
+                breaker.record_success()
+                self._failover.record_success(cur.id)
                 cur.mark_success()
                 return resp
             except ProviderError as e:
                 last_err = e
                 logger.warning("call %s failed (attempt %d): %s", cur.id, attempt + 1, e)
+                breaker.record_failure()
+                self._failover.record_failure(cur.id)
                 cur.mark_failure(str(e))
-                # 401/403/400-invalid-key → 自动 fallback 到 mock(本次会话内)
-                if getattr(e, "status", 0) in (401, 403) and cur.config.api_key_runtime:
-                    # Round-1 (P0-11): per-endpoint lock 防止 _saved_api_key race
+                if (
+                    getattr(e, "status", 0) in (401, 403)
+                    and cur.config.api_key_runtime
+                    and self.settings.mock.mode == "explicit"
+                ):
                     ep_lock = self._ep_locks.setdefault(cur.id, asyncio.Lock())
                     async with ep_lock:
                         logger.warning(
@@ -639,7 +762,7 @@ class ModelPool:
                             cur.id,
                             e.status,
                         )
-                        cur._saved_api_key = cur.config.api_key_runtime
+                        cur._saved_api_key = cur.config.api_key_runtime  # type: ignore[attr-defined]
                         cur.config.api_key_runtime = ""
                         self._rebuild_provider(cur)
                         try:
@@ -650,25 +773,55 @@ class ModelPool:
                             resp.cost = self._calc_cost(
                                 cur, resp.prompt_tokens, resp.completion_tokens
                             )
+                            _record_llm_metrics(
+                                cur, "success", time.monotonic() - t0, resp, is_mock=True
+                            )
+                            breaker.record_success()
+                            self._failover.record_success(cur.id)
                             cur.mark_success()
                             return resp
                         except Exception as e2:
                             logger.warning("mock fallback also failed: %s", e2)
-                            # 还原原 key(下次有别的机会还能试)
-                            cur.config.api_key_runtime = cur._saved_api_key
+                            cur.config.api_key_runtime = cur._saved_api_key  # type: ignore[attr-defined]
                             self._rebuild_provider(cur)
-                if cur.consecutive_failures >= self.settings.health.failure_threshold:
-                    cur.trigger_breaker(self.settings.health.cooldown_seconds)
-                await asyncio.sleep(min(2**attempt, 8))
+                _record_llm_metrics(
+                    cur, "error", time.monotonic() - t0, None,
+                    is_mock=isinstance(cur.provider_obj, MockProvider),
+                )
+                # Sync health_status from breaker state
+                if breaker.state == CircuitState.OPEN:
+                    cur.health_status = "unhealthy"
+                from .ha.retry import calculate_delay, RetryConfig
+
+                await asyncio.sleep(calculate_delay(attempt, RetryConfig(
+                    base_delay=0.5, exponential_base=2, max_delay=30, jitter=True
+                )))
                 continue
             except Exception as e:
                 last_err = e
                 logger.exception("call %s unexpected error: %s", cur.id, e)
+                breaker.record_failure()
+                self._failover.record_failure(cur.id)
                 cur.mark_failure(str(e))
-                await asyncio.sleep(min(2**attempt, 8))
+                _record_llm_metrics(
+                    cur, "error", time.monotonic() - t0, None,
+                    is_mock=isinstance(cur.provider_obj, MockProvider),
+                )
+                from .ha.retry import calculate_delay, RetryConfig
+
+                await asyncio.sleep(calculate_delay(attempt, RetryConfig(
+                    base_delay=0.5, exponential_base=2, max_delay=30, jitter=True
+                )))
                 continue
         if last_err is None:
             last_err = RuntimeError("no available endpoint in chain")
+        if not attempted_any:
+            _record_llm_metrics(ep, "error", time.monotonic() - t_call, None)
+        if isinstance(last_err, ProviderError) and last_err.status:
+            raise ProviderError(
+                f"all fallbacks failed for {endpoint_id}: {last_err}",
+                status=last_err.status,
+            ) from last_err
         raise RuntimeError(f"all fallbacks failed for {endpoint_id}: {last_err}")
 
     def _calc_cost(self, ep: ModelEndpoint, prompt_tokens: int, completion_tokens: int) -> float:
@@ -676,13 +829,30 @@ class ModelPool:
             completion_tokens / 1000.0
         ) * ep.config.cost_per_1k_output
 
+    def _ep_is_mock(self, e) -> bool:
+        """D6: whether an endpoint is currently served by MockProvider."""
+        if isinstance(e.provider_obj, MockProvider):
+            return True
+        if e.provider_obj is None and self.settings.mock.mode == "disabled":
+            # not served at all — don't count it as mock capacity
+            return False
+        return is_mock_key(e.config.api_key_runtime or "") and (
+            e.config.provider not in NO_AUTH_PROVIDERS
+        )
+
     def snapshot(self) -> dict[str, Any]:
         return {
             "total": len(self.endpoints),
             "enabled": sum(1 for e in self.endpoints.values() if e.config.enabled),
             "healthy": sum(1 for e in self.endpoints.values() if e.health_status == "healthy"),
             "unhealthy": sum(1 for e in self.endpoints.values() if e.health_status == "unhealthy"),
-            "in_breaker": sum(1 for e in self.endpoints.values() if e.cooldown_until > time.time()),
+            "in_breaker": sum(
+                1 for e in self.endpoints.values()
+                if (b := self._breaker_registry.get(e.id)) and b.state != CircuitState.CLOSED
+            ),
+            # D6: explicit mock visibility
+            "mock_backed": sum(1 for e in self.endpoints.values() if self._ep_is_mock(e)),
+            "real_backed": sum(1 for e in self.endpoints.values() if not self._ep_is_mock(e)),
             "by_tier": {
                 t.value: sum(1 for e in self.endpoints.values() if e.tier == t) for t in ModelTier
             },
@@ -707,16 +877,52 @@ class ModelPool:
                 }
                 for e in sorted(self.endpoints.values(), key=lambda x: x.id)
             ],
+            "failover": self._failover.get_status(),
         }
 
 
+def _record_llm_metrics(
+    ep: ModelEndpoint,
+    status: str,
+    duration_s: float,
+    resp: ChatResponse | None,
+    *,
+    is_mock: bool = False,
+) -> None:
+    """Mirror one provider attempt into Prometheus business metrics (D4).
+
+    Best-effort: metric emission must never break the request path.
+
+    D6 alignment: attempts served by MockProvider are attributed to
+    ``provider="mock"`` with zero cost, so simulated traffic never inflates
+    real-provider request/cost counters and stays identifiable in /metrics.
+    """
+    try:
+        from .observability.metrics import record_llm_request
+
+        record_llm_request(
+            model=ep.config.model,
+            provider="mock" if is_mock else ep.config.provider,
+            status=status,
+            duration_s=duration_s,
+            input_tokens=resp.prompt_tokens if resp is not None else 0,
+            output_tokens=resp.completion_tokens if resp is not None else 0,
+            cost_usd=0.0 if is_mock else ((resp.cost if resp is not None else 0.0) or 0.0),
+        )
+    except Exception:
+        logger.debug("failed to record llm metrics", exc_info=True)
+
+
 _pool: ModelPool | None = None
+_pool_lock = __import__("threading").Lock()
 
 
 def get_model_pool() -> ModelPool:
     global _pool
     if _pool is None:
-        _pool = ModelPool()
+        with _pool_lock:
+            if _pool is None:
+                _pool = ModelPool()
     return _pool
 
 

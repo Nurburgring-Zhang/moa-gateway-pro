@@ -81,7 +81,22 @@ class Finding:
     exempt_source: str | None = None  # "inline" / "file_frontmatter" / "config"
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        """Serialize a finding WITHOUT raw secret material (audit P1-1).
+
+        The raw ``match`` stays on the in-memory object for internal logic,
+        but anything leaving the process (API responses, CLI output, logs)
+        only ever sees the redacted form. Context lines are scrubbed too —
+        the raw match occurrence is replaced by its redacted form.
+        """
+        d = asdict(self)
+        d["match"] = self.redacted
+        if self.context and self.match and self.match in self.context:
+            d["context"] = self.context.replace(self.match, self.redacted)
+        elif self.context and self.match:
+            # match not literally present in context (regex group hit) —
+            # do not leak the surrounding line of a confirmed secret.
+            d["context"] = self.redacted
+        return d
 
 
 @dataclass

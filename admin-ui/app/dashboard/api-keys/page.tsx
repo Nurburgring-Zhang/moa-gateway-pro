@@ -16,22 +16,22 @@ export default function ApiKeysPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [createdKey, setCreatedKey] = useState<string | null>(null);
 
   useEffect(() => {
     loadKeys();
   }, []);
 
   async function loadKeys() {
+    setError(null);
     try {
       const data = await api.getApiKeys();
-      setKeys(data as unknown as ApiKey[]);
-    } catch {
-      setKeys([
-        { id: '1', name: 'Production Key', key: 'sk-moa-prod-abc123def456', quota: 1000000, used: 456789, created_at: '2024-01-01', last_used: '2024-08-01T09:30:00Z', status: 'active' },
-        { id: '2', name: 'Development Key', key: 'sk-moa-dev-xyz789ghi012', quota: 100000, used: 23456, created_at: '2024-03-15', last_used: '2024-08-01T10:00:00Z', status: 'active' },
-        { id: '3', name: 'Testing Key', key: 'sk-moa-test-jkl345mno678', quota: 50000, used: 1200, created_at: '2024-06-01', last_used: '2024-07-28T14:00:00Z', status: 'active' },
-        { id: '4', name: 'Legacy Key', key: 'sk-moa-old-pqr901stu234', quota: 500000, used: 499000, created_at: '2023-06-01', last_used: '2024-05-01T00:00:00Z', status: 'revoked' },
-      ]);
+      setKeys((data || []) as unknown as ApiKey[]);
+    } catch (e) {
+      // Honest failure — no fabricated keys (audit F6).
+      setKeys([]);
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -39,35 +39,28 @@ export default function ApiKeysPage() {
 
   async function handleCreate() {
     if (!newKeyName.trim()) return;
+    setError(null);
     try {
-      await api.createApiKey(newKeyName);
+      const res = (await api.createApiKey(newKeyName)) as { key?: string } | null;
+      // The plaintext key is returned exactly once — surface it to the user.
+      if (res && res.key) setCreatedKey(res.key);
+      setDialogOpen(false);
+      setNewKeyName('');
       await loadKeys();
-    } catch {
-      // Demo: add mock
-      const newKey: ApiKey = {
-        id: String(Date.now()),
-        name: newKeyName,
-        key: `sk-moa-new-${Math.random().toString(36).slice(2, 14)}`,
-        quota: 100000,
-        used: 0,
-        created_at: new Date().toISOString(),
-        last_used: '-',
-        status: 'active',
-      };
-      setKeys([newKey, ...keys]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
-    setDialogOpen(false);
-    setNewKeyName('');
   }
 
   async function handleDelete(id: string) {
     if (!confirm('确认删除此 API Key？')) return;
+    setError(null);
     try {
       await api.deleteApiKey(id);
-    } catch {
-      // Demo
+      setKeys(keys.filter((k) => k.id !== id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
-    setKeys(keys.filter((k) => k.id !== id));
   }
 
   if (loading) {
@@ -80,6 +73,18 @@ export default function ApiKeysPage() {
         <h1 className="text-2xl font-bold text-gray-900">API Key 管理</h1>
         <Button onClick={() => setDialogOpen(true)}>+ 创建 Key</Button>
       </div>
+
+      {error && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+      {createdKey && (
+        <div className="rounded-md border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+          <div className="font-medium mb-1">新 Key 已创建(明文仅显示一次,请妥善保存):</div>
+          <code className="font-mono break-all">{createdKey}</code>
+        </div>
+      )}
 
       <Card className="p-0 overflow-hidden">
         <Table>
@@ -105,23 +110,31 @@ export default function ApiKeysPage() {
                 </TableCell>
                 <TableCell>
                   <div className="w-32">
-                    <div className="flex justify-between text-xs text-gray-500 mb-1">
-                      <span>{((key.used / key.quota) * 100).toFixed(0)}%</span>
-                      <span>{key.used.toLocaleString()} / {key.quota.toLocaleString()}</span>
-                    </div>
-                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${
-                          key.used / key.quota > 0.9 ? 'bg-red-500' :
-                          key.used / key.quota > 0.7 ? 'bg-yellow-500' : 'bg-blue-500'
-                        }`}
-                        style={{ width: `${Math.min((key.used / key.quota) * 100, 100)}%` }}
-                      />
-                    </div>
+                    {(() => {
+                      const used = Number(key.used) || 0;
+                      const quota = Number(key.quota) || 0;
+                      const pct = quota > 0 ? (used / quota) * 100 : 0;
+                      return (
+                        <>
+                          <div className="flex justify-between text-xs text-gray-500 mb-1">
+                            <span>{pct.toFixed(0)}%</span>
+                            <span>{used.toLocaleString()} / {quota.toLocaleString()}</span>
+                          </div>
+                          <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${
+                                pct > 90 ? 'bg-red-500' : pct > 70 ? 'bg-yellow-500' : 'bg-blue-500'
+                              }`}
+                              style={{ width: `${Math.min(pct, 100)}%` }}
+                            />
+                          </div>
+                        </>
+                      );
+                    })()}
                   </div>
                 </TableCell>
                 <TableCell className="text-sm text-gray-500">
-                  {key.last_used !== '-' ? formatDate(key.last_used) : '-'}
+                  {key.last_used == null ? '从未使用' : formatDate(key.last_used)}
                 </TableCell>
                 <TableCell>
                   <Button variant="danger" size="sm" onClick={() => handleDelete(key.id)}>

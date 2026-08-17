@@ -69,7 +69,7 @@ class AgentDispatcher:
 
 
 # === Workflow Engine ===
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field  # noqa: E402
 
 
 @dataclass

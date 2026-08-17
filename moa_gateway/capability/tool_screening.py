@@ -446,7 +446,7 @@ class ToolScreener:
         self._stats: dict[str, int] = {
             "scanned": 0,
             "blocked": 0,
-            "by_category": {str(i): 0 for i in range(1, 10)},
+            "by_category": {str(i): 0 for i in range(1, 10)},  # type: ignore[dict-item]
         }
 
     # ----- public API ------------------------------------------------------- #
@@ -459,8 +459,8 @@ class ToolScreener:
             return []
         self._stats["scanned"] += 1
         for f in findings:
-            self._stats["by_category"][str(f.category)] = (
-                self._stats["by_category"].get(str(f.category), 0) + 1
+            self._stats["by_category"][str(f.category)] = (  # type: ignore[index]
+                self._stats["by_category"].get(str(f.category), 0) + 1  # type: ignore[attr-defined]
             )
         if self.should_block(findings):
             self._stats["blocked"] += 1
@@ -488,7 +488,7 @@ class ToolScreener:
     def stats(self) -> dict[str, Any]:
         """Live counters (copy)."""
         out = dict(self._stats)
-        out["by_category"] = dict(self._stats["by_category"])
+        out["by_category"] = dict(self._stats["by_category"])  # type: ignore[call-overload]
         return out
 
     @property
@@ -528,7 +528,7 @@ class ToolScreener:
                         risk = RiskLevel.MEDIUM
                     entries.append((cat, str(pid), str(raw), risk))
         elif isinstance(custom, (list, tuple)):
-            for idx, item in enumerate(custom):  # type: ignore[union-attr]
+            for _idx, item in enumerate(custom):  # type: ignore[union-attr]
                 if not (isinstance(item, tuple) and len(item) >= 3):
                     continue
                 pid, raw, risk = item[0], item[1], item[2]

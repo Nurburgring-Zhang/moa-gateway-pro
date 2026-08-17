@@ -224,7 +224,7 @@ def _rank(
 
     results: list[dict[str, Any]] = []
     for score_val, item in scored[:max_results]:
-        tags = item.get("tags", [])
+        tags = item.get("tags", [])  # type: ignore[var-annotated]
         if not isinstance(tags, list):
             try:
                 tags = list(tags)

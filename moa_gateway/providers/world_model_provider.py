@@ -18,6 +18,11 @@ class WorldModelProvider(ABC):
         self.api_key = api_key
         self.api_base = api_base
 
+    def _check_api_key(self) -> None:
+        """Guard: raise if API key is not configured."""
+        if not self.api_key:
+            raise RuntimeError(f"API key not configured for {self.__class__.__name__}")
+
     @abstractmethod
     async def simulate(
         self,
@@ -195,12 +200,13 @@ class VLMWorldProvider(WorldModelProvider):
         self, system: str, user_content: list[dict] | str, max_tokens: int = 4000
     ) -> str:
         """Call VLM chat endpoint."""
+        self._check_api_key()
         messages = [{"role": "system", "content": system}]
 
         if isinstance(user_content, str):
             messages.append({"role": "user", "content": user_content})
         else:
-            messages.append({"role": "user", "content": user_content})
+            messages.append({"role": "user", "content": user_content})  # type: ignore[dict-item]
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -223,7 +229,7 @@ class VLMWorldProvider(WorldModelProvider):
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            return data["choices"][0]["message"]["content"]  # type: ignore[no-any-return]
 
     async def simulate(
         self,
@@ -240,7 +246,7 @@ class VLMWorldProvider(WorldModelProvider):
 
         try:
             result_str = await self._chat(self.SIMULATION_SYSTEM_PROMPT, user_msg)
-            return json.loads(result_str)
+            return json.loads(result_str)  # type: ignore[no-any-return]
         except json.JSONDecodeError:
             return {"states": [], "summary": result_str, "confidence": 0.5}
 
@@ -256,7 +262,7 @@ class VLMWorldProvider(WorldModelProvider):
 
         try:
             result_str = await self._chat(self.PREDICTION_SYSTEM_PROMPT, user_msg)
-            return json.loads(result_str)
+            return json.loads(result_str)  # type: ignore[no-any-return]
         except json.JSONDecodeError:
             return {
                 "next_state": {},
@@ -282,7 +288,7 @@ class VLMWorldProvider(WorldModelProvider):
 
         try:
             result_str = await self._chat(self.SCENE_SYSTEM_PROMPT, content)
-            return json.loads(result_str)
+            return json.loads(result_str)  # type: ignore[no-any-return]
         except json.JSONDecodeError:
             return {"entities": [], "relationships": [], "error": "Failed to parse scene"}
 
@@ -314,7 +320,7 @@ class CosmosWorldProvider(WorldModelProvider):
             try:
                 resp = await client.post(f"{self.api_base}/simulate", json=payload)
                 resp.raise_for_status()
-                return resp.json()
+                return resp.json()  # type: ignore[no-any-return]
             except Exception as e:
                 logger.warning("Cosmos server unavailable: %s, using VLM fallback", e)
                 fallback = VLMWorldProvider(api_key=self.api_key)
@@ -332,7 +338,7 @@ class CosmosWorldProvider(WorldModelProvider):
             try:
                 resp = await client.post(f"{self.api_base}/predict", json=payload)
                 resp.raise_for_status()
-                return resp.json()
+                return resp.json()  # type: ignore[no-any-return]
             except Exception as e:
                 logger.warning("Cosmos predict unavailable: %s", e)
                 fallback = VLMWorldProvider(api_key=self.api_key)
@@ -345,3 +351,62 @@ class CosmosWorldProvider(WorldModelProvider):
     ) -> dict[str, Any]:
         fallback = VLMWorldProvider(api_key=self.api_key)
         return await fallback.understand_scene(image_url, description)
+
+
+class MockWorldProvider(WorldModelProvider):
+    """Mock world model provider — returns deterministic canned simulation
+    results labeled X-MOA-Mock. Used when no real VLM key is configured and
+    mock.mode=explicit, so the world-model pipeline returns 200 instead of 502.
+    The real VLMWorldProvider/CosmosWorldProvider take priority when a key is set.
+    """
+
+    async def simulate(
+        self,
+        scenario: str,
+        steps: int = 5,
+        constraints: list[str] | None = None,
+        initial_state: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        logger.warning("[mock] world.simulate: no real VLM configured; returning synthetic simulation")
+        states = []
+        for i in range(max(1, min(steps, 5))):
+            states.append({
+                "step": i + 1,
+                "description": f"[Mock] {scenario} — simulated step {i + 1}: entities remain stable under the scenario's dynamics.",
+                "entities": [{"name": "object_1", "properties": {"mass": 1.0, "velocity": 0.0}}],
+                "properties": {"step_index": i + 1, "stable": True},
+            })
+        return {
+            "states": states,
+            "summary": f"[Mock] Simulated '{scenario}' over {len(states)} steps. No real physics engine; output is synthetic.",
+            "mock": True,
+        }
+
+    async def predict_next_state(
+        self,
+        current_state: dict[str, Any],
+        action: str,
+        context: str = "",
+    ) -> dict[str, Any]:
+        logger.warning("[mock] world.predict_next_state: synthetic")
+        return {
+            "next_state": {"description": f"[Mock] After action '{action}', state transitions to a plausible successor.", **current_state},
+            "probability": 0.5,
+            "reasoning": "[Mock] Deterministic placeholder prediction. No real VLM configured.",
+            "side_effects": [],
+            "mock": True,
+        }
+
+    async def understand_scene(
+        self,
+        image_url: str | None = None,
+        description: str | None = None,
+    ) -> dict[str, Any]:
+        logger.warning("[mock] world.understand_scene: synthetic")
+        return {
+            "entities": [{"name": "entity_1", "type": "unknown"}],
+            "relationships": [{"subject": "entity_1", "relation": "contains", "object": "scene"}],
+            "physical_properties": {"mock": True},
+            "affordances": ["[Mock] placeholder affordance"],
+            "mock": True,
+        }

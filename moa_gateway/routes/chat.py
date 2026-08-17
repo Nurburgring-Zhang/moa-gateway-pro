@@ -11,13 +11,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from .._helpers import format_chat_response, log_request, stream_moa, stream_single
+from .._helpers import format_chat_response, log_request, mock_headers, stream_moa, stream_moa_progressive, stream_single
 from ..auth import require_api_key
 from ..cache.manager import get_cache_manager
+from ..capability_toggles import require_capability
 from ..moa import MoAResult, get_moa
 from ..model_pool import get_model_pool
 from ..observability import Metrics, record_rate_limit_block
 from ..observability import record_chat as _prom_record_chat
+from ..providers.base import ProviderError
 from ..ratelimit import get_limiter
 from ..router import get_router
 
@@ -58,9 +60,13 @@ class ChatCompletionRequest(BaseModel):
     user: str | None = Field(default=None, max_length=128)
     response_format: dict[str, Any] | None = None
     logit_bias: dict[str, int] | None = None
+    stream_options: dict[str, Any] | None = None
+    # Legacy OpenAI fields (deprecated, converted to tools)
+    functions: list[dict[str, Any]] | None = None
+    function_call: Any | None = None
 
 
-@router.post("/v1/chat/completions")
+@router.post("/v1/chat/completions", dependencies=[Depends(require_capability("chat"))])
 async def chat_completions(
     req: ChatCompletionRequest, key_info: dict[str, Any] = Depends(require_api_key)
 ):
@@ -124,19 +130,37 @@ async def chat_completions(
     t0 = time.time()
     metrics.incr("chat_started")
 
+    # Convert legacy functions/function_call to tools/tool_choice format
+    if req.functions and not req.tools:
+        req.tools = [
+            {"type": "function", "function": f} for f in req.functions
+        ]
+        if req.function_call and req.tool_choice is None:
+            if req.function_call == "auto":
+                req.tool_choice = "auto"
+            elif req.function_call == "none":
+                req.tool_choice = "none"
+            elif isinstance(req.function_call, dict) and "name" in req.function_call:
+                req.tool_choice = {"type": "function", "function": {"name": req.function_call["name"]}}
+
     # Pass-through OpenAI fields for model_pool.call
-    chat_kwargs = dict(
+    chat_kwargs: dict[str, Any] = dict(
         temperature=temperature,
         max_tokens=max_tokens,
         tools=req.tools,
         max_retries=3,
     )
+    if req.response_format:
+        chat_kwargs["response_format"] = req.response_format
 
     # ============ Cache Lookup ============
     cache_mgr = get_cache_manager()
     if not req.stream and cache_mgr.enabled:
+        # Include strategy/preset in the cache key so a single-strategy request
+        # never returns a cached parallel-strategy response (semantically different).
         cache_result = await cache_mgr.get(
-            messages, model_id, temperature=temperature, max_tokens=max_tokens
+            messages, model_id, temperature=temperature, max_tokens=max_tokens,
+            strategy=strategy, preset=preset,
         )
         if cache_result:
             cached_resp = cache_result["response"]
@@ -145,20 +169,34 @@ async def chat_completions(
             metrics.incr("cache_hit")
             # Return cached response with cache headers
             resp_body = cached_resp if isinstance(cached_resp, dict) else {"content": cached_resp}
+            # v3.1.1 audit P2-C: replay the explicit-mock label stored with the
+            # cached response (None for legacy entries → no header).
+            _cached_mock = cache_result.get("mock")
             return JSONResponse(
                 content=resp_body,
                 headers={
                     "X-Cache": "HIT",
                     "X-Cache-Layer": layer,
                     "X-Cache-Similarity": str(round(similarity, 4)),
+                    **mock_headers(bool(_cached_mock)),
                 },
             )
 
     # ============ Single model branch (auto or specific endpoint_id) ============
     if is_auto or (not is_moa_alias and (not preset or preset == "fast")):
-        if is_auto or model_id not in pool.endpoints:
+        # Audit F29 fix: an explicitly named model that does not exist must fail
+        # loudly with 404 — NOT be silently rerouted to a different model (the
+        # previous behaviour substituted e.g. qwen-turbo for a bogus model id,
+        # which is misleading). Only true `auto` performs complexity routing.
+        if not is_auto and model_id not in pool.endpoints:
+            raise HTTPException(404, f"model '{model_id}' not found")
+        if is_auto:
             router_inst = get_router()
-            decision = router_inst.route(messages[-1].get("content", ""))
+            decision = router_inst.route(
+                messages[-1].get("content", ""),
+                # only true auto may cross tier upwards
+                allow_tier_fallback=True,
+            )
             if not decision.primary:
                 raise HTTPException(503, "no available model")
             model_id = decision.primary.id
@@ -166,17 +204,35 @@ async def chat_completions(
                 raise HTTPException(503, "no available model (endpoint just removed)")
         # Streaming?
         if req.stream:
+            _ep = pool.endpoints.get(model_id)
+            # D6: in mock.mode=disabled a keyless endpoint has no provider —
+            # fail fast with the real status instead of streaming an error.
+            _build_err = getattr(_ep, "_last_build_error", None) if _ep is not None else None
+            if (
+                _ep is not None
+                and _ep.provider_obj is None
+                and isinstance(_build_err, ProviderError)
+            ):
+                raise HTTPException(
+                    _build_err.status or 503, f"model unavailable: {_build_err}"
+                )
+            _stream_mock = bool(_ep is not None and pool._ep_is_mock(_ep))
             return StreamingResponse(
-                stream_single(pool, model_id, messages, chat_kwargs, request_id, key_info),
+                stream_single(pool, model_id, messages, chat_kwargs, request_id, key_info, stream_options=req.stream_options),
                 media_type="text/event-stream",
+                headers=mock_headers(_stream_mock),
             )
         try:
             resp = await pool.call(
                 model_id,
                 messages,
                 stream=False,
-                **chat_kwargs,
+                **chat_kwargs,  # type: ignore[arg-type]
             )
+        except ProviderError as e:
+            metrics.error("chat_failed")
+            logger.warning("chat failed (provider): %s", e)
+            raise HTTPException(e.status or 502, f"model call failed: {e}") from e
         except Exception as e:
             metrics.error("chat_failed")
             logger.exception("chat failed: %s", e)
@@ -214,14 +270,53 @@ async def chat_completions(
                 result_body,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                strategy=strategy,
+                preset=preset,
+                mock=(resp.provider == "mock"),
             )
         return JSONResponse(
             content=result_body,
-            headers={"X-Cache": "MISS"},
+            headers={"X-Cache": "MISS", **mock_headers(resp.provider == "mock")},
         )
 
     # ============ MoA orchestration ============
     moa = get_moa()
+
+    # Progressive streaming: stream aggregator output token-by-token
+    if req.stream:
+        moa_stream = moa.execute_stream(
+            query=messages[-1].get("content", ""),
+            context=messages[:-1] if len(messages) > 1 else None,
+            tools=req.tools,
+            preset=preset,
+            strategy=strategy,
+            reference_count=reference_count,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        # Rough prompt-token estimate for the optional usage chunk (~4 chars/token).
+        _pt = sum(len(str(m.get("content", ""))) for m in messages) // 4
+        # v3.1.1 audit P1-8: response headers are fixed before streaming
+        # starts, so predict whether this preset resolves to mock-backed
+        # endpoints and label the stream accordingly (D6 explicit-mock).
+        _moa_stream_mock = moa.predict_stream_mock(
+            preset=preset,
+            strategy=strategy,
+            reference_count=reference_count,
+        )
+        return StreamingResponse(
+            stream_moa_progressive(
+                moa_stream,
+                model_id,
+                request_id,
+                stream_options=req.stream_options,
+                prompt_tokens=_pt,
+                key_info=key_info,
+            ),
+            media_type="text/event-stream",
+            headers={"X-MoA-Streaming": "progressive", **mock_headers(_moa_stream_mock)},
+        )
+
     try:
         result: MoAResult = await moa.execute(
             query=messages[-1].get("content", ""),
@@ -234,12 +329,19 @@ async def chat_completions(
             temperature=temperature,
             max_tokens=max_tokens,
         )
+    except ProviderError as e:
+        metrics.error("moa_failed")
+        logger.warning("MoA failed (provider): %s", e)
+        raise HTTPException(e.status or 502, f"MoA failed: {e}") from e
     except Exception as e:
         metrics.error("moa_failed")
         logger.exception("MoA failed: %s", e)
         raise HTTPException(502, f"MoA failed: {e}") from e
 
     content = result.final_content or result.aggregated_content
+    # D6 / v3.1.1 audit P1-7: result.mock_used is derived inside the engine
+    # from the actual provider of every reference/critic/aggregator response.
+    _moa_mock = result.mock_used
     approx_input = sum(len(m.get("content", "")) // 3 for m in messages) + sum(
         len(r.content) // 3 for r in result.references if r.success
     )
@@ -270,9 +372,6 @@ async def chat_completions(
             "critics": [c.model_id for c in result.critics],
         },
     )
-    # Streaming MoA: pseudo-stream the final content
-    if req.stream:
-        return StreamingResponse(stream_moa(result, request_id), media_type="text/event-stream")
     moa_body = format_chat_response(
         request_id,
         result.aggregator_model or "moa",
@@ -296,8 +395,11 @@ async def chat_completions(
             moa_body,
             temperature=temperature,
             max_tokens=max_tokens,
+            strategy=strategy,
+            preset=preset,
+            mock=bool(_moa_mock),
         )
     return JSONResponse(
         content=moa_body,
-        headers={"X-Cache": "MISS"},
+        headers={"X-Cache": "MISS", **mock_headers(_moa_mock)},
     )

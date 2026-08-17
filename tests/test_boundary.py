@@ -1,9 +1,6 @@
 """边界条件测试 — 验证极端输入不会导致崩溃"""
 from __future__ import annotations
 
-import time
-from unittest.mock import patch
-
 import pytest
 from pydantic import ValidationError
 
@@ -133,6 +130,7 @@ class TestStorageBoundary:
     def test_verify_admin_nonexistent_user(self, storage_instance):
         """验证不存在的用户应返回 None"""
         from unittest.mock import patch as p
+
         from moa_gateway.config import Settings
 
         settings = Settings(auth={

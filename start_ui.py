@@ -13,12 +13,12 @@
   start_ui.sh                         # macOS / Linux
 """
 from __future__ import annotations
-import os
-import sys
-import subprocess
-import platform
-from pathlib import Path
 
+import os
+import platform
+import subprocess
+import sys
+from pathlib import Path
 
 # ========== 路径与常量 ==========
 ROOT = Path(__file__).resolve().parent
@@ -100,12 +100,12 @@ def check_deps(python: Path) -> tuple:
         if result.returncode == 0 and "ok" in result.stdout:
             return True, []
         return False, critical
-    except Exception as e:
+    except Exception:
         return False, critical
 
 
 def install_deps(python: Path) -> bool:
-    info(f"安装依赖(可能需要 1-3 分钟)...")
+    info("安装依赖(可能需要 1-3 分钟)...")
     # 用清华源加速
     mirror_args = [
         "-i", "https://pypi.tuna.tsinghua.edu.cn/simple",
@@ -180,7 +180,7 @@ def main():
     if check_venv():
         ok(f"venv 已存在: {VENV_DIR}")
     else:
-        warn(f"venv 不存在,准备创建")
+        warn("venv 不存在,准备创建")
         if not create_venv():
             err("venv 创建失败,无法继续")
             sys.exit(1)
@@ -196,7 +196,7 @@ def main():
     if dep_ok:
         ok("所有依赖齐全")
     else:
-        warn(f"缺少依赖,准备自动安装")
+        warn("缺少依赖,准备自动安装")
         if not install_deps(vpy):
             err("依赖安装失败")
             sys.exit(1)

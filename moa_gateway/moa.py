@@ -24,12 +24,14 @@ import logging
 import re
 import time
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any
 
 from .config import MoAPresetConfig, ReferenceModelConfig, get_settings
 from .model_pool import ModelEndpoint, ModelPool, ModelTier, get_model_pool
 from .prompts import get_prompt
+from .providers.base import ProviderError
 from .router import IntelligentRouter, get_router
 
 logger = logging.getLogger(__name__)
@@ -47,6 +49,7 @@ class ReferenceResult:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cost: float = 0.0
+    provider: str = ""  # v3.1.1: actual provider id ("mock" when synthetic)
 
 
 @dataclass
@@ -59,6 +62,7 @@ class CriticResult:
     error: str = ""
     latency_ms: float = 0.0
     cost: float = 0.0
+    provider: str = ""  # v3.1.1: actual provider id ("mock" when synthetic)
 
 
 @dataclass
@@ -94,6 +98,11 @@ class MoAResult:
     winner_model: str = ""
     ranker_output: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # v3.1.1 audit P1-7: True when ANY reference/aggregator/critic output in
+    # this orchestration came from the synthetic MockProvider. The API layer
+    # must surface this (X-MOA-Mock header + body field) so callers can never
+    # mistake synthetic output for real model output.
+    mock_used: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -146,6 +155,7 @@ class MoAResult:
             "total_latency_ms": round(self.total_latency_ms, 1),
             "total_cost": round(self.total_cost, 6),
             "fallback_used": self.fallback_used,
+            "mock": self.mock_used,
             "pipeline_stages": self.pipeline_stages,
             "final_content": self.final_content,
         }
@@ -232,7 +242,38 @@ class MoAOrchestrator:
         max_tokens: int | None = None,
         stream: bool = False,
     ) -> MoAResult:
-        """统一执行入口,根据 preset/strategy 分发"""
+        """统一执行入口,根据 preset/strategy 分发。
+        Wrapped with overall timeout to prevent indefinite hangs."""
+        MOA_TIMEOUT = 180  # 3 minutes max for entire MoA orchestration
+        try:
+            return await asyncio.wait_for(
+                self._execute_inner(
+                    query, context, tools, preset, strategy,
+                    reference_count, aggregator, critic_rounds,
+                    temperature, max_tokens, stream,
+                ),
+                timeout=MOA_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            raise ProviderError(
+                f"MoA orchestration timed out after {MOA_TIMEOUT}s", status=504
+            ) from None
+
+    async def _execute_inner(
+        self,
+        query: str,
+        context: list[dict] | None = None,
+        tools: list[dict] | None = None,
+        preset: str | None = None,
+        strategy: str | None = None,
+        reference_count: int | None = None,
+        aggregator: str | None = None,
+        critic_rounds: int | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        stream: bool = False,
+    ) -> MoAResult:
+        """Internal execute implementation."""
         request_id = "moa_" + uuid.uuid4().hex[:12]
         start = time.time()
         result = MoAResult(request_id=request_id, query=query, preset="", strategy="")
@@ -339,20 +380,155 @@ class MoAOrchestrator:
                         max_tok,
                         start,
                     )
+        except ProviderError:
+            # B2 review M3: keep provider status semantics (e.g. 503 when
+            # mock.mode=disabled) instead of flattening to a generic 502.
+            raise
         except Exception as e:
             logger.exception("MoA execute failed: %s", e)
             raise RuntimeError(f"MoA execute failed: {e}") from e
 
         result.total_latency_ms = (time.time() - start) * 1000
+
+        # v3.1.1 audit P1-7: derive mock_used from every model that actually
+        # contributed output. Any reference/critic whose provider resolved to
+        # the synthetic MockProvider, or an aggregator recorded as mock, marks
+        # the whole result as synthetic so the API layer can label it.
+        _agg_provider = str(result.metadata.get("aggregator_provider", ""))
+        result.mock_used = (
+            any((r.provider or "") == "mock" for r in result.references if r.success)
+            or any((c.provider or "") == "mock" for c in result.critics if c.success)
+            or _agg_provider == "mock"
+        )
+
         logger.info(
-            "MoA[%s] strategy=%s preset=%s done in %.0fms cost=$%.4f",
+            "MoA[%s] strategy=%s preset=%s done in %.0fms cost=$%.4f mock=%s",
             request_id,
             result.strategy,
             result.preset,
             result.total_latency_ms,
             result.total_cost,
+            result.mock_used,
         )
         return result
+
+    def predict_stream_mock(
+        self,
+        preset: str | None = None,
+        strategy: str | None = None,
+        reference_count: int | None = None,
+        aggregator: str | None = None,
+    ) -> bool:
+        """Best-effort pre-check: will this streaming MoA run use mock models?
+
+        v3.1.1 audit P1-8. HTTP response headers are fixed before streaming
+        starts, so the chat route must know in advance whether the resolved
+        reference/aggregator endpoints are mock-backed. Resolution mirrors
+        execute_stream/_resolve_models; when the run would pick endpoints
+        dynamically at call time (no explicit preset list), we sample the
+        same tier pool the router uses. Any resolution failure reports False
+        (fail-open for labeling only — the output itself is still marked by
+        content prefixes and usage accounting).
+        """
+        try:
+            moa_cfg = self.settings.moa
+            preset_name = preset or moa_cfg.default_preset or "balanced"
+            preset_cfg = moa_cfg.presets.get(preset_name)
+            if not preset_cfg:
+                preset_cfg = moa_cfg.presets.get("balanced") or list(moa_cfg.presets.values())[0]
+            ref_n = reference_count or preset_cfg.reference_count or moa_cfg.reference_models
+            agg_id = aggregator or preset_cfg.aggregator
+            refs, agg = self._resolve_models(preset_cfg, ref_n, agg_id)
+            candidates = list(refs) + ([agg] if agg else [])
+            if not candidates:
+                return False
+            return any(self.pool._ep_is_mock(ep) for ep in candidates)
+        except Exception as e:  # noqa: BLE001 - labeling heuristic must not break the request
+            logger.warning("predict_stream_mock failed: %s", e)
+            return False
+
+    async def execute_stream(
+        self,
+        query: str,
+        context: list[dict] | None = None,
+        tools: list[dict] | None = None,
+        preset: str | None = None,
+        strategy: str | None = None,
+        reference_count: int | None = None,
+        aggregator: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> AsyncIterator[str]:
+        """Progressive streaming: run references, then stream aggregator output token-by-token."""
+        moa_cfg = self.settings.moa
+        preset_name = preset or moa_cfg.default_preset or "balanced"
+        preset_cfg = moa_cfg.presets.get(preset_name)
+        if not preset_cfg:
+            preset_cfg = moa_cfg.presets.get("balanced") or list(moa_cfg.presets.values())[0]
+
+        strat = strategy or preset_cfg.strategy or "parallel"
+        ref_n = reference_count or preset_cfg.reference_count or moa_cfg.reference_models
+        agg_id = aggregator or preset_cfg.aggregator
+        ref_temp = temperature if temperature is not None else preset_cfg.reference_temperature
+        agg_temp = preset_cfg.aggregator_temperature
+        max_tok = max_tokens or preset_cfg.max_tokens or 4096
+
+        if not context:
+            context = []
+        if not context or context[-1].get("role") != "user":
+            messages = context + [{"role": "user", "content": query}]
+        else:
+            messages = context.copy()
+            messages[-1] = {"role": "user", "content": query}
+
+        # For single strategy, stream directly from the provider
+        if strat == "single" or (preset_cfg.reference_models == [] and ref_n <= 1):
+            ep = None
+            if agg_id and self.pool.endpoints.get(agg_id):
+                ep = self.pool.endpoints[agg_id]
+            if not ep:
+                d = self.router.route(messages[-1].get("content", ""))
+                ep = d.primary
+            if not ep:
+                raise RuntimeError("no available model for streaming")
+            if not ep.provider_obj:
+                raise RuntimeError("provider not initialized for streaming")
+            req = self.pool.build_chat_request(ep, messages, ref_temp, max_tok, tools, stream=True)
+            async for chunk in ep.provider_obj.chat_stream(req):
+                yield chunk
+            return
+
+        # For multi-model strategies: run references in parallel, then stream aggregator
+        ref_endpoints, aggregator_ep = self._resolve_models(preset_cfg, ref_n, agg_id)
+        if not aggregator_ep:
+            aggregator_ep = ref_endpoints[0] if ref_endpoints else None
+        if not aggregator_ep:
+            raise RuntimeError("no available model for MoA streaming")
+
+        # Phase 1: run all references (buffered — must complete before aggregation)
+        ref_results = await self._run_references(ref_endpoints, messages, ref_temp, max_tok)
+        ok_count = sum(1 for r in ref_results if r.success)
+        if ok_count == 0:
+            # v3.1.1 audit P1-11: fail loudly with the real per-model errors.
+            # v3.1.0 silently substituted a fake "system" reference here and
+            # streamed a degraded answer as if MoA orchestration had happened.
+            _errors = "; ".join(
+                f"{r.model_id}: {(r.error or 'unknown')[:120]}" for r in ref_results
+            )
+            raise ProviderError(
+                f"MoA aborted: all {len(ref_results)} reference models failed — {_errors}",
+                status=502,
+            )
+
+        # Phase 2: stream aggregator output progressively
+        agg_messages = self._build_aggregator_messages(messages, ref_results)
+        if not aggregator_ep.provider_obj:
+            raise RuntimeError("aggregator provider not initialized")
+        req = self.pool.build_chat_request(
+            aggregator_ep, agg_messages, agg_temp, max_tok, tools, stream=True
+        )
+        async for chunk in aggregator_ep.provider_obj.chat_stream(req):
+            yield chunk
 
     # ========== single ==========
     async def _run_single(
@@ -380,6 +556,7 @@ class MoAOrchestrator:
         result.final_content = resp["content"]
         result.total_cost = resp["cost"]
         result.fallback_used = resp.get("fallback_used", False)
+        result.metadata["aggregator_provider"] = resp.get("provider", "")
         if resp.get("used_model_id"):
             result.aggregator_model = resp["used_model_id"]
         result.references = [
@@ -391,6 +568,7 @@ class MoAOrchestrator:
                 completion_tokens=resp.get("completion_tokens", 0),
                 cost=resp["cost"],
                 latency_ms=resp.get("latency_ms", 0),
+                provider=resp.get("provider", ""),
             )
         ]
 
@@ -422,16 +600,20 @@ class MoAOrchestrator:
         # 2) 参考模型并行(不带 tool schema)
         ref_results = await self._run_references(ref_endpoints, messages, ref_temp, max_tokens)
         result.references = ref_results
+        result.total_cost += sum(r.cost for r in ref_results if r.success)
         ok_count = sum(1 for r in ref_results if r.success)
         if ok_count == 0:
-            ref_results = [
-                ReferenceResult(
-                    model_id="system",
-                    content="[所有参考模型均调用失败,请基于通用知识直接回答用户问题]",
-                    success=True,
-                )
-            ]
-            result.references = ref_results
+            # v3.1.1 audit P1-11: fail loudly with the real per-model errors
+            # instead of silently substituting a fake "system" reference
+            # (which destroyed the failure evidence and billed a degraded
+            # single-model answer as MoA output).
+            _errors = "; ".join(
+                f"{r.model_id}: {(r.error or 'unknown')[:120]}" for r in ref_results
+            )
+            raise ProviderError(
+                f"MoA aborted: all {len(ref_results)} reference models failed — {_errors}",
+                status=502,
+            )
 
         # 3) 聚合
         agg_messages = self._build_aggregator_messages(messages, ref_results)
@@ -441,6 +623,7 @@ class MoAOrchestrator:
         result.aggregated_content = agg_resp["content"]
         result.total_cost += agg_resp["cost"]
         result.fallback_used = agg_resp.get("fallback_used", False)
+        result.metadata["aggregator_provider"] = agg_resp.get("provider", "")
         if agg_resp.get("used_model_id"):
             result.aggregator_model = agg_resp["used_model_id"]
 
@@ -580,7 +763,7 @@ class MoAOrchestrator:
                     )
                 )
             else:
-                rr: ReferenceResult = r
+                rr: ReferenceResult = r  # type: ignore[assignment]
                 rr.role = ref_roles.get(ep.id, "")
                 ref_results.append(rr)
         result.references = ref_results
@@ -593,6 +776,7 @@ class MoAOrchestrator:
         result.final_content = agg_resp["content"]
         result.total_cost += agg_resp["cost"]
         result.fallback_used = agg_resp.get("fallback_used", False)
+        result.metadata["aggregator_provider"] = agg_resp.get("provider", "")
         if agg_resp.get("used_model_id"):
             result.aggregator_model = agg_resp["used_model_id"]
         result.consensus_score = self._calculate_consensus(ref_results)
@@ -600,6 +784,7 @@ class MoAOrchestrator:
             "roles_used": roles_used,
             "compose_strategy": "multi-aspect",
             "role_distribution": {x.model_id: x.role for x in ref_results},
+            "aggregator_provider": agg_resp.get("provider", ""),
         }
 
     def _build_compose_aggregator_messages(self, original, ref_results, roles_used):
@@ -660,6 +845,7 @@ class MoAOrchestrator:
         current = resp1["content"]
         result.total_cost += resp1["cost"]
         result.fallback_used = resp1.get("fallback_used", False)
+        result.metadata["aggregator_provider"] = resp1.get("provider", "")
         result.iterations = 1
 
         # 多轮反思(最多 critic_rounds 轮)
@@ -963,14 +1149,15 @@ class MoAOrchestrator:
 
         ok_count = sum(1 for r in ref_results if r.success)
         if ok_count == 0:
-            ref_results = [
-                ReferenceResult(
-                    model_id="system",
-                    content="[all reference models failed, answer based on general knowledge]",
-                    success=True,
-                )
-            ]
-            result.references = ref_results
+            # v3.1.1 audit P1-11: fail loudly with the real per-model errors
+            # instead of silently substituting a fake "system" reference.
+            _errors = "; ".join(
+                f"{r.model_id}: {(r.error or 'unknown')[:120]}" for r in ref_results
+            )
+            raise ProviderError(
+                f"MoA aborted: all {len(ref_results)} reference models failed — {_errors}",
+                status=502,
+            )
 
         # Build aligned response and endpoint_id lists (only successful results)
         ref_pairs = [(r.model_id, r.content) for r in ref_results if r.success]
@@ -987,6 +1174,8 @@ class MoAOrchestrator:
 
         if strat_aggregated and strat_aggregated.strip():
             result.aggregated_content = strat_aggregated
+            # local (non-LLM) strategy aggregation — no aggregator provider
+            result.metadata["aggregator_provider"] = ""
         else:
             agg_messages = self._build_aggregator_messages(messages, ref_results)
             agg_resp = await self._call_with_fallback(
@@ -997,6 +1186,7 @@ class MoAOrchestrator:
             if agg_resp.get("used_model_id"):
                 result.aggregator_model = agg_resp["used_model_id"]
             result.fallback_used = agg_resp.get("fallback_used", False)
+            result.metadata["aggregator_provider"] = agg_resp.get("provider", "")
 
         consensus = self._calculate_consensus(ref_results)
         result.consensus_score = consensus
@@ -1079,6 +1269,7 @@ class MoAOrchestrator:
                 prompt_tokens=resp.prompt_tokens,
                 completion_tokens=resp.completion_tokens,
                 cost=resp.cost,
+                provider=getattr(resp, "provider", "") or "",
             )
         except asyncio.TimeoutError:
             return ReferenceResult(
@@ -1141,6 +1332,7 @@ class MoAOrchestrator:
                     "fallback_used": (cur.id != ep.id),
                     "prompt_tokens": resp.prompt_tokens,
                     "completion_tokens": resp.completion_tokens,
+                    "provider": getattr(resp, "provider", "") or "",
                 }
             except Exception as e:
                 last_err = e
@@ -1190,6 +1382,7 @@ class MoAOrchestrator:
                 success=True,
                 latency_ms=(time.time() - start) * 1000,
                 cost=resp.cost,
+                provider=getattr(resp, "provider", "") or "",
             )
         except Exception as e:
             return CriticResult(
@@ -1449,7 +1642,7 @@ class MoAOrchestrator:
                 )
 
             responses = await asyncio.gather(*tasks, return_exceptions=True)
-            for ep, r in zip(current_eps, responses, strict=False):
+            for ep, r in zip(current_eps, responses, strict=False):  # type: ignore[assignment]
                 if isinstance(r, Exception):
                     layer_outputs.append(
                         ReferenceResult(
@@ -1483,8 +1676,6 @@ class MoAOrchestrator:
             result.references.extend(layer_outputs)
 
             # 记录每层输出
-            if not hasattr(result, "_layer_outputs"):
-                result._layer_outputs = {}
             result.layer_outputs[f"L{layer_idx}"] = [
                 {"model": r.model_id, "content": r.content[:500], "cost": r.cost}
                 for r in layer_outputs
@@ -1571,7 +1762,7 @@ class MoAOrchestrator:
                 ref_results.append(
                     ReferenceResult(
                         model_id=proposer_ep.id,
-                        content=r.content,
+                        content=r.content,  # type: ignore[union-attr]
                         success=True,
                         prompt_tokens=getattr(r, "prompt_tokens", 0),
                         completion_tokens=getattr(r, "completion_tokens", 0),
@@ -1604,6 +1795,7 @@ class MoAOrchestrator:
         if agg_resp.get("used_model_id"):
             result.aggregator_model = agg_resp["used_model_id"]
         result.fallback_used = agg_resp.get("fallback_used", False)
+        result.metadata["aggregator_provider"] = agg_resp.get("provider", "")
 
     # ========== LLM Ranker baseline(论文 §3.3 Figure 4) ==========
     async def _run_ranker(
@@ -1649,7 +1841,7 @@ class MoAOrchestrator:
                 ref_results.append(
                     ReferenceResult(
                         model_id=ep.id,
-                        content=r.content,
+                        content=r.content,  # type: ignore[union-attr]
                         success=True,
                         prompt_tokens=getattr(r, "prompt_tokens", 0),
                         completion_tokens=getattr(r, "completion_tokens", 0),
@@ -1925,7 +2117,7 @@ Ranking should be from best to worst. "winner" must equal ranking[0].
                     -tier_order.get(e.tier.value if hasattr(e.tier, "value") else str(e.tier), 0)
                 ),
             )
-            judge_ep = pool_sorted[0] if pool_sorted else None
+            judge_ep = pool_sorted[0] if pool_sorted else None  # type: ignore[assignment]
         if not judge_ep:
             return {"error": "no judge model available"}
 
@@ -1999,7 +2191,7 @@ Ranking should be from best to worst. "winner" must equal ranking[0].
                         "score_0_100": round(s * 20, 1),
                         "reason": reason,
                     }
-                    total += s
+                    total += s  # type: ignore[assignment]
                     n += 1
             avg = round(total / n, 2) if n else 0
             return {
@@ -2015,10 +2207,13 @@ Ranking should be from best to worst. "winner" must equal ranking[0].
 
 
 _moa: MoAOrchestrator | None = None
+_moa_lock = __import__("threading").Lock()
 
 
 def get_moa() -> MoAOrchestrator:
     global _moa
     if _moa is None:
-        _moa = MoAOrchestrator()
+        with _moa_lock:
+            if _moa is None:
+                _moa = MoAOrchestrator()
     return _moa

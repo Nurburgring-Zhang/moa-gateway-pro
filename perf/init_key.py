@@ -1,4 +1,5 @@
-import urllib.request, json, os
+import json
+import urllib.request
 
 req = urllib.request.Request(
     'http://127.0.0.1:8088/api/auth/login',

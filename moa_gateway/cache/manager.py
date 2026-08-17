@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 import time
@@ -48,6 +49,10 @@ class CacheManager:
             prefix=self._config.redis_prefix,
         )
         self.metrics = CacheMetrics()
+        # Single-flight locks keyed by exact cache key — prevents cache
+        # stampede (thundering herd) when N identical requests miss at once.
+        self._inflight: dict[str, asyncio.Future] = {}
+        self._inflight_lock = asyncio.Lock()
 
     async def initialize(self) -> None:
         """Initialize connections (Redis, etc.)."""
@@ -77,7 +82,9 @@ class CacheManager:
     ) -> dict | None:
         """Multi-layer cache lookup.
 
-        Returns cached response dict or None on miss.
+        Returns cached response dict or None on miss. Hit dicts carry a
+        ``mock`` key (True/False/None for legacy entries) so callers can
+        replay the explicit-mock labeling (v3.1.1 audit P2-C).
         """
         if not self.enabled:
             return None
@@ -94,7 +101,8 @@ class CacheManager:
                 return None
             self.metrics.record_hit("l1_exact")
             self.metrics.record_lookup_latency((time.time() - t0) * 1000)
-            return {"response": entry.value, "layer": "l1_exact", "similarity": 1.0}
+            body, mock = self._unwrap(entry.value)
+            return {"response": body, "layer": "l1_exact", "similarity": 1.0, "mock": mock}
 
         # --- L3: Redis (distributed exact match) ---
         entry = await self.l3.get(exact_key)
@@ -106,19 +114,24 @@ class CacheManager:
             # Backfill L1
             await self.l1.set(exact_key, entry.value, entry.ttl_seconds)
             self.metrics.record_lookup_latency((time.time() - t0) * 1000)
-            return {"response": entry.value, "layer": "l3_redis", "similarity": 1.0}
+            body, mock = self._unwrap(entry.value)
+            return {"response": body, "layer": "l3_redis", "similarity": 1.0, "mock": mock}
 
         # --- L2: Semantic match ---
         text = SemanticCache.messages_to_text(messages)
         if text:
-            entry = await self.l2.get(text)
+            # Audit F32: scope by model|strategy|preset so a semantic hit never
+            # serves a response produced under a different configuration.
+            entry = await self.l2.get(text, scope=self._config_scope(model, **kwargs))
             if entry:
                 self.metrics.record_hit("l2_semantic")
                 self.metrics.record_lookup_latency((time.time() - t0) * 1000)
+                body, mock = self._unwrap(entry.value)
                 return {
-                    "response": entry.value,
+                    "response": body,
                     "layer": "l2_semantic",
                     "similarity": entry.similarity,
+                    "mock": mock,
                 }
 
         # All miss
@@ -127,9 +140,15 @@ class CacheManager:
         return None
 
     async def set(
-        self, messages: list, model: str, response: Any, *, stream: bool = False, **kwargs
+        self, messages: list, model: str, response: Any, *, stream: bool = False,
+        mock: bool = False, **kwargs
     ) -> None:
-        """Store response in all cache layers."""
+        """Store response in all cache layers.
+
+        ``mock`` records whether the response was produced by the synthetic
+        MockProvider so cache replay can re-attach the explicit-mock label
+        (v3.1.1 audit P2-C).
+        """
         if not self.enabled:
             return
 
@@ -138,28 +157,90 @@ class CacheManager:
             logger.debug("Skipping cache store: streaming response (skip_streaming=True)")
             return
 
+        wrapped = self._wrap(response, mock)
         exact_key = ExactMatchCache.compute_key(messages, model, **kwargs)
 
         # L1 with jitter
         l1_ttl = self._apply_ttl_jitter(self._config.exact_ttl)
-        await self.l1.set(exact_key, response, ttl=l1_ttl)
+        await self.l1.set(exact_key, wrapped, ttl=l1_ttl)
 
         # L3 with jitter
         l3_ttl = self._apply_ttl_jitter(self._config.exact_ttl)
-        await self.l3.set(exact_key, response, ttl=l3_ttl)
+        await self.l3.set(exact_key, wrapped, ttl=l3_ttl)
 
-        # L2 semantic index
+        # L2 semantic index (scoped by model|strategy|preset, audit F32)
         text = SemanticCache.messages_to_text(messages)
         if text:
             l2_ttl = self._apply_ttl_jitter(self._config.semantic_ttl)
-            await self.l2.set(text, response, ttl=l2_ttl)
+            await self.l2.set(text, wrapped, ttl=l2_ttl, scope=self._config_scope(model, **kwargs))
+
+    # v3.1.1 audit P2-C: envelope carrying the mock flag next to the body.
+    _ENVELOPE_MARKER = "__moa_cache_envelope_v1__"
+
+    @classmethod
+    def _wrap(cls, response: Any, mock: bool) -> dict:
+        return {cls._ENVELOPE_MARKER: True, "mock": bool(mock), "body": response}
+
+    @classmethod
+    def _unwrap(cls, value: Any) -> tuple[Any, bool | None]:
+        if isinstance(value, dict) and value.get(cls._ENVELOPE_MARKER) is True:
+            return value.get("body"), bool(value.get("mock"))
+        return value, None  # legacy entry — label unknown
+
+    @staticmethod
+    def _config_scope(model: str, **kwargs) -> str:
+        """Cache scope discriminator — responses are only reusable within the
+        same model + strategy + preset combination."""
+        return f"{model}|{kwargs.get('strategy')}|{kwargs.get('preset')}"
+
+    async def get_or_compute(
+        self, messages: list, model: str, compute, *, stream: bool = False, **kwargs
+    ) -> Any:
+        """Single-flight cache lookup-or-compute.
+
+        On cache miss, only the FIRST caller invokes ``compute()``; subsequent
+        identical callers await the same in-flight future, preventing a cache
+        stampede (thundering herd) against the upstream provider.
+        Returns (value, cache_hit: bool).
+        """
+        if not self.enabled:
+            return await compute(), False
+
+        cached = await self.get(messages, model, **kwargs)
+        if cached is not None:
+            return cached["response"], True
+
+        exact_key = ExactMatchCache.compute_key(messages, model, **kwargs)
+        loop = asyncio.get_event_loop()
+        is_producer = False
+        fut: Any = None
+        async with self._inflight_lock:
+            existing = self._inflight.get(exact_key)
+            if existing is None:
+                is_producer = True
+                fut = loop.create_future()
+                self._inflight[exact_key] = fut
+            else:
+                fut = existing
+
+        if is_producer:
+            producer_fut = fut  # type: ignore[assignment]
+            try:
+                result = await compute()
+                await self.set(messages, model, result, stream=stream, **kwargs)
+                producer_fut.set_result(result)
+                return result, False
+            except BaseException as e:
+                if not producer_fut.done():
+                    producer_fut.set_exception(e)
+                raise
+            finally:
+                async with self._inflight_lock:
+                    self._inflight.pop(exact_key, None)
+        else:
+            return await fut, True
 
     async def set_null(self, messages: list, model: str, **kwargs) -> None:
-        """Store null entry to prevent cache penetration.
-
-        When upstream returns error or empty, cache a short-lived null entry
-        so repeated identical bad requests don't hammer upstream.
-        """
         if not self.enabled:
             return
         exact_key = ExactMatchCache.compute_key(messages, model, **kwargs)

@@ -36,7 +36,7 @@ class DiscoveredModel:
     streaming: bool
     function_calling: bool
     discovered_at: float
-    modalities: list[str] = None
+    modalities: list[str] = None  # type: ignore[assignment]
 
 
 # Module-level helpers (importable by auto_configurator)
@@ -111,7 +111,7 @@ class FreeModelDiscoveryEngine:
             if isinstance(result, Exception):
                 logger.warning("Platform %s discovery failed: %s", platform.platform_id, result)
                 continue
-            all_models.extend(result)
+            all_models.extend(result)  # type: ignore[arg-type]
 
         logger.info("Discovered %d models from %d platforms", len(all_models), len(platforms))
         return all_models
@@ -224,7 +224,7 @@ class FreeModelDiscoveryEngine:
         try:
             resp = await client.get(url, headers=headers, params=params, timeout=10.0)
             resp.raise_for_status()
-            return resp.json()
+            return resp.json()  # type: ignore[no-any-return]
         except httpx.TimeoutException:
             logger.warning("Platform %s: request timeout", platform.platform_id)
             return {}

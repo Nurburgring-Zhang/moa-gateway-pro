@@ -6,19 +6,35 @@ import logging
 import os
 from pathlib import Path
 
+from ...config import DATA_DIR
+
 logger = logging.getLogger(__name__)
 
 # Sandbox root — restrict file operations to this directory tree.
-# Set to None to disable sandboxing (not recommended in production).
+# D8: default tightened from cwd to data/agent_sandbox (auto-created).
+# Set AGENT_SANDBOX_ROOT env var to override; set to empty string to disable
+# sandboxing (not recommended in production).
 _SANDBOX_ROOT: str | None = os.environ.get(
     "AGENT_SANDBOX_ROOT",
-    str(Path.cwd()),
+    str(DATA_DIR / "agent_sandbox"),
 )
+if _SANDBOX_ROOT:
+    try:
+        Path(_SANDBOX_ROOT).mkdir(parents=True, exist_ok=True)
+    except OSError as exc:  # pragma: no cover - filesystem edge case
+        logger.warning("agent sandbox dir creation failed: %s", exc)
 
 
 def _validate_path(path: str) -> Path:
-    """Validate that *path* is within the sandbox root."""
-    p = Path(path).resolve()
+    """Validate that *path* is within the sandbox root.
+
+    Relative paths are anchored to the sandbox root so agent file skills
+    always operate inside the sandbox regardless of process cwd.
+    """
+    p = Path(path)
+    if not p.is_absolute() and _SANDBOX_ROOT:
+        p = Path(_SANDBOX_ROOT) / p
+    p = p.resolve()
     if _SANDBOX_ROOT:
         root = Path(_SANDBOX_ROOT).resolve()
         try:

@@ -20,6 +20,11 @@ class EmbodiedProvider(ABC):
         self.api_key = api_key
         self.api_base = api_base
 
+    def _check_api_key(self) -> None:
+        """Guard: raise if API key is not configured."""
+        if not self.api_key:
+            raise RuntimeError(f"API key not configured for {self.__class__.__name__}")
+
     @abstractmethod
     async def plan_actions(
         self,
@@ -113,6 +118,7 @@ Output format (JSON):
 
     async def _chat(self, system: str, user_content: list[dict] | str) -> str:
         """Call VLM for planning."""
+        self._check_api_key()
         messages: list[dict[str, Any]] = [{"role": "system", "content": system}]
         if isinstance(user_content, str):
             messages.append({"role": "user", "content": user_content})
@@ -136,7 +142,7 @@ Output format (JSON):
                 f"{self.api_base}/chat/completions", json=payload, headers=headers
             )
             resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
+            return resp.json()["choices"][0]["message"]["content"]  # type: ignore[no-any-return]
 
     async def plan_actions(
         self,
@@ -169,7 +175,7 @@ Output format (JSON):
 
         try:
             result_str = await self._chat(self.PLANNING_SYSTEM_PROMPT, content_parts)
-            return json.loads(result_str)
+            return json.loads(result_str)  # type: ignore[no-any-return]
         except json.JSONDecodeError:
             return {"actions": [], "confidence": 0.0, "error": "Failed to parse plan"}
 
@@ -404,7 +410,7 @@ class ROS2BridgeProvider(EmbodiedProvider):
             async with httpx.AsyncClient(timeout=10) as client:
                 resp = await client.get(f"http://{base_http}/status/{robot_id}")
                 if resp.status_code == 200:
-                    return resp.json()
+                    return resp.json()  # type: ignore[no-any-return]
         except Exception as e:
             logger.warning("ROS2 status query failed: %s", e)
 
@@ -414,4 +420,57 @@ class ROS2BridgeProvider(EmbodiedProvider):
             "state": "disconnected",
             "mode": "ros2_bridge",
             "error": "ROS2 bridge not available",
+        }
+
+
+class MockEmbodiedProvider(EmbodiedProvider):
+    """Mock embodied AI provider — returns canned action plans/status labeled
+    X-MOA-Mock. Used when no real VLM key is configured and mock.mode=explicit,
+    so the embodied pipeline returns 200 instead of 502. The real
+    VLMEmbodiedProvider/ROS2BridgeProvider take priority when configured.
+    """
+
+    async def plan_actions(
+        self,
+        observation: dict[str, Any],
+        goal: str,
+        constraints: list[str] | None = None,
+        available_actions: list[str] | None = None,
+    ) -> dict[str, Any]:
+        logger.warning("[mock] embodied.plan_actions: no real VLM configured; returning synthetic plan")
+        return {
+            "actions": [
+                {"step": 1, "action": "observe", "target": "environment", "params": {}, "reasoning": "[Mock] survey the scene"},
+                {"step": 2, "action": "approach", "target": "goal_object", "params": {}, "reasoning": f"[Mock] move toward goal: {goal}"},
+                {"step": 3, "action": "complete", "target": goal, "params": {}, "reasoning": "[Mock] goal reached"},
+            ],
+            "confidence": 0.5,
+            "estimated_time": 3.0,
+            "mock": True,
+        }
+
+    async def execute_action(
+        self,
+        action: dict[str, Any],
+        robot_id: str = "default",
+    ) -> dict[str, Any]:
+        logger.warning("[mock] embodied.execute_action: synthetic")
+        return {
+            "success": True,
+            "result": f"[Mock] action '{action.get('action','?')}' executed on {robot_id}",
+            "new_state": {"position": [0, 0, 0], "status": "idle"},
+            "error": None,
+            "mock": True,
+        }
+
+    async def get_status(self, robot_id: str = "default") -> dict[str, Any]:
+        logger.warning("[mock] embodied.get_status: synthetic")
+        return {
+            "robot_id": robot_id,
+            "state": "idle",
+            "position": {"x": 0.0, "y": 0.0, "z": 0.0},
+            "battery": 85,  # int per StatusResponse schema
+            "sensors": {"mock": "true"},  # dict[str,str] per StatusResponse schema
+            "last_action": None,
+            "mock": True,
         }

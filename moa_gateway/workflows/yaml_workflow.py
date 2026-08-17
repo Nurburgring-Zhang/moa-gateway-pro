@@ -223,8 +223,26 @@ class WorkflowYAML:
                         "outputs": step_outputs,
                     }
 
-                # Store outputs
-                output_val = result.get("output", "")
+                # Store outputs — a step returning success=False (e.g. the
+                # internal gateway call got a non-200) must fail the workflow
+                # instead of silently producing an empty output.
+                if isinstance(result, dict) and result.get("success") is False:
+                    err_msg = result.get("error", "step reported failure")
+                    results.append(
+                        {
+                            "step_id": sid,
+                            "success": False,
+                            "error": str(err_msg),
+                        }
+                    )
+                    return {
+                        "success": False,
+                        "error": f"Step '{sid}' failed: {err_msg}",
+                        "steps": results,
+                        "outputs": step_outputs,
+                    }
+
+                output_val = result.get("output", "")  # type: ignore[union-attr]
                 for out_name in step.outputs:
                     step_outputs[f"steps.{sid}.outputs.{out_name}"] = output_val
                 # Also store the raw output under the step ID
@@ -252,6 +270,27 @@ class WorkflowYAML:
         context: dict[str, Any],
         outputs: dict[str, Any],
     ) -> dict[str, Any]:
+        """Execute a single step, traced as one span under the request."""
+        from ..observability.tracer import get_tracer
+
+        with get_tracer().start_span(
+            "workflow.step",
+            {"workflow.step.id": step.id, "workflow.step.type": step.type},
+        ) as span:
+            result = await self._execute_step_inner(step, inputs, context, outputs)
+            span.set_attribute(
+                "workflow.step.success",
+                result.get("success", True) if isinstance(result, dict) else True,
+            )
+            return result
+
+    async def _execute_step_inner(
+        self,
+        step: WorkflowStep,
+        inputs: dict[str, Any],
+        context: dict[str, Any],
+        outputs: dict[str, Any],
+    ) -> dict[str, Any]:
         """Execute a single step based on its type."""
         if step.type == "conditional":
             return await self._execute_conditional(step, inputs, context, outputs)
@@ -270,7 +309,7 @@ class WorkflowYAML:
         """Execute a MOA orchestration step."""
         prompt = inputs.get("prompt", inputs.get("message", ""))
         strategy = inputs.get("strategy", "parallel")
-        models = inputs.get("models", ["auto"])
+        _models = inputs.get("models", ["auto"])
         preset = inputs.get("preset", "balanced")
 
         base_url = _get_gateway_url()
@@ -321,7 +360,7 @@ class WorkflowYAML:
         engine = FreeModelDiscoveryEngine()
         models = await engine.discover_all()
         model_list = [
-            {"platform": m.platform_id, "model": m.model_id, "tier": m.inferred_tier}
+            {"platform": m.platform_id, "model": m.model_id, "tier": m.inferred_tier}  # type: ignore[attr-defined]
             for m in models[:20]
         ]
         return {
@@ -365,7 +404,13 @@ class WorkflowYAML:
         elif branch_type == "transform":
             return await self._execute_transform(branch_inputs)
         else:
-            return {"output": "", "error": f"Unknown branch type: {branch_type}"}
+            # success: False so execute() propagates the failure instead of
+            # silently returning an empty workflow output
+            return {
+                "output": "",
+                "success": False,
+                "error": f"Unknown branch type: {branch_type}",
+            }
 
     def _evaluate_condition(
         self,
@@ -422,9 +467,9 @@ class WorkflowYAML:
                         elif op_str == "<=":
                             return _safe_lte(left_val, right_val)
                         elif op_str == "==":
-                            return left_val == right_val
+                            return left_val == right_val  # type: ignore[no-any-return]
                         elif op_str == "!=":
-                            return left_val != right_val
+                            return left_val != right_val  # type: ignore[no-any-return]
                     except Exception:  # noqa: BLE001
                         # Fall through to string comparison
                         if op_str == "==":
@@ -485,9 +530,9 @@ class WorkflowYAML:
                 if transform == "length":
                     result_val = len(value) if value is not None else 0
                 elif transform == "upper":
-                    result_val = str(value).upper() if value else ""
+                    result_val = str(value).upper() if value else ""  # type: ignore[assignment]
                 elif transform == "lower":
-                    result_val = str(value).lower() if value else ""
+                    result_val = str(value).lower() if value else ""  # type: ignore[assignment]
                 else:
                     result_val = value
                 # If there's a comparison part (e.g., "> 100"), concatenate for condition evaluator
@@ -532,20 +577,26 @@ class WorkflowYAML:
 
 
 def _get_gateway_url() -> str:
-    """Get the gateway base URL from environment."""
-    import os
+    """Get the gateway base URL for internal loopback calls (D2)."""
+    from ..internal_callback import internal_gateway_url
 
-    return os.environ.get("MOA_GATEWAY_URL", "http://127.0.0.1:8910")
+    return internal_gateway_url()
 
 
 async def _http_post(url: str, body: dict[str, Any]) -> dict[str, Any]:
-    """Make an async HTTP POST request and return JSON response."""
+    """Make an async HTTP POST request and return JSON response.
+
+    Internal callbacks always carry the gateway Authorization header so the
+    loopback request authenticates instead of failing with 401 (D2).
+    """
     import httpx
 
+    from ..internal_callback import internal_auth_headers
+
     async with httpx.AsyncClient(timeout=120, trust_env=False) as client:
-        resp = await client.post(url, json=body)
+        resp = await client.post(url, json=body, headers=internal_auth_headers())
         if resp.status_code == 200:
-            return resp.json()
+            return resp.json()  # type: ignore[no-any-return]
         return {
             "error": f"HTTP {resp.status_code}",
             "detail": resp.text[:500],
@@ -554,27 +605,27 @@ async def _http_post(url: str, body: dict[str, Any]) -> dict[str, Any]:
 
 def _safe_gt(a: Any, b: Any) -> bool:
     try:
-        return a > b
+        return a > b  # type: ignore[no-any-return]
     except TypeError:
         return len(str(a)) > len(str(b))
 
 
 def _safe_lt(a: Any, b: Any) -> bool:
     try:
-        return a < b
+        return a < b  # type: ignore[no-any-return]
     except TypeError:
         return len(str(a)) < len(str(b))
 
 
 def _safe_gte(a: Any, b: Any) -> bool:
     try:
-        return a >= b
+        return a >= b  # type: ignore[no-any-return]
     except TypeError:
         return len(str(a)) >= len(str(b))
 
 
 def _safe_lte(a: Any, b: Any) -> bool:
     try:
-        return a <= b
+        return a <= b  # type: ignore[no-any-return]
     except TypeError:
         return len(str(a)) <= len(str(b))

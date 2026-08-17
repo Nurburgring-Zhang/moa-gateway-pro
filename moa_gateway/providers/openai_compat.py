@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 
 from .base import ChatRequest, ChatResponse, Provider, ProviderError
+from ..observability.tracer import get_traceparent_header
 
 logger = logging.getLogger(__name__)
 
@@ -43,10 +44,13 @@ class OpenAICompatProvider(Provider):
         for k, v in req.extra.items():
             payload[k] = v
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
-        }
+        headers = {"Content-Type": "application/json"}
+        # Omit Authorization for no-auth providers (empty api_key) — httpx
+        # rejects "Bearer " (trailing space) as an Illegal header value.
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        # Propagate W3C trace context to upstream provider
+        headers.update(get_traceparent_header())
 
         start = time.time()
         try:
@@ -79,7 +83,19 @@ class OpenAICompatProvider(Provider):
                             if "content" in delta and delta["content"] is not None:
                                 content_parts.append(delta["content"])
                             if "tool_calls" in delta and delta["tool_calls"]:
-                                tool_calls_data.extend(delta["tool_calls"])
+                                for tc in delta["tool_calls"]:
+                                    idx = tc.get("index", 0)
+                                    while idx >= len(tool_calls_data):
+                                        tool_calls_data.append(
+                                            {"id": "", "type": "function", "function": {"name": "", "arguments": ""}}
+                                        )
+                                    if tc.get("id"):
+                                        tool_calls_data[idx]["id"] = tc["id"]
+                                    fn = tc.get("function", {})
+                                    if fn.get("name"):
+                                        tool_calls_data[idx]["function"]["name"] += fn["name"]
+                                    if fn.get("arguments"):
+                                        tool_calls_data[idx]["function"]["arguments"] += fn["arguments"]
                 content = "".join(content_parts)
                 return ChatResponse(
                     content=content,
@@ -103,7 +119,13 @@ class OpenAICompatProvider(Provider):
         if resp.status_code != 200:
             txt = resp.text[:500]
             raise ProviderError(f"HTTP {resp.status_code}: {txt}", status=resp.status_code)
-        data = resp.json()
+        try:
+            data = resp.json()
+        except (json.JSONDecodeError, ValueError) as e:
+            raise ProviderError(
+                f"Invalid JSON from upstream (status {resp.status_code}): {resp.text[:200]!r}",
+                status=502,
+            ) from e
         choice = (data.get("choices") or [{}])[0]
         message = choice.get("message") or {}
         usage = data.get("usage") or {}
@@ -141,10 +163,10 @@ class OpenAICompatProvider(Provider):
             payload["stop"] = req.stop
         for k, v in req.extra.items():
             payload[k] = v
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
-        }
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        headers.update(get_traceparent_header())
         try:
             async with self.client.stream(
                 "POST", url, json=payload, headers=headers, timeout=httpx.Timeout(req.timeout)

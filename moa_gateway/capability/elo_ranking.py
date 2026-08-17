@@ -214,18 +214,18 @@ def bootstrap_ci(
         cur: dict[str, float] = dict(base)
         played: dict[str, int] = dict.fromkeys(all_model_ids, 0)
         for m in sample:
-            w, l = m.winner_id, m.loser_id
-            if w == l:
+            w, los = m.winner_id, m.loser_id
+            if w == los:
                 continue
             r_w = cur.get(w, 1500.0)
-            r_l = cur.get(l, 1500.0)
+            r_l = cur.get(los, 1500.0)
             e_w = _expected_score(r_w, r_l)
             new_w = _update_rating(r_w, e_w, 1.0, k_factor)
             new_l = _update_rating(r_l, 1.0 - e_w, 0.0, k_factor)
             cur[w] = new_w
-            cur[l] = new_l
+            cur[los] = new_l
             played[w] = played.get(w, 0) + 1
-            played[l] = played.get(l, 0) + 1
+            played[los] = played.get(los, 0) + 1
         for mid in all_model_ids:
             distribution[mid].append(cur.get(mid, 1500.0))
 
@@ -292,7 +292,7 @@ class WorkerPool:
         s = (strategy or "").strip().lower()
         if s not in ("lottery", "shortest_queue"):
             raise ValueError(f"strategy must be 'lottery' or 'shortest_queue', got {strategy}")
-        self._strategy = s
+        self._strategy = s  # type: ignore[assignment]
 
     def get_strategy(self) -> Strategy:
         return self._strategy

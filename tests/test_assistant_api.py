@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from unittest.mock import patch, AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -33,6 +33,7 @@ def _isolate_assistant_storage(tmp_path, monkeypatch):
 def app():
     """Create test app with assistant routes."""
     from fastapi import FastAPI
+
     from moa_gateway.routes.assistant import router
 
     test_app = FastAPI()

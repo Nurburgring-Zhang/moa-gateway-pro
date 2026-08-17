@@ -25,7 +25,9 @@ export default function LoginPage() {
       const payload = parseJwt(res.access_token);
       setAuth(res.access_token, {
         username: (payload?.sub as string) || username,
-        role: (payload?.role as string) || 'admin',
+        // Backend JWTs always carry role; 'unknown' is a defensive fallback
+        // (audit fix — never default a missing role to 'admin').
+        role: (payload?.role as string) || 'unknown',
       });
       router.push('/dashboard');
     } catch (err) {
@@ -83,7 +85,7 @@ export default function LoginPage() {
         </form>
 
         <p className="mt-6 text-center text-xs text-gray-400">
-          MOA Gateway Pro Admin Console v1.8
+          MOA Gateway Pro Admin Console v3.1.1
         </p>
       </Card>
     </div>

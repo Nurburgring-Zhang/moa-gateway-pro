@@ -361,7 +361,7 @@ class BenchmarkEngine:
                 resp = await client.post(url, json=payload, headers=headers)
 
             if resp.status_code == 200:
-                return resp.json()
+                return resp.json()  # type: ignore[no-any-return]
             else:
                 logger.debug(
                     "Benchmark %s/%s: HTTP %d",

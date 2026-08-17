@@ -371,7 +371,7 @@ class RALPH_CYCLE:
         if not self.history:
             return False
         last = self.history[-1]
-        return last["stage"] == RALPH_STAGE_REVIEW and last["status"] == "failed"
+        return last["stage"] == RALPH_STAGE_REVIEW and last["status"] == "failed"  # type: ignore[no-any-return]
 
     def reset(self) -> None:
         self.current_stage = RALPH_STAGE_ANALYZE

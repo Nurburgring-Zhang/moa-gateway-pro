@@ -6,8 +6,17 @@ import os
 ENCRYPTION_KEY = os.getenv("MOA_ENCRYPTION_KEY", "")
 ENCRYPTION_ALGORITHM = "AES-256-GCM"
 
-# Audit integrity
-AUDIT_SIGNING_KEY = os.getenv("MOA_AUDIT_SIGNING_KEY", "audit-default-key")
+# Audit integrity — None disables signing (safer than a guessable default)
+_raw_signing_key = os.getenv("MOA_AUDIT_SIGNING_KEY", "")
+if _raw_signing_key and _raw_signing_key != "audit-default-key":
+    AUDIT_SIGNING_KEY: str | None = _raw_signing_key
+else:
+    AUDIT_SIGNING_KEY = None
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "[SECURITY] MOA_AUDIT_SIGNING_KEY not configured — audit log signing disabled. "
+        "Set a strong key for tamper-proof audit trail."
+    )
 
 # Key rotation
 KEY_ROTATION_DAYS = int(os.getenv("MOA_KEY_ROTATION_DAYS", "90"))

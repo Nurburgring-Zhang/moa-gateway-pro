@@ -298,7 +298,7 @@ def pre_action_check(command: str, policy: ActionPolicy) -> PolicyVerdict:
                 f"({len(bypasses)} hit(s)) — require human review"
             ),
             bypass_detected=True,
-            bypass_techniques=techniques,
+            bypass_techniques=techniques,  # type: ignore[arg-type]
         )
     return policy.evaluate(command)
 

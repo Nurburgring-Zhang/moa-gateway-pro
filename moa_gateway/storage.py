@@ -225,10 +225,25 @@ CREATE TABLE IF NOT EXISTS purge_records (
     error_type_counts TEXT,
     success_rate_at_purge REAL DEFAULT 0,
     status_at_purge TEXT,
+    endpoint_config TEXT,
+    restored_at TEXT,
     created_at REAL NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_purge_records_eid ON purge_records(endpoint_id);
+
+CREATE TABLE IF NOT EXISTS agent_tasks (
+    task_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    assignee_session TEXT,
+    parent_task_id TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_tasks_status ON agent_tasks(status);
+CREATE INDEX IF NOT EXISTS idx_agent_tasks_parent ON agent_tasks(parent_task_id);
 """
 
 
@@ -268,7 +283,7 @@ class Storage:
     def get_conn(self) -> sqlite3.Connection:
         """Persistent connection (SQLite) / pooled connection (PostgreSQL)"""
         if self._engine.is_postgres:
-            return self._engine.backend._engine.connect()
+            return self._engine.backend._engine.connect()  # type: ignore[no-any-return]
         if self._persistent_conn is None:
             self._persistent_conn = sqlite3.connect(str(self.db_path), timeout=30)
             self._persistent_conn.row_factory = sqlite3.Row
@@ -280,9 +295,20 @@ class Storage:
         """Initialize database schema - auto-adapts for SQLite/PostgreSQL"""
         if self._engine.is_postgres:
             self._engine.execute_script(SCHEMA)
+            # B2 review M4: existing PG databases need the new columns too
+            with suppress(Exception):
+                self._engine.execute_script(
+                    "ALTER TABLE purge_records ADD COLUMN IF NOT EXISTS endpoint_config TEXT; "
+                    "ALTER TABLE purge_records ADD COLUMN IF NOT EXISTS restored_at TEXT;"
+                )
         else:
             with self.conn() as c:
                 c.executescript(SCHEMA)
+                # D3 migration: older databases miss the new columns
+                with suppress(Exception):
+                    c.execute("ALTER TABLE purge_records ADD COLUMN endpoint_config TEXT")
+                with suppress(Exception):
+                    c.execute("ALTER TABLE purge_records ADD COLUMN restored_at TEXT")
 
     # ========== Admin / Auth ==========
     def _bootstrap_admin(self, settings: Settings) -> None:
@@ -787,6 +813,48 @@ class Storage:
             ).fetchone()
             return int(row["tokens"]) if row else 0
 
+    def atomic_check_and_incr_tokens(
+        self, api_key_id: str, day: str, tokens: int, limit: int
+    ) -> int:
+        """Atomic check-and-increment: returns new total if under limit, -1 if over.
+        Prevents TOCTOU race by doing check+incr in one serialized transaction."""
+        with self.conn() as c:
+            if self._engine.is_sqlite:
+                c.execute("BEGIN IMMEDIATE")
+                try:
+                    row = c.execute(
+                        "SELECT tokens FROM ratelimit_tokens WHERE api_key_id = ? AND day = ?",
+                        (api_key_id, day),
+                    ).fetchone()
+                    current = int(row["tokens"]) if row else 0
+                    if current + tokens > limit:
+                        c.execute("ROLLBACK")
+                        return -1
+                    c.execute(
+                        "INSERT INTO ratelimit_tokens (api_key_id, day, tokens) VALUES (?, ?, ?) "
+                        "ON CONFLICT(api_key_id, day) DO UPDATE SET tokens = tokens + ?",
+                        (api_key_id, day, tokens, tokens),
+                    )
+                    c.execute("COMMIT")
+                    return current + tokens
+                except Exception:
+                    c.execute("ROLLBACK")
+                    raise
+            else:
+                row = c.execute(
+                    "SELECT tokens FROM ratelimit_tokens WHERE api_key_id = ? AND day = ?",
+                    (api_key_id, day),
+                ).fetchone()
+                current = int(row["tokens"]) if row else 0
+                if current + tokens > limit:
+                    return -1
+                c.execute(
+                    "INSERT INTO ratelimit_tokens (api_key_id, day, tokens) VALUES (?, ?, ?) "
+                    "ON CONFLICT(api_key_id, day) DO UPDATE SET tokens = ratelimit_tokens.tokens + ?",
+                    (api_key_id, day, tokens, tokens),
+                )
+                return current + tokens
+
     # ========== RBAC User Management ==========
     def list_admin_users(self) -> list[dict]:
         """List all admin users (without password hashes)."""
@@ -860,12 +928,17 @@ class Storage:
         """Persist a purge record for audit trail."""
         import json
 
+        ep_cfg = record.get("endpoint_config")
+        if ep_cfg is not None and not isinstance(ep_cfg, str):
+            with suppress(Exception):
+                ep_cfg = json.dumps(ep_cfg, ensure_ascii=False, default=str)
         with self.conn() as c:
             c.execute(
                 "INSERT INTO purge_records "
                 "(endpoint_id, purged_at, days_unavailable, last_error, "
-                " error_type_counts, success_rate_at_purge, status_at_purge, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                " error_type_counts, success_rate_at_purge, status_at_purge, "
+                " endpoint_config, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     record.get("endpoint_id", ""),
                     record.get("purged_at", ""),
@@ -874,7 +947,8 @@ class Storage:
                     json.dumps(record.get("error_type_counts", {}), ensure_ascii=False),
                     record.get("success_rate_at_purge", 0),
                     record.get("status_at_purge", ""),
-                    time.time(),
+                    ep_cfg,
+                    record.get("created_at") or time.time(),
                 ),
             )
 
@@ -893,8 +967,165 @@ class Storage:
                 if d.get("error_type_counts"):
                     with suppress(Exception):
                         d["error_type_counts"] = json.loads(d["error_type_counts"])
+                if d.get("endpoint_config"):
+                    with suppress(Exception):
+                        d["endpoint_config"] = json.loads(d["endpoint_config"])
                 result.append(d)
             return result
+
+    def mark_purge_record_restored(self, record_id: Any, endpoint_id: str) -> None:
+        """Mark a purge record as restored (B2 review M1/M2 idempotency)."""
+        from datetime import datetime
+
+        ts = datetime.now().isoformat()
+        with self.conn() as c:
+            if record_id is not None:
+                c.execute(
+                    "UPDATE purge_records SET restored_at = ? WHERE id = ?",
+                    (ts, record_id),
+                )
+            else:
+                # fall back to marking the newest record of the endpoint
+                c.execute(
+                    "UPDATE purge_records SET restored_at = ? WHERE id = ("
+                    "  SELECT id FROM purge_records WHERE endpoint_id = ? "
+                    "  ORDER BY created_at DESC LIMIT 1)",
+                    (ts, endpoint_id),
+                )
+
+    # ========== Agent Tasks (TaskBoard persistence — D13) ==========
+
+    def create_agent_task(
+        self,
+        task_id: str,
+        title: str,
+        assignee_session: str | None,
+        parent_task_id: str | None,
+        status: str = "pending",
+        created_at: float | None = None,
+    ) -> None:
+        now = created_at if created_at is not None else time.time()
+        with self.conn() as c:
+            c.execute(
+                "INSERT INTO agent_tasks "
+                "(task_id, title, assignee_session, parent_task_id, status, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (task_id, title, assignee_session, parent_task_id, status, now, now),
+            )
+
+    def get_agent_task(self, task_id: str) -> dict[str, Any] | None:
+        with self.conn() as c:
+            row = c.execute(
+                "SELECT * FROM agent_tasks WHERE task_id = ?", (task_id,)
+            ).fetchone()
+        return dict(row) if row is not None else None
+
+    def update_agent_task(
+        self,
+        task_id: str,
+        *,
+        title: str | None = None,
+        assignee_session: str | None = None,
+        status: str | None = None,
+        clear_assignee: bool = False,
+    ) -> bool:
+        """Update mutable fields; returns False when the task does not exist.
+
+        ``clear_assignee=True`` explicitly unassigns the task (None cannot be
+        used for that because None also means "field not provided").
+        """
+        sets: list[str] = []
+        vals: list[Any] = []
+        if title is not None:
+            sets.append("title = ?")
+            vals.append(title)
+        if clear_assignee:
+            sets.append("assignee_session = ?")
+            vals.append(None)
+        elif assignee_session is not None:
+            sets.append("assignee_session = ?")
+            vals.append(assignee_session)
+        if status is not None:
+            sets.append("status = ?")
+            vals.append(status)
+        if not sets:
+            return self.get_agent_task(task_id) is not None
+        sets.append("updated_at = ?")
+        vals.append(time.time())
+        vals.append(task_id)
+        with self.conn() as c:
+            cur = c.execute(f"UPDATE agent_tasks SET {', '.join(sets)} WHERE task_id = ?", vals)
+            return cur.rowcount > 0
+
+    def delete_agent_task(self, task_id: str) -> bool:
+        """Delete a task and re-parent its children (keeps the tree intact)."""
+        with self.conn() as c:
+            parent = c.execute(
+                "SELECT parent_task_id FROM agent_tasks WHERE task_id = ?", (task_id,)
+            ).fetchone()
+            if parent is None:
+                return False
+            c.execute(
+                "UPDATE agent_tasks SET parent_task_id = ?, updated_at = ? "
+                "WHERE parent_task_id = ?",
+                (parent["parent_task_id"], time.time(), task_id),
+            )
+            c.execute("DELETE FROM agent_tasks WHERE task_id = ?", (task_id,))
+        return True
+
+    def list_agent_tasks(
+        self,
+        status: str | None = None,
+        assignee: str | None = None,
+        parent_task_id: str | None = None,
+        limit: int = 500,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM agent_tasks"
+        conds: list[str] = []
+        vals: list[Any] = []
+        if status is not None:
+            conds.append("status = ?")
+            vals.append(status)
+        if assignee is not None:
+            conds.append("assignee_session = ?")
+            vals.append(assignee)
+        if parent_task_id is not None:
+            conds.append("parent_task_id = ?")
+            vals.append(parent_task_id)
+        if conds:
+            sql += " WHERE " + " AND ".join(conds)
+        sql += " ORDER BY created_at ASC LIMIT ? OFFSET ?"
+        vals.append(limit)
+        vals.append(offset)
+        with self.conn() as c:
+            rows = c.execute(sql, vals).fetchall()
+        return [dict(r) for r in rows]
+
+    def count_agent_tasks(
+        self,
+        status: str | None = None,
+        assignee: str | None = None,
+        parent_task_id: str | None = None,
+    ) -> int:
+        """Exact total matching the filters (ignores list truncation)."""
+        sql = "SELECT COUNT(*) AS n FROM agent_tasks"
+        conds: list[str] = []
+        vals: list[Any] = []
+        if status is not None:
+            conds.append("status = ?")
+            vals.append(status)
+        if assignee is not None:
+            conds.append("assignee_session = ?")
+            vals.append(assignee)
+        if parent_task_id is not None:
+            conds.append("parent_task_id = ?")
+            vals.append(parent_task_id)
+        if conds:
+            sql += " WHERE " + " AND ".join(conds)
+        with self.conn() as c:
+            row = c.execute(sql, vals).fetchone()
+        return int(row["n"]) if row is not None else 0
 
 
 def get_storage() -> Storage:

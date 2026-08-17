@@ -4,12 +4,14 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from typing import Any, Optional
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
+from .._helpers import mock_headers
 from ..auth import require_api_key
+from ..capability_toggles import require_capability
 from ..config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -23,8 +25,8 @@ class ImageContent(BaseModel):
     """Single image input - URL or base64."""
 
     type: str = "image_url"  # "image_url" or "image_base64"
-    url: Optional[str] = None
-    base64_data: Optional[str] = None
+    url: str | None = None
+    base64_data: str | None = None
     media_type: str = "image/png"
 
 
@@ -75,9 +77,14 @@ class ImageGenerateResponse(BaseModel):
 # --- Vision Analysis Endpoint -----------------------------------------------
 
 
-@router.post("/v1/vision/analyze", response_model=VisionAnalyzeResponse)
+@router.post(
+    "/v1/vision/analyze",
+    response_model=VisionAnalyzeResponse,
+    dependencies=[Depends(require_capability("vision"))],
+)
 async def vision_analyze(
     req: VisionAnalyzeRequest,
+    response: Response,
     key_info: dict[str, Any] = Depends(require_api_key),
 ):
     """Analyze images using vision-capable models.
@@ -130,6 +137,11 @@ async def vision_analyze(
             stream=False,
         )
 
+        # Audit F24: label mock-backed vision responses with X-MOA-Mock header.
+        if getattr(resp, "provider", "") == "mock":
+            for _hk, _hv in mock_headers(True).items():
+                response.headers[_hk] = _hv
+
         return VisionAnalyzeResponse(
             id=f"vision-{uuid.uuid4().hex[:12]}",
             model=resp.model or model,
@@ -142,15 +154,20 @@ async def vision_analyze(
         )
     except Exception as e:
         logger.error("Vision analysis failed: %s", e)
-        raise HTTPException(status_code=502, detail=f"Vision model error: {e}")
+        raise HTTPException(status_code=502, detail=f"Vision model error: {e}") from e
 
 
 # --- Image Generation Endpoint ----------------------------------------------
 
 
-@router.post("/v1/images/generations", response_model=ImageGenerateResponse)
+@router.post(
+    "/v1/images/generations",
+    response_model=ImageGenerateResponse,
+    dependencies=[Depends(require_capability("image_gen"))],
+)
 async def generate_images(
     req: ImageGenerateRequest,
+    response: Response,
     key_info: dict[str, Any] = Depends(require_api_key),
 ):
     """Generate images from text prompts.
@@ -174,14 +191,29 @@ async def generate_images(
             api_base="",
         )
 
-        if provider is None:
-            raise HTTPException(
-                status_code=503,
-                detail=f"No image generation provider available for platform: {platform}",
-            )
+        # No real key + mock.mode=explicit → MockImageProvider (200, labeled mock)
+        is_mock_provider = provider is not None and provider.__class__.__name__.startswith("Mock")
+        if provider is None or (not is_mock_provider and not getattr(provider, "api_key", "")):
+            try:
+                mock_mode = settings.mock.mode
+            except Exception:
+                mock_mode = "explicit"
+            if mock_mode == "explicit":
+                from ..providers.image_generation_provider import MockImageProvider
+                provider = MockImageProvider()
+            else:
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"No image generation provider available for platform: {platform}",
+                )
+
+        # Audit F24: label mock-generated images with the X-MOA-Mock header.
+        if provider.__class__.__name__.startswith("Mock"):
+            for _hk, _hv in mock_headers(True).items():
+                response.headers[_hk] = _hv
 
         # Generate images
-        image_urls = await provider.generate_image(
+        image_urls = await provider.generate_image(  # type: ignore[attr-defined]
             prompt=req.prompt,
             size=req.size,
             n=req.n,
@@ -194,6 +226,7 @@ async def generate_images(
                 # Attempt to download and convert to base64
                 try:
                     import base64
+
                     import httpx
 
                     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -218,7 +251,7 @@ async def generate_images(
         logger.error("Image generation failed: %s", e)
         raise HTTPException(
             status_code=502, detail=f"Image generation error: {e}"
-        )
+        ) from e
 
 
 # --- Helper Functions -------------------------------------------------------

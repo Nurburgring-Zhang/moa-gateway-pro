@@ -3,16 +3,24 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Optional
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
+from .._helpers import mock_headers
 from ..auth import require_api_key
+from ..capability_toggles import require_capability
 from ..config import get_settings  # noqa: F401
 
 logger = logging.getLogger(__name__)
-router = APIRouter(tags=["image_edit"])
+router = APIRouter(tags=["image_edit"], dependencies=[Depends(require_capability("image_gen"))])
+
+
+def _label_mock(provider, response: Response) -> None:
+    if provider.__class__.__name__.startswith("Mock"):
+        for _k, _v in mock_headers(True).items():
+            response.headers[_k] = _v
 
 
 class ImageEditResponse(BaseModel):
@@ -24,9 +32,10 @@ class ImageEditResponse(BaseModel):
 
 @router.post("/v1/images/edits", response_model=ImageEditResponse)
 async def edit_image(
+    response: Response,
     image: UploadFile = File(..., description="Original image file (PNG/JPG)"),
     prompt: str = Form(..., description="Edit instruction"),
-    mask: Optional[UploadFile] = File(None, description="Mask image (transparent areas = edit regions)"),
+    mask: UploadFile | None = File(None, description="Mask image (transparent areas = edit regions)"),
     model: str = Form(default="auto", description="Provider: openai/sd/auto"),
     n: int = Form(default=1, ge=1, le=10),
     size: str = Form(default="1024x1024"),
@@ -50,6 +59,7 @@ async def edit_image(
 
     # Select provider
     provider = _get_image_edit_provider(model)
+    _label_mock(provider, response)
 
     try:
         urls = await provider.edit_image(
@@ -63,14 +73,15 @@ async def edit_image(
         data = [{"url": url, "revised_prompt": prompt} for url in urls]
         return ImageEditResponse(created=int(time.time()), data=data)
     except NotImplementedError as e:
-        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}")
+        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}") from e
     except Exception as e:
         logger.error("Image edit failed: %s", e)
-        raise HTTPException(status_code=502, detail=f"Image edit error: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"Image edit error: {str(e)}") from e
 
 
 @router.post("/v1/images/variations", response_model=ImageEditResponse)
 async def create_image_variation(
+    response: Response,
     image: UploadFile = File(..., description="Source image file"),
     model: str = Form(default="auto", description="Provider: openai/sd/auto"),
     n: int = Form(default=1, ge=1, le=10),
@@ -90,38 +101,61 @@ async def create_image_variation(
         raise HTTPException(status_code=400, detail="Image file too large (max 20MB)")
 
     provider = _get_image_edit_provider(model)
+    _label_mock(provider, response)
 
     try:
         urls = await provider.create_variation(image=image_bytes, n=n, size=size)
         data = [{"url": url} for url in urls]
         return ImageEditResponse(created=int(time.time()), data=data)
     except NotImplementedError as e:
-        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}")
+        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}") from e
     except Exception as e:
         logger.error("Image variation failed: %s", e)
-        raise HTTPException(status_code=502, detail=f"Image variation error: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"Image variation error: {str(e)}") from e
 
 
 def _get_image_edit_provider(model: str):
-    """Get image edit provider by name."""
+    """Get image edit provider by name.
+
+    Falls back to a labeled MockImageEditProvider when no real backend is
+    configured and mock.mode=explicit (audit F26) — keeping the multimodal
+    pipeline runnable and honest instead of returning 502.
+    """
     import os
 
-    from ..providers.image_edit_provider import DallEEditProvider, SDInpaintProvider
+    from ..providers.image_edit_provider import (
+        DallEEditProvider,
+        MockImageEditProvider,
+        SDInpaintProvider,
+    )
+
+    openai_key = os.environ.get("OPENAI_API_KEY", "")
+    sd_base = os.environ.get("SD_API_BASE", "")
 
     if model == "auto":
-        # Prefer OpenAI if key available, else SD
-        if os.environ.get("OPENAI_API_KEY"):
+        if openai_key:
             model = "openai"
-        else:
+        elif sd_base:
             model = "sd"
+        else:
+            model = "none"
 
     if model == "openai":
-        api_key = os.environ.get("OPENAI_API_KEY", "")
         api_base = os.environ.get("OPENAI_API_BASE", "https://api.openai.com")
-        return DallEEditProvider(api_key=api_key, api_base=api_base)
+        return DallEEditProvider(api_key=openai_key, api_base=api_base)
     elif model == "sd":
-        api_base = os.environ.get("SD_API_BASE", "http://127.0.0.1:7860")
         api_key = os.environ.get("SD_API_KEY", "")
-        return SDInpaintProvider(api_key=api_key, api_base=api_base)
+        return SDInpaintProvider(api_key=api_key, api_base=sd_base or "http://127.0.0.1:7860")
+    elif model == "none":
+        try:
+            from ..config import get_settings
+
+            mock_mode = get_settings().mock.mode
+        except Exception:
+            mock_mode = "explicit"
+        if mock_mode == "explicit":
+            return MockImageEditProvider()
+        # mock disabled: return the default SD backend (will surface a real error)
+        return SDInpaintProvider(api_key="", api_base="http://127.0.0.1:7860")
     else:
         raise HTTPException(status_code=400, detail=f"Unknown image edit provider: {model}")

@@ -363,7 +363,7 @@ if __name__ == "__main__":
                 {"id": "x", "type": "function", "function": {"name": "f", "arguments": "{}"}}
             ],
         ),
-        Message(""),
+        Message(""),  # type: ignore[arg-type, call-arg]
     ]
     cleaned, st = clean_messages(sample)
     print("cleaned:", cleaned)

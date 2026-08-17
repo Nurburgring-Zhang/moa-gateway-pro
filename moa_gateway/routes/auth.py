@@ -94,6 +94,10 @@ async def login(req: LoginRequest, client_ip: str = Depends(get_client_ip)):
     )
     return {
         "token": token,
+        # OpenAI-style alias fields — admin-ui (lib/api.ts) reads access_token.
+        # Keep both so existing integrations and the frontend both work.
+        "access_token": token,
+        "token_type": "bearer",
         "user": {
             "id": row["id"],
             "username": row["username"],

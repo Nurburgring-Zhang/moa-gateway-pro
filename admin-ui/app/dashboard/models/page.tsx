@@ -15,23 +15,21 @@ export default function ModelsPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editModel, setEditModel] = useState<Partial<Model> | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadModels();
   }, []);
 
   async function loadModels() {
+    setError(null);
     try {
       const res = await api.getModels();
       setModels((res.data || []) as unknown as Model[]);
-    } catch {
-      setModels([
-        { id: '1', name: 'gpt-4o', provider: 'OpenAI', status: 'active', weight: 100, capabilities: ['chat', 'vision'], created_at: '2024-01-15' },
-        { id: '2', name: 'claude-3.5-sonnet', provider: 'Anthropic', status: 'active', weight: 90, capabilities: ['chat', 'code'], created_at: '2024-02-10' },
-        { id: '3', name: 'gemini-pro', provider: 'Google', status: 'inactive', weight: 70, capabilities: ['chat'], created_at: '2024-03-01' },
-        { id: '4', name: 'qwen-max', provider: 'Alibaba', status: 'active', weight: 80, capabilities: ['chat', 'code'], created_at: '2024-03-15' },
-        { id: '5', name: 'deepseek-v2', provider: 'DeepSeek', status: 'active', weight: 85, capabilities: ['chat', 'code', 'math'], created_at: '2024-04-01' },
-      ]);
+    } catch (e) {
+      // Honest failure — no fabricated model list (audit F6).
+      setModels([]);
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -55,12 +53,22 @@ export default function ModelsPage() {
       } else {
         await api.createModel(editModel);
       }
+      setDialogOpen(false);
+      setEditModel(null);
       await loadModels();
-    } catch {
-      // Demo mode - just close
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
-    setDialogOpen(false);
-    setEditModel(null);
+  }
+
+  async function handleDelete(model: Model) {
+    if (!window.confirm(`确认删除模型 "${model.name}"?`)) return;
+    try {
+      await api.deleteModel(String(model.id ?? model.name));
+      await loadModels();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   }
 
   if (loading) {
@@ -73,6 +81,12 @@ export default function ModelsPage() {
         <h1 className="text-2xl font-bold text-gray-900">模型管理</h1>
         <Button onClick={handleAdd}>+ 添加模型</Button>
       </div>
+
+      {error && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       <Card className="p-0 overflow-hidden">
         <Table>
@@ -107,7 +121,7 @@ export default function ModelsPage() {
                 <TableCell>
                   <div className="flex gap-2">
                     <Button variant="ghost" size="sm" onClick={() => handleEdit(model)}>编辑</Button>
-                    <Button variant="danger" size="sm">删除</Button>
+                    <Button variant="danger" size="sm" onClick={() => handleDelete(model)}>删除</Button>
                   </div>
                 </TableCell>
               </TableRow>

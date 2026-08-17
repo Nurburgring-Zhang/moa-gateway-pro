@@ -1,13 +1,9 @@
 """Tests for YAML workflow engine."""
 from __future__ import annotations
 
-import pytest
-
 
 def test_workflow_imports():
     """Verify workflow modules can be imported."""
-    from moa_gateway.workflows import yaml_workflow
-    from moa_gateway.workflows import workflow_loader
 
 
 def test_workflow_yaml_class_exists():

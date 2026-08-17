@@ -55,7 +55,7 @@ COMPILABLE_NEUTRAL: float = 0.5
 COMPILABLE_FALSE: float = 0.0
 
 # 停用词 (沿用 convergent_detector 风格)
-STOPWORDS: set[str] = frozenset(
+STOPWORDS: set[str] = frozenset(  # type: ignore[assignment]
     {
         "the",
         "a",
@@ -518,13 +518,13 @@ def arbitrate(
         confidence=round(conf, 6),
         rationale=rat,
         voting_breakdown={
-            "weights": {
+            "weights": {  # type: ignore[dict-item]
                 "viability": WEIGHT_VIABILITY,
                 "support": WEIGHT_SUPPORT,
                 "empirical": WEIGHT_EMPIRICAL,
                 "compilable": WEIGHT_COMPILABLE,
             },
-            "scores": {opt.option_id: sc for opt, sc in scored},
+            "scores": {opt.option_id: sc for opt, sc in scored},  # type: ignore[dict-item]
         },
     )
 
@@ -694,15 +694,15 @@ def fuse_decision(
         confidence=round(conf, 6),
         rationale=rat,
         voting_breakdown={
-            "mode": "fuse",
-            "weights": {
+            "mode": "fuse",  # type: ignore[dict-item]
+            "weights": {  # type: ignore[dict-item]
                 "viability": WEIGHT_VIABILITY,
                 "support": WEIGHT_SUPPORT,
                 "empirical": WEIGHT_EMPIRICAL,
                 "compilable": WEIGHT_COMPILABLE,
             },
-            "scores": {opt.option_id: sc for opt, sc, _, _ in scored},
-            "strongest_proposal": {opt.option_id: sp for opt, _, _, sp in scored},
+            "scores": {opt.option_id: sc for opt, sc, _, _ in scored},  # type: ignore[dict-item]
+            "strongest_proposal": {opt.option_id: sp for opt, _, _, sp in scored},  # type: ignore[dict-item]
         },
     )
 

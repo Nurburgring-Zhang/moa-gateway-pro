@@ -149,7 +149,7 @@ def diagnose_packages() -> tuple[str, list[str]]:
             missing.append((mod, str(e)[:100]))
     if not missing:
         return ("ok", [])
-    return ("missing", missing)
+    return ("missing", missing)  # type: ignore[return-value]
 
 
 def _pip_install(
@@ -403,19 +403,19 @@ def spawn_child(cmd: list[str], log_file: Path | None = None) -> subprocess.Pope
             "stdin": subprocess.DEVNULL,
             "stdout": open(log_path, "ab", buffering=0),
             "stderr": subprocess.STDOUT,
-            "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP,
+            "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP,  # type: ignore[attr-defined]
         }
     else:
         kwargs = {
             "stdin": subprocess.DEVNULL,
             "stdout": open(log_path, "ab", buffering=0),
             "stderr": subprocess.STDOUT,
-            "preexec_fn": os.setsid,
+            "preexec_fn": os.setsid,  # type: ignore[attr-defined]
         }
-    proc = subprocess.Popen(cmd, **kwargs)
+    proc = subprocess.Popen(cmd, **kwargs)  # type: ignore[call-overload]
     # 让子进程继承 fd 句柄,父进程不再保留引用 — OS 在子进程退出时自动关闭
     _log(f"[watchdog] 子进程已启动: pid={proc.pid} cmd={' '.join(cmd[:3])}…")
-    return proc
+    return proc  # type: ignore[no-any-return]
 
 
 def check_existing_instance() -> bool:
@@ -430,7 +430,7 @@ def check_existing_instance() -> bool:
             r = subprocess.run(
                 ["tasklist", "/FI", f"PID eq {pid}"], capture_output=True, text=True, timeout=5
             )
-            return pid in r.stdout
+            return pid in r.stdout  # type: ignore[operator]
         else:
             try:
                 os.kill(pid, 0)
@@ -455,7 +455,7 @@ def kill_proc_tree(proc: subprocess.Popen | None, grace_seconds: float = 5.0) ->
             import signal as _sig
 
             try:
-                os.killpg(os.getpgid(pid), _sig.SIGTERM)
+                os.killpg(os.getpgid(pid), _sig.SIGTERM)  # type: ignore[attr-defined]
             except ProcessLookupError:
                 return
             t0 = time.time()
@@ -464,7 +464,7 @@ def kill_proc_tree(proc: subprocess.Popen | None, grace_seconds: float = 5.0) ->
                     return
                 time.sleep(0.2)
             with contextlib.suppress(ProcessLookupError):
-                os.killpg(os.getpgid(pid), _sig.SIGKILL)
+                os.killpg(os.getpgid(pid), _sig.SIGKILL)  # type: ignore[attr-defined]
     except Exception as e:
         _log(f"[watchdog] kill 出错: {e}")
 
@@ -530,11 +530,11 @@ def run_watchdog(
 
     if not IS_WINDOWS:
         signal.signal(signal.SIGTERM, _sig_handler)
-        signal.signal(signal.SIGHUP, _sig_handler)
+        signal.signal(signal.SIGHUP, _sig_handler)  # type: ignore[attr-defined]
     else:
         try:
             signal.signal(signal.SIGINT, _sig_handler)
-            signal.signal(signal.SIGBREAK, _sig_handler)
+            signal.signal(signal.SIGBREAK, _sig_handler)  # type: ignore[attr-defined]
         except Exception:
             pass
 

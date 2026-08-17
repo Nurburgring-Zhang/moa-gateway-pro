@@ -181,6 +181,28 @@ class HealthConfig(BaseModel):
     probe_interval_unhealthy: int = 180  # unhealthy API: every 3 min
     purge_threshold_days: int = 7  # purge after 7 days of unavailability
     probe_timeout: int = 30  # probe request timeout (seconds)
+    # D3: prevent startup purge self-destruct
+    purge_initial_delay_seconds: int = 86400  # first purge runs only after this delay
+    skip_mock_endpoints: bool = True  # never probe/purge mock (no-key) endpoints
+    # B2 review M2: dynamic (discovered) endpoints are only auto-restored from
+    # purge-record snapshots when this is enabled; static config endpoints are
+    # always restored (config is the source of truth).
+    auto_restore_purged: bool = False
+
+
+class MockConfig(BaseModel):
+    """D6: Mock provider behavior — always explicit, never silent.
+
+    mode:
+      - explicit (default): requests without a real API key are served by
+        MockProvider but every response is clearly labeled (X-MOA-Mock header,
+        provider="mock" in usage, /health exposes mock endpoint counts).
+      - disabled: requests without a real API key fail fast with 503.
+        Use this in production to guarantee zero simulated output.
+    """
+
+    mode: Literal["explicit", "disabled"] = "explicit"
+    header_name: str = "X-MOA-Mock"
 
 
 class RateLimitConfig(BaseModel):
@@ -195,6 +217,9 @@ class ObservabilityConfig(BaseModel):
     log_json: bool = False
     metrics_enabled: bool = True
     trace_enabled: bool = False
+    # T5.1: optional OTLP collector endpoint for span export (empty = in-memory
+    # lightweight tracer only, spans still visible at /metrics/traces).
+    otlp_endpoint: str = ""
     # P1-6: Test report configuration
     test_report_enabled: bool = True
     test_report_max_traces: int = 1000
@@ -287,6 +312,16 @@ class OptimizerConfig(BaseModel):
     test_cases_per_round: int = 3
 
 
+class AssistantConfig(BaseModel):
+    """Assistant API (runs) configuration (D12)."""
+
+    # Hard cap for a single run execution (LLM round-trips included).
+    # Runs exceeding this are marked failed with code "timeout".
+    run_timeout_seconds: float = 300.0
+    # Timeout for one internal gateway LLM round-trip inside a run.
+    llm_call_timeout_seconds: float = 120.0
+
+
 class Settings(BaseModel):
     """全局配置 — root model"""
 
@@ -297,6 +332,7 @@ class Settings(BaseModel):
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
     moa: MoAConfig = Field(default_factory=MoAConfig)
     health: HealthConfig = Field(default_factory=HealthConfig)
+    mock: MockConfig = Field(default_factory=MockConfig)
     ratelimit: RateLimitConfig = Field(default_factory=RateLimitConfig)
     observability: ObservabilityConfig = Field(default_factory=ObservabilityConfig)
     cache: CacheConfig = Field(default_factory=CacheConfig)
@@ -308,10 +344,12 @@ class Settings(BaseModel):
     agent_loop: AgentLoopConfig = Field(default_factory=AgentLoopConfig)
     benchmark: BenchmarkConfig = Field(default_factory=BenchmarkConfig)
     optimizer: OptimizerConfig = Field(default_factory=OptimizerConfig)
+    assistant: AssistantConfig = Field(default_factory=AssistantConfig)
 
 
 def _ensure_jwt_secret(cfg: Settings) -> Settings:
-    """确保 JWT secret 存在,首次启动自动生成并写入磁盘"""
+    """确保 JWT secret 存在,首次启动自动生成并写入磁盘(0600权限)"""
+    import os as _os
     secret_path = DATA_DIR / ".jwt_secret"
     if not cfg.auth.jwt_secret:
         if secret_path.exists():
@@ -319,9 +357,11 @@ def _ensure_jwt_secret(cfg: Settings) -> Settings:
         else:
             DATA_DIR.mkdir(parents=True, exist_ok=True)
             new_secret = secrets.token_urlsafe(48)
-            secret_path.write_text(new_secret, encoding="utf-8")
+            fd = _os.open(str(secret_path), _os.O_WRONLY | _os.O_CREAT | _os.O_TRUNC, 0o600)
+            _os.write(fd, new_secret.encode("utf-8"))
+            _os.close(fd)
             cfg.auth.jwt_secret = new_secret
-            logger.info("Generated new JWT secret and saved to %s", secret_path)
+            logger.info("Generated new JWT secret and saved to %s (mode 0600)", secret_path)
     return cfg
 
 
@@ -364,6 +404,17 @@ def load_settings(config_path: Path | None = None) -> Settings:
     if not cfg.auth.admin_password.strip() and env_pw:
         cfg.auth.admin_password = env_pw
         logger.info("admin_password loaded from MOA_ADMIN_PASSWORD env var")
+    # Container/12-factor support: env overrides for host/port/workers so the
+    # Dockerfile's ENV MOA_HOST/MOA_PORT actually take effect.
+    env_host = os.environ.get("MOA_HOST", "").strip()
+    if env_host:
+        cfg.server.host = env_host
+    env_port = os.environ.get("MOA_PORT", "").strip()
+    if env_port.isdigit():
+        cfg.server.port = int(env_port)
+    env_workers = os.environ.get("MOA_WORKERS", "").strip()
+    if env_workers.isdigit():
+        cfg.server.workers = int(env_workers)
     cfg = _ensure_jwt_secret(cfg)
     cfg = _resolve_api_keys(cfg)
     return cfg

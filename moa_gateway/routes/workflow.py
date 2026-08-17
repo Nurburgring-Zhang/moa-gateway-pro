@@ -72,7 +72,7 @@ async def execute_workflow(
         logger.exception("Workflow execution failed: %s", exc)
         raise HTTPException(500, "Internal error during workflow execution") from exc
 
-    return result
+    return result  # type: ignore[no-any-return]
 
 
 @router.get("/v1/workflows")
@@ -83,6 +83,36 @@ async def list_workflows(
     loader = _get_loader()
     workflows = loader.list_workflows()
     return {"workflows": workflows, "total": len(workflows)}
+
+
+@router.post("/v1/workflows/{name}/trigger")
+async def trigger_workflow(
+    name: str,
+    body: dict[str, Any] | None = None,
+    key_info: dict[str, Any] = Depends(require_api_key),
+) -> dict[str, Any]:
+    """Trigger (execute) a workflow by name — the admin-ui "Trigger" button.
+
+    Really executes the workflow DAG with an optional context (audit F5 fix);
+    the result is the workflow's genuine execution output.
+    """
+    loader = _get_loader()
+    wf = loader.get_workflow(name)
+    if wf is None:
+        raise HTTPException(404, f"Workflow '{name}' not found")
+
+    context = (body or {}).get("context", {}) if isinstance(body, dict) else {}
+    try:
+        result = await wf.execute(context)
+    except ValueError as exc:
+        raise HTTPException(400, f"Invalid workflow input: {exc}") from exc
+    except (ConnectionError, TimeoutError) as exc:
+        raise HTTPException(503, f"Upstream service unavailable: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Workflow trigger failed: %s", exc)
+        raise HTTPException(500, "Internal error during workflow execution") from exc
+
+    return {"name": name, "triggered": True, "result": result}
 
 
 @router.get("/v1/workflows/{name}")

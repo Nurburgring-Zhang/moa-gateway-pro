@@ -4,8 +4,9 @@ from __future__ import annotations
 import asyncio
 import statistics
 import time
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
-from typing import Any, Callable, Coroutine, List
+from typing import Any
 
 import httpx
 
@@ -51,7 +52,7 @@ class LoadRunner:
         self, name: str, scenario_fn: ScenarioFn
     ) -> BenchmarkResult:
         """Execute a single benchmark scenario with specified concurrency & duration."""
-        latencies: List[float] = []
+        latencies: list[float] = []
         errors: dict[str, int] = {}
         status_codes: dict[int, int] = {}
         success_count = 0

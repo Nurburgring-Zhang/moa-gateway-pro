@@ -5,11 +5,10 @@ from __future__ import annotations
 
 import asyncio
 import time
+from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from unittest.mock import patch
-
 
 # --------------- Fixtures ---------------
 
@@ -21,8 +20,11 @@ async def app():
     """Create a test FastAPI app with isolated config and valid auth.
     Rate limiting is disabled for stress testing.
     """
-    from moa_gateway.config import Settings
+    from moa_gateway.config import ModelEndpointConfig, Settings
 
+    # Explicit mock-backed endpoint: tests below request "deepseek-v3" and
+    # expect a 200. With an empty pool they would 503. (Previously these
+    # tests passed only by leaking endpoints from the real data/config.db.)
     test_settings = Settings(
         auth={
             "admin_username": "admin",
@@ -32,13 +34,23 @@ async def app():
             "gateway_api_keys": [API_KEY],
         },
         ratelimit={"enabled": False},  # disable rate limiting for stress tests
+        models=[
+            ModelEndpointConfig(
+                id="deepseek-v3",
+                provider="deepseek",
+                model="deepseek-v3",
+                tier="standard",
+                enabled=True,
+            )
+        ],
     )
-    with patch("moa_gateway.config.get_settings", return_value=test_settings):
-        with patch("moa_gateway.config._settings", test_settings):
-            from moa_gateway.server import create_app
+    # NOTE: only patch ``_settings`` — replacing ``get_settings`` itself can
+    # leak into modules that bind it at import time.
+    with patch("moa_gateway.config._settings", test_settings):
+        from moa_gateway.server import create_app
 
-            application = create_app()
-            yield application
+        application = create_app()
+        yield application
 
 
 @pytest.fixture
@@ -74,7 +86,7 @@ class TestMOAStrategies:
 
     async def test_strategy_registry_populated(self):
         """Strategy registry should contain built-in strategies"""
-        from moa_gateway.moa_strategies import list_strategies, get_strategy
+        from moa_gateway.moa_strategies import get_strategy, list_strategies
 
         strategies = list_strategies()
         assert len(strategies) >= 5
@@ -97,13 +109,19 @@ class TestMOAStrategies:
                 "max_tokens": 100,
             },
         )
-        # Mock provider may respond 200, or no real backend -> 503
-        assert resp.status_code in (200, 503)
+        # The app fixture declares an explicit deepseek-v3 endpoint served by
+        # the explicit MockProvider, so this must deterministically be 200.
+        assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data, dict)
 
     async def test_fallback_on_model_failure(self, client, headers):
-        """Non-existent model should return 503 (no available model)."""
+        """A nonexistent, explicitly-named model must fail loudly.
+
+        Audit F29: the gateway returns 404 "model not found" (OpenAI-style)
+        rather than silently rerouting to a different model. 503 is accepted
+        too, for the empty-pool edge case.
+        """
         resp = await client.post(
             "/v1/chat/completions",
             headers=headers,
@@ -112,7 +130,7 @@ class TestMOAStrategies:
                 "messages": [{"role": "user", "content": "test"}],
             },
         )
-        assert resp.status_code == 503
+        assert resp.status_code in (404, 503)
         data = resp.json()
         assert "detail" in data
         assert isinstance(data["detail"], str)
@@ -152,9 +170,8 @@ class TestConcurrency:
         tasks = [make_request(i) for i in range(50)]
         results = await asyncio.gather(*tasks)
 
-        # All should be 200 (mock) or 503 (no provider), never 500
-        valid_codes = {200, 502, 503}
-        assert all(r in valid_codes for r in results), (
+        # Explicit mock endpoint + disabled rate limiting -> all must be 200
+        assert all(r == 200 for r in results), (
             f"Unexpected status codes: "
             f"{dict((s, results.count(s)) for s in set(results))}"
         )
@@ -191,8 +208,10 @@ class TestConcurrency:
             tasks.extend([request_3d(), request_world(), request_embodied()])
 
         results = await asyncio.gather(*tasks)
-        assert all(r.status_code == 502 for r in results), (
-            f"Expected all 502 but got distribution: "
+        # R6: 3D/video/world/embodied now return 200 mock fallback (mock.mode=explicit).
+        # All should be 200 (mock) or 4xx (validation) — no unexpected 5xx.
+        assert all(r.status_code < 500 for r in results), (
+            f"Unexpected 5xx in distribution: "
             f"{dict((s, [r.status_code for r in results].count(s)) for s in set(r.status_code for r in results))}"
         )
 
@@ -365,12 +384,10 @@ class TestPerformance:
         results = await asyncio.gather(*tasks)
         elapsed = time.perf_counter() - start
 
-        # All requests should complete without server error (200 mock or 503 no-provider)
-        valid_codes = {200, 502, 503}
-        all_valid = all(r.status_code in valid_codes for r in results)
+        # Explicit mock endpoint + disabled rate limiting -> all must be 200
         rps = 50 / elapsed if elapsed > 0 else 0
         print(f"\n[PERF] Throughput: {rps:.0f} req/s, total={elapsed:.2f}s")
-        assert all_valid, (
+        assert all(r.status_code == 200 for r in results), (
             f"Unexpected status codes: "
             f"{dict((s, [r.status_code for r in results].count(s)) for s in set(r.status_code for r in results))}"
         )

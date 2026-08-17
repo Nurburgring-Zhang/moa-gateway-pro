@@ -1,18 +1,88 @@
 """Run executor — processes runs by calling LLM and handling tool calls."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any
 
-from .models import Run, RunStep, Message
+from .models import Message, Run, RunStep
 from .storage import get_storage
 
 logger = logging.getLogger(__name__)
 
+# D12: in-process guard against the same run being executed twice at once
+# (e.g. two racing submit_tool_outputs requests that both observed
+# requires_action before either background task started).
+_active_run_ids: set[str] = set()
+
+
+def _acquire_run(run_id: str) -> bool:
+    """Claim exclusive in-process execution rights for a run."""
+    if run_id in _active_run_ids:
+        return False
+    _active_run_ids.add(run_id)
+    return True
+
+
+def _release_run(run_id: str) -> None:
+    _active_run_ids.discard(run_id)
+
+
+def _run_timeouts() -> tuple[float, float]:
+    """(whole-run timeout, single LLM round-trip timeout) from settings."""
+    try:
+        from ..config import get_settings
+
+        cfg = get_settings().assistant
+        return float(cfg.run_timeout_seconds), float(cfg.llm_call_timeout_seconds)
+    except Exception:  # noqa: BLE001 — executor must never crash on config
+        return 300.0, 120.0
+
 
 async def execute_run(run: Run) -> Run:
     """Execute a run: call LLM, handle tool calls, produce assistant message."""
+    storage = get_storage()
+
+    # D12: never execute the same run twice concurrently.
+    if not _acquire_run(run.id):
+        logger.warning("Run %s is already executing; skipping duplicate", run.id)
+        return storage.get_run(run.id) or run
+
+    run_timeout, _ = _run_timeouts()
+    # T5.1: trace the whole run; child spans (_call_llm) nest under it when a
+    # request trace context is present, otherwise a fresh trace is started.
+    from ..observability.tracer import get_tracer
+
+    with get_tracer().start_span("assistant.run", {"assistant.run.id": run.id}):
+        try:
+            try:
+                return await asyncio.wait_for(_execute_run_inner(run), timeout=run_timeout)
+            except asyncio.TimeoutError:
+                logger.error("Run %s timed out after %.0fs", run.id, run_timeout)
+                # Narrow race: the inner task may have landed a terminal state in
+                # the same instant the timeout fired. Never overwrite it.
+                on_disk = storage.get_run(run.id)
+                if on_disk is not None and on_disk.status in (
+                    "completed",
+                    "requires_action",
+                    "failed",
+                    "cancelled",
+                ):
+                    return on_disk
+                run.status = "failed"
+                run.failed_at = int(time.time())
+                run.last_error = {
+                    "code": "timeout",
+                    "message": f"run exceeded {run_timeout:.0f}s",
+                }
+                storage.save_run(run)
+                return run
+        finally:
+            _release_run(run.id)
+
+
+async def _execute_run_inner(run: Run) -> Run:
     storage = get_storage()
 
     # Update status to in_progress
@@ -128,8 +198,54 @@ async def submit_tool_outputs(run: Run, tool_outputs: list[dict[str, Any]]) -> R
     """Submit tool outputs and continue the run."""
     storage = get_storage()
 
-    if run.status != "requires_action":
-        raise ValueError(f"Run is not in requires_action state: {run.status}")
+    # The route flips requires_action -> in_progress and persists it *before*
+    # scheduling this background task (so racing submits get a 400), therefore
+    # both states are legitimate entry points here. Re-read from disk to make
+    # the decision against persisted truth, not a possibly-stale object.
+    fresh = storage.get_run(run.id)
+    if fresh is not None:
+        run = fresh
+    if run.status not in ("requires_action", "in_progress"):
+        raise ValueError(f"Run is not awaiting tool outputs: {run.status}")
+
+    # D12: never execute the same run twice concurrently.
+    if not _acquire_run(run.id):
+        logger.warning("Run %s is already executing; skipping duplicate", run.id)
+        return storage.get_run(run.id) or run
+
+    run_timeout, _ = _run_timeouts()
+    from ..observability.tracer import get_tracer
+
+    with get_tracer().start_span("assistant.submit", {"assistant.run.id": run.id}):
+        try:
+            return await asyncio.wait_for(
+                _submit_tool_outputs_inner(run, tool_outputs), timeout=run_timeout
+            )
+        except asyncio.TimeoutError:
+            logger.error("Run %s timed out after %.0fs", run.id, run_timeout)
+            # Same terminal-state race guard as execute_run above.
+            on_disk = storage.get_run(run.id)
+            if on_disk is not None and on_disk.status in (
+                "completed",
+                "requires_action",
+                "failed",
+                "cancelled",
+            ):
+                return on_disk
+            run.status = "failed"
+            run.failed_at = int(time.time())
+            run.last_error = {
+                "code": "timeout",
+                "message": f"run exceeded {run_timeout:.0f}s",
+            }
+            storage.save_run(run)
+            return run
+        finally:
+            _release_run(run.id)
+
+
+async def _submit_tool_outputs_inner(run: Run, tool_outputs: list[dict[str, Any]]) -> Run:
+    storage = get_storage()
 
     # Get original messages + tool call context
     assistant = storage.get_assistant(run.assistant_id)
@@ -203,10 +319,11 @@ async def _call_llm(
 ) -> dict[str, Any]:
     """Call LLM via internal gateway."""
     import httpx
-    import os
 
-    gateway_url = os.environ.get("MOA_GATEWAY_URL", "http://localhost:8910")
-    gateway_key = os.environ.get("MOA_GATEWAY_KEY", "")
+    from ..internal_callback import internal_auth_headers, internal_gateway_url
+
+    gateway_url = internal_gateway_url()
+    _, llm_timeout = _run_timeouts()
 
     payload: dict[str, Any] = {
         "model": model,
@@ -216,15 +333,26 @@ async def _call_llm(
     if tools:
         payload["tools"] = tools
 
-    headers: dict[str, str] = {}
-    if gateway_key:
-        headers["Authorization"] = f"Bearer {gateway_key}"
+    # D12: internal callback must authenticate (env key -> settings fallback),
+    # otherwise the loopback request 401s and the run fails.
+    headers = internal_auth_headers()
 
-    async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(
-            f"{gateway_url}/v1/chat/completions",
-            json=payload,
-            headers=headers,
-        )
-        resp.raise_for_status()
-        return resp.json()
+    # trust_env=False: loopback calls must never be hijacked by HTTP(S)_PROXY
+    # (aligned with yaml_workflow._http_post).
+    from ..observability.tracer import get_tracer
+
+    with get_tracer().start_span("assistant.llm_call", {"llm.model": model}):
+        async with httpx.AsyncClient(timeout=llm_timeout, trust_env=False) as client:
+            resp = await client.post(
+                f"{gateway_url}/v1/chat/completions",
+                json=payload,
+                headers=headers,
+            )
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                # do not leak the internal gateway URL into run error messages
+                raise RuntimeError(
+                    f"internal gateway call failed: HTTP {e.response.status_code}"
+                ) from None
+            return resp.json()  # type: ignore[no-any-return]

@@ -5,8 +5,7 @@ for all critical API endpoints without requiring external LLM services.
 """
 from __future__ import annotations
 
-import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -67,9 +66,21 @@ class TestHealthEndpoints:
 
     @pytest.mark.anyio
     async def test_health_detailed_returns_200(self, client):
-        """GET /api/health/detailed should return 200."""
-        resp = await client.get("/api/health/detailed")
+        """GET /api/health/detailed should return 200 for an authenticated caller.
+
+        v3.1.1: the endpoint now requires an API key (pool snapshot exposure).
+        """
+        resp = await client.get(
+            "/api/health/detailed",
+            headers={"Authorization": "Bearer test-api-key-12345"},
+        )
         assert resp.status_code == 200
+
+    @pytest.mark.anyio
+    async def test_health_detailed_requires_auth(self, client):
+        """v3.1.1: unauthenticated detailed health must be rejected."""
+        resp = await client.get("/api/health/detailed")
+        assert resp.status_code == 401
 
 
 # ============================================================

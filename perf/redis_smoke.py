@@ -8,9 +8,10 @@
   5. TTL/EXPIRE - 模拟 session 过期
   6. PUB/SUB - 模拟事件通知
 """
-import time
-import sys
 import json
+import sys
+import time
+
 import redis
 
 

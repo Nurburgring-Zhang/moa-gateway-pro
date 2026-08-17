@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -17,12 +17,17 @@ class ImageEditProvider(ABC):
         self.api_key = api_key
         self.api_base = api_base
 
+    def _check_api_key(self) -> None:
+        """Guard: raise if API key is not configured."""
+        if not self.api_key:
+            raise RuntimeError(f"API key not configured for {self.__class__.__name__}")
+
     @abstractmethod
     async def edit_image(
         self,
         image: bytes,
         prompt: str,
-        mask: Optional[bytes] = None,
+        mask: bytes | None = None,
         size: str = "1024x1024",
         n: int = 1,
     ) -> list[str]:
@@ -52,11 +57,12 @@ class DallEEditProvider(ImageEditProvider):
         self,
         image: bytes,
         prompt: str,
-        mask: Optional[bytes] = None,
+        mask: bytes | None = None,
         size: str = "1024x1024",
         n: int = 1,
     ) -> list[str]:
         """Edit image via OpenAI /v1/images/edits API."""
+        self._check_api_key()
         url = f"{self.api_base}/v1/images/edits"
         headers = {"Authorization": f"Bearer {self.api_key}"}
 
@@ -83,6 +89,7 @@ class DallEEditProvider(ImageEditProvider):
         size: str = "1024x1024",
     ) -> list[str]:
         """Create variations via OpenAI /v1/images/variations API."""
+        self._check_api_key()
         url = f"{self.api_base}/v1/images/variations"
         headers = {"Authorization": f"Bearer {self.api_key}"}
 
@@ -94,7 +101,7 @@ class DallEEditProvider(ImageEditProvider):
         }
 
         async with httpx.AsyncClient(timeout=120) as client:
-            resp = await client.post(url, headers=headers, files=files)
+            resp = await client.post(url, headers=headers, files=files)  # type: ignore[arg-type]
             resp.raise_for_status()
             data = resp.json()
             return [item["url"] for item in data.get("data", [])]
@@ -112,7 +119,7 @@ class SDInpaintProvider(ImageEditProvider):
         self,
         image: bytes,
         prompt: str,
-        mask: Optional[bytes] = None,
+        mask: bytes | None = None,
         size: str = "1024x1024",
         n: int = 1,
     ) -> list[str]:
@@ -132,7 +139,7 @@ class SDInpaintProvider(ImageEditProvider):
             "cfg_scale": 7.5,
             "denoising_strength": 0.75,
             "batch_size": n,
-            "width": int(size.split("x")[0]),
+            "width": int(size.split("x", maxsplit=1)[0]),
             "height": int(size.split("x")[1]),
         }
 
@@ -172,3 +179,42 @@ class SDInpaintProvider(ImageEditProvider):
             size=size,
             n=n,
         )
+
+
+class MockImageEditProvider(ImageEditProvider):
+    """Mock image-edit provider (audit F26 fix).
+
+    Used when no real image-edit backend is configured and mock.mode=explicit,
+    so /v1/images/edits and /v1/images/variations return a labeled 200 instead
+    of 502. The placeholder URLs are clearly synthetic and the response carries
+    the X-MOA-Mock header.
+    """
+
+    async def edit_image(
+        self,
+        image: bytes,
+        prompt: str,
+        mask: bytes | None = None,
+        size: str = "1024x1024",
+        n: int = 1,
+    ) -> list[str]:
+        logger.warning(
+            "[mock] image edit: no real provider configured (set OPENAI_API_KEY or "
+            "SD_API_BASE); returning synthetic URLs"
+        )
+        import hashlib
+
+        tag = hashlib.md5((prompt or "").encode()).hexdigest()[:8]
+        return [f"https://mock.example.com/edited-{tag}-{i}.png?size={size}" for i in range(n)]
+
+    async def create_variation(
+        self,
+        image: bytes,
+        n: int = 1,
+        size: str = "1024x1024",
+    ) -> list[str]:
+        logger.warning("[mock] image variation: no real provider configured; synthetic URLs")
+        import hashlib
+
+        tag = hashlib.md5(image[:64]).hexdigest()[:8] if image else "var"
+        return [f"https://mock.example.com/variation-{tag}-{i}.png?size={size}" for i in range(n)]

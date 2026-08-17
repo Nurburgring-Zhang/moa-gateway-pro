@@ -13,17 +13,28 @@ class AuditIntegrity:
     """Audit log tamper protection using HMAC chain."""
 
     def __init__(self, signing_key: str | None = None):
-        key = signing_key or os.getenv("MOA_AUDIT_SIGNING_KEY", "audit-default-key")
-        self._key = key.encode()
+        key = signing_key or os.getenv("MOA_AUDIT_SIGNING_KEY", "")
+        if not key or key == "audit-default-key":
+            self._key: bytes | None = None
+        else:
+            self._key = key.encode()
         self._last_hash: str | None = None  # Hash of previous entry
+
+    @property
+    def enabled(self) -> bool:
+        return self._key is not None
 
     def sign_entry(self, entry: dict) -> dict:
         """Add integrity signature to an audit entry."""
+        if not self.enabled:
+            return entry
+
         entry["_seq"] = int(time.time() * 1000000)  # Microsecond sequence
         entry["_prev_hash"] = self._last_hash or "GENESIS"
 
         # Compute hash of current entry
         payload = json.dumps(entry, sort_keys=True, ensure_ascii=False)
+        assert self._key is not None
         current_hash = hmac.new(self._key, payload.encode(), hashlib.sha256).hexdigest()
 
         entry["_hash"] = current_hash
@@ -42,6 +53,7 @@ class AuditIntegrity:
             return False
 
         payload = json.dumps(entry_copy, sort_keys=True, ensure_ascii=False)
+        assert self._key is not None
         expected_hash = hmac.new(self._key, payload.encode(), hashlib.sha256).hexdigest()
 
         return hmac.compare_digest(stored_hash, expected_hash)

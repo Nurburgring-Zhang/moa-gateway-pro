@@ -215,7 +215,7 @@ async def _call_provider(provider: Any, system: str, user: str, model: str = "mo
         )
         if hasattr(provider, "chat") and asyncio.iscoroutinefunction(provider.chat):
             resp = await provider.chat(req)
-            return resp.content
+            return resp.content  # type: ignore[no-any-return]
     except Exception:
         pass
 

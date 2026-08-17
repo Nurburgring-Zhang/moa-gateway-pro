@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from pathlib import Path
-from typing import Optional
 
-from .models import Assistant, Thread, Message, Run, RunStep
+from .models import Assistant, Message, Run, RunStep, Thread
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class AssistantStorage:
         path.write_text(json.dumps(assistant.model_dump(), ensure_ascii=False), encoding="utf-8")
         return assistant
 
-    def get_assistant(self, assistant_id: str) -> Optional[Assistant]:
+    def get_assistant(self, assistant_id: str) -> Assistant | None:
         path = self.data_dir / "assistants" / f"{assistant_id}.json"
         if not path.exists():
             return None
@@ -60,7 +60,7 @@ class AssistantStorage:
         path.write_text(json.dumps(thread.model_dump(), ensure_ascii=False), encoding="utf-8")
         return thread
 
-    def get_thread(self, thread_id: str) -> Optional[Thread]:
+    def get_thread(self, thread_id: str) -> Thread | None:
         path = self.data_dir / "threads" / f"{thread_id}.json"
         if not path.exists():
             return None
@@ -102,7 +102,7 @@ class AssistantStorage:
         path.write_text(json.dumps(run.model_dump(), ensure_ascii=False), encoding="utf-8")
         return run
 
-    def get_run(self, run_id: str) -> Optional[Run]:
+    def get_run(self, run_id: str) -> Run | None:
         # Search across thread sub-directories
         runs_dir = self.data_dir / "runs"
         for thread_dir in runs_dir.iterdir():
@@ -122,6 +122,41 @@ class AssistantStorage:
             results.append(Run(**data))
         results.sort(key=lambda r: r.created_at, reverse=True)
         return results[:limit]
+
+    def iter_all_runs(self):
+        """Yield every persisted run across all threads (D12 zombie sweep)."""
+        runs_dir = self.data_dir / "runs"
+        if not runs_dir.exists():
+            return
+        for thread_dir in runs_dir.iterdir():
+            if not thread_dir.is_dir():
+                continue
+            for f in thread_dir.glob("*.json"):
+                try:
+                    yield Run(**json.loads(f.read_text(encoding="utf-8")))
+                except (json.JSONDecodeError, ValueError, OSError) as exc:
+                    logger.warning("skipping unreadable run file %s: %s", f, exc)
+
+    def cleanup_stale_runs(self) -> int:
+        """Fail runs left in queued/in_progress by a previous process (D12).
+
+        Called once at startup: after a restart no background task is still
+        executing those runs, so leaving them 'in_progress' forever would
+        block the 409 active-run guard on their threads. Returns the number
+        of runs marked failed.
+        """
+        stale = 0
+        for run in self.iter_all_runs():
+            if run.status in ("queued", "in_progress"):
+                run.status = "failed"
+                run.failed_at = int(time.time())
+                run.last_error = {
+                    "code": "server_error",
+                    "message": "run interrupted by gateway restart",
+                }
+                self.save_run(run)
+                stale += 1
+        return stale
 
     # --- Run Steps ---
 
@@ -145,7 +180,7 @@ class AssistantStorage:
 
 
 # Global singleton
-_storage: Optional[AssistantStorage] = None
+_storage: AssistantStorage | None = None
 
 
 def get_storage() -> AssistantStorage:

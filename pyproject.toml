@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "moa-gateway-pro"
-version = "2.0.0"
+version = "3.1.1"
 description = "Industrial-grade multi-model collaboration gateway - one OpenAI key for all LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -28,12 +28,18 @@ dependencies = [
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
     "pydantic>=2.0",
+    "pydantic-settings>=2.0",
     "httpx>=0.25.0",
     "pyyaml>=6.0",
     "bcrypt>=4.1.0",
     "python-jose[cryptography]>=3.3.0",
     "python-multipart>=0.0.6",
     "aiofiles>=23.2.0",
+    "jinja2>=3.1.0",
+    "tenacity>=9.0.0",
+    "rich>=13.0",
+    "typer>=0.12",
+    "psutil>=5.9",
 ]
 
 [project.scripts]
@@ -51,9 +57,31 @@ dev = [
     "mypy>=1.5.0",
     "pre-commit>=3.5.0",
 ]
+ui = [
+    "flet>=0.27",
+]
+monitoring = [
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp>=1.20.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["moa_gateway*"]
+
+# v3.1.1 audit P1-15 fix: ship non-Python data files in the wheel/sdist.
+# The v3.1.0 wheel contained zero data files — pip installs lost prompt
+# templates, builtin workflows, webui assets and param templates.
+[tool.setuptools.package-data]
+moa_gateway = [
+    "prompts/**/*.md",
+    "prompts/**/*.yaml",
+    "workflows/builtin/*.yaml",
+    "workflows/builtin/*.yml",
+    "webui/**/*",
+    "param_templates/*.yaml",
+    "migrations/*.mako",
+    "migrations/versions/*.py",
+]
 
 [project.urls]
 Homepage = "https://github.com/Nurburgring-Zhang/moa-gateway-pro"
@@ -98,6 +126,60 @@ ignore = [
     "SIM108",  # use ternary (sometimes clearer with if/else)
     "PTH123",  # open() vs Path (allow builtin)
     "UP007",   # Optional[X] -> X | None (pydantic v1 compat)
+    # P3 工程债: 以下为代码风格建议,非功能性bug,降低优先级
+    "PTH100",  # os.path.abspath -> Path.resolve
+    "PTH101",  # os.chmod -> Path.chmod
+    "PTH102",  # os.mkdir -> Path.mkdir
+    "PTH103",  # os.makedirs -> Path.mkdir(parents=True)
+    "PTH104",  # os.rename -> Path.rename
+    "PTH105",  # os.replace -> Path.replace
+    "PTH106",  # os.rmdir -> Path.rmdir
+    "PTH107",  # os.remove -> Path.unlink
+    "PTH108",  # os.unlink -> Path.unlink
+    "PTH109",  # os.getcwd -> Path.cwd
+    "PTH110",  # os.path.exists -> Path.exists
+    "PTH111",  # os.path.expanduser -> Path.expanduser
+    "PTH112",  # os.path.isdir -> Path.is_dir
+    "PTH113",  # os.path.isfile -> Path.is_file
+    "PTH114",  # os.path.islink -> Path.is_symlink
+    "PTH115",  # os.readlink -> Path.readlink
+    "PTH116",  # os.stat -> Path.stat
+    "PTH117",  # os.path.isabs -> Path.is_absolute
+    "PTH118",  # os.path.join -> Path / operand
+    "PTH119",  # os.path.basename -> Path.name
+    "PTH120",  # os.path.dirname -> Path.parent
+    "PTH121",  # os.path.samefile -> Path.samefile
+    "PTH122",  # os.path.splitext -> Path.suffix
+    "PTH202",  # os.path.getsize -> Path.stat
+    "PTH204",  # os.path.getmtime -> Path.stat
+    "PTH206",  # os.sep -> os.altsep
+    "PTH208",  # os.listdir -> Path.iterdir
+    "PLW0108", # unnecessary-lambda
+    "PLC0206", # dict-index-missing-items
+    "PLR1714", # repeated-equality-comparison
+    "PLW0602", # global-variable-not-assigned
+    "SIM103",  # needless-bool
+    "SIM105",  # contextlib.suppress
+    "SIM110",  # any/all loop -> return
+    "SIM114",  # if-else with same body
+    "SIM115",  # open-file-with-context-handler
+    "SIM117",  # nested with
+    "SIM118",  # key in dict.keys() -> key in dict
+    "C401",    # unnecessary-generator-set
+    "C402",    # unnecessary-generator-dict
+    "C408",    # unnecessary-collection-call
+    "B905",    # zip-without-explicit-strict (large refactor)
+    "ERA001",  # commented-out code (may be intentional)
+    # Lazy import is intentional pattern in FastAPI (avoid circular imports, startup speed)
+    "PLC0415", # import-outside-top-level
+    "PLR0911", # too-many-return-statements
+    "PLR0912", # too-many-branches
+    "PLR0915", # too-many-statements
+    "PLW0603", # global-statement (singleton pattern)
+    "PLW2901", # redefined-loop-name
+    "PLW1510", # subprocess-run-without-check
+    "SIM102",  # collapsible-if
+    "SIM116",  # if-else-block-instead-of-dict-lookup
 ]
 
 [tool.ruff.lint.per-file-ignores]

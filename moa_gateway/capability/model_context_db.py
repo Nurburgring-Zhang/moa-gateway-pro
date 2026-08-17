@@ -739,7 +739,7 @@ def estimate_cost(
         "input_cost": round(input_cost, 8),
         "output_cost": round(output_cost, 8),
         "total_cost": round(total_cost, 8),
-        "currency": "USD",
+        "currency": "USD",  # type: ignore[dict-item]
     }
 
 

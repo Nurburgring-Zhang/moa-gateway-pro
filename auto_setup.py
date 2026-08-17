@@ -33,7 +33,7 @@ def check_status() -> bool:
     if ENV_FILE.exists():
         print(f"\n\u2713 .env 文件存在: {ENV_FILE}")
     else:
-        print(f"\n\u2717 .env 文件不存在（需要创建）")
+        print("\n\u2717 .env 文件不存在（需要创建）")
 
     # 检查关键环境变量
     checks = {
@@ -110,10 +110,10 @@ def auto_setup():
     if not ENV_FILE.exists():
         if ENV_EXAMPLE.exists():
             shutil.copy2(ENV_EXAMPLE, ENV_FILE)
-            print(f"\n\u2713 已从 .env.example 创建 .env")
+            print("\n\u2713 已从 .env.example 创建 .env")
         else:
             ENV_FILE.write_text("", encoding="utf-8")
-            print(f"\n\u2713 已创建空 .env 文件")
+            print("\n\u2713 已创建空 .env 文件")
 
     # 读取现有.env
     lines = ENV_FILE.read_text(encoding="utf-8").splitlines()
@@ -250,8 +250,8 @@ MOA_ADMIN_PASSWORD={admin_pwd}
 
     ENV_FILE.write_text(env_content, encoding="utf-8")
     print(f"\n\u2713 配置已写入 {ENV_FILE}")
-    print(f"\n启动命令:")
-    print(f"  python -m uvicorn moa_gateway.server:app --port 8000")
+    print("\n启动命令:")
+    print("  python -m uvicorn moa_gateway.server:app --port 8000")
 
 
 def main():

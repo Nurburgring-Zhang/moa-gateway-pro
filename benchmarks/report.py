@@ -4,13 +4,12 @@ from __future__ import annotations
 import platform
 import sys
 from datetime import datetime
-from typing import List
 
 from .runner import BenchmarkResult
 
 
 def generate_report(
-    results: List[BenchmarkResult],
+    results: list[BenchmarkResult],
     config_summary: dict,
 ) -> str:
     """Generate a Markdown performance baseline report."""
@@ -30,8 +29,8 @@ def generate_report(
         f"- **并发数**: {config_summary.get('concurrency', 'N/A')}",
         f"- **持续时间**: {config_summary.get('duration', 'N/A')}s",
         f"- **目标URL**: {config_summary.get('base_url', 'N/A')}",
-        f"- **Uvicorn Workers**: 1",
-        f"- **Database**: SQLite (本地)",
+        "- **Uvicorn Workers**: 1",
+        "- **Database**: SQLite (本地)",
         "",
         "## 基线结果",
         "",

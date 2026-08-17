@@ -244,7 +244,7 @@ def compute_score(metrics: HealthMetrics) -> HealthScore:
 
     # 4) failure_rate
     if metrics.total_calls > 0 and metrics.failure_count > 0:
-        pen = metrics.failure_rate * _PEN_FAILURE_RATE_MULT
+        pen = metrics.failure_rate * _PEN_FAILURE_RATE_MULT  # type: ignore[assignment]
         score -= pen
         reasons.append(f"failure_rate={metrics.failure_rate:.4f} -> -{pen:.2f}")
 

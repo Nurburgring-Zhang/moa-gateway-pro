@@ -90,11 +90,13 @@ secrets/
 docs/_build/
 
 # Temp scratch scripts (used during dev, not part of release)
-_*.py
-test_pat*.py
-debug_*.py
-dbg_*.py
-_dbg_*.py
+# NOTE: anchored to repo root — unanchored '_*.py' also ignored every
+# package '__init__.py' / '_helpers.py', breaking commits (B2 review H2).
+/_*.py
+/test_pat*.py
+/debug_*.py
+/dbg_*.py
+/_dbg_*.py
 
 # Any test_*.py anywhere — neither top-level nor capability/tests/
 test_*.py

@@ -4,14 +4,15 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time
-from typing import Any, Optional
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
+from .._helpers import mock_headers
 from ..auth import require_api_key
+from ..capability_toggles import require_capability
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["audio"])
@@ -57,13 +58,17 @@ _TTS_MODEL_MAP = {
 
 # ─── TTS Endpoint (OpenAI compatible) ─────────────────────────────────────────
 
-@router.post("/v1/audio/speech")
+@router.post("/v1/audio/speech", dependencies=[Depends(require_capability("tts"))])
 async def text_to_speech(
     req: TTSRequest,
     key_info: dict[str, Any] = Depends(require_api_key),
 ):
     """Generate speech from text. OpenAI /v1/audio/speech compatible."""
     provider = _get_audio_provider()
+
+    # Audit F24: the open-source provider's TTS is a labeled mock (no real
+    # synthesis); mark the response with X-MOA-Mock so clients know.
+    tts_is_mock = provider.__class__.__name__ == "OpenSourceAudioEditProvider"
 
     # Map OpenAI model names to ElevenLabs model IDs
     elevenlabs_model = _TTS_MODEL_MAP.get(req.model, req.model)
@@ -84,25 +89,32 @@ async def text_to_speech(
             "wav": "audio/wav",
         }
 
+        headers = {"Content-Disposition": f"attachment; filename=speech.{req.response_format}"}
+        headers.update(mock_headers(tts_is_mock))
         return Response(
             content=audio_bytes,
             media_type=content_type_map.get(req.response_format, "audio/mpeg"),
-            headers={"Content-Disposition": f"attachment; filename=speech.{req.response_format}"},
+            headers=headers,
         )
     except NotImplementedError as e:
-        raise HTTPException(status_code=501, detail=str(e))
+        raise HTTPException(status_code=501, detail=str(e)) from e
     except Exception as e:
         logger.error("TTS failed: %s", e)
-        raise HTTPException(status_code=502, detail=f"TTS error: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"TTS error: {str(e)}") from e
 
 
 # ─── Transcription Endpoint (OpenAI compatible) ───────────────────────────────────
 
-@router.post("/v1/audio/transcriptions", response_model=TranscriptionResponse)
+@router.post(
+    "/v1/audio/transcriptions",
+    response_model=TranscriptionResponse,
+    dependencies=[Depends(require_capability("stt"))],
+)
 async def transcribe_audio(
+    response: Response,
     file: UploadFile = File(..., description="Audio file (mp3/wav/m4a/webm)"),
     model: str = Form(default="whisper-1"),
-    language: Optional[str] = Form(default=None),
+    language: str | None = Form(default=None),
     response_format: str = Form(default="json"),
     key_info: dict[str, Any] = Depends(require_api_key),
 ):
@@ -116,23 +128,28 @@ async def transcribe_audio(
 
     provider = _get_audio_provider()
 
+    # Audit F24: the open-source provider's ASR is a labeled mock.
+    asr_is_mock = provider.__class__.__name__ == "OpenSourceAudioEditProvider"
+
     try:
         result = await provider.transcribe(
             audio_data=audio_bytes,
             language=language or "auto",
             response_format=response_format,
         )
+        for _hk, _hv in mock_headers(asr_is_mock).items():
+            response.headers[_hk] = _hv
         return TranscriptionResponse(text=result.get("text", ""))
     except NotImplementedError as e:
-        raise HTTPException(status_code=501, detail=str(e))
+        raise HTTPException(status_code=501, detail=str(e)) from e
     except Exception as e:
         logger.error("Transcription failed: %s", e)
-        raise HTTPException(status_code=502, detail=f"Transcription error: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"Transcription error: {str(e)}") from e
 
 
 # ─── Audio Edit Endpoint ──────────────────────────────────────────────────
 
-@router.post("/v1/audio/edit")
+@router.post("/v1/audio/edit", dependencies=[Depends(require_capability("stt"))])
 async def edit_audio(
     file: UploadFile = File(..., description="Audio file to edit"),
     operation: str = Form(..., description="Operation: denoise/speed_adjust/pitch_shift/style_transfer"),
@@ -156,7 +173,7 @@ async def edit_audio(
     try:
         operation_params = json.loads(params) if params else {}
     except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid JSON in params")
+        raise HTTPException(status_code=400, detail="Invalid JSON in params") from None
 
     provider = _get_audio_provider()
 
@@ -173,15 +190,19 @@ async def edit_audio(
             headers={"Content-Disposition": "attachment; filename=edited_audio.mp3"},
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error("Audio edit failed: %s", e)
-        raise HTTPException(status_code=502, detail=f"Audio edit error: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"Audio edit error: {str(e)}") from e
 
 
 # ─── Voice Clone Endpoint ─────────────────────────────────────────────────
 
-@router.post("/v1/audio/clone", response_model=VoiceCloneResponse)
+@router.post(
+    "/v1/audio/clone",
+    response_model=VoiceCloneResponse,
+    dependencies=[Depends(require_capability("tts"))],
+)
 async def clone_voice(
     name: str = Form(..., description="Name for the cloned voice"),
     description: str = Form(default="", description="Voice description"),
@@ -215,10 +236,10 @@ async def clone_voice(
         )
         return VoiceCloneResponse(**result)
     except NotImplementedError as e:
-        raise HTTPException(status_code=501, detail=str(e))
+        raise HTTPException(status_code=501, detail=str(e)) from e
     except Exception as e:
         logger.error("Voice clone failed: %s", e)
-        raise HTTPException(status_code=502, detail=f"Voice clone error: {str(e)}")
+        raise HTTPException(status_code=502, detail=f"Voice clone error: {str(e)}") from e
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────

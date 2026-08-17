@@ -12,10 +12,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import JSONResponse
 
-from .._helpers import err_500
+from .._helpers import err_500, mock_headers
 from ..auth import require_admin, require_api_key
+from ..capability_toggles import require_capability
 from ..req_models import (  # noqa: E501
     CreateAcceptanceRequest,
     CreateActionPolicyRequest,
@@ -103,16 +105,38 @@ router = APIRouter(tags=["capability"])
 @router.post("/v1/capability/secret-scan")
 async def capability_secret_scan(
     body: CreateSecretScanRequest,
-    key_info: dict[str, Any] = Depends(require_api_key),
+    admin: dict[str, Any] = Depends(require_admin),
 ):
     """9 类硬编码密钥扫描 + 3 层豁免 (来自 moa-skill + moat-ops-auditor)
     Body: {"path": "./", "fail_on": 3, "no_block": false}
+
+    v3.1.1 audit P1-1 fix:
+    - admin-only (any-key callers could read arbitrary server paths before)
+    - path must stay inside the project root / data dir (commonpath check)
+    - findings are redacted at the source (no raw secret leaves the server)
     """
     from ..capability.secret_scan import scan_path, should_block
+    from ..config import DATA_DIR, ROOT_DIR
 
-    p = Path(body.get("path", "."))
+    p = Path(body.get("path", ".")).resolve()
     if not p.exists():
         raise HTTPException(400, f"path not found: {p}")
+
+    allowed_roots = [Path(ROOT_DIR).resolve(), Path(DATA_DIR).resolve()]
+    contained = False
+    for root in allowed_roots:
+        try:
+            if os.path.commonpath([str(p), str(root)]) == str(root):
+                contained = True
+                break
+        except ValueError:
+            continue
+    if not contained:
+        raise HTTPException(
+            403,
+            "secret-scan path must stay inside the gateway project/data directory",
+        )
+
     result = scan_path(p)
     blocked = should_block(result, body.get("fail_on", 3)) and not body.get("no_block", False)
     return {**result.to_dict(), "blocked": blocked}
@@ -439,14 +463,24 @@ async def capability_action_policy(
     return verdict.__dict__
 
 
-@router.post("/v1/capability/embeddings")
+@router.post(
+    "/v1/capability/embeddings",
+    dependencies=[Depends(require_capability("embedding"))],
+)
+@router.post("/v1/embeddings", dependencies=[Depends(require_capability("embedding"))])
 async def capability_embeddings(
     body: CreateEmbeddingsRequest,
+    response: Response,
     key_info: dict[str, Any] = Depends(require_api_key),
 ):
     """L-36 Embedding 端点 (OpenAI 兼容 /v1/embeddings 接口)
     Body: {"input":["text1","text2"], "model":"mock", "dim":384}
     Returns: {"data":[{"index":0,"embedding":[...]},...], "model":"mock", "dim":384}
+
+    Audit F24/F27: this implementation uses a deterministic hash-based mock
+    embedding provider (no real semantic model). It is labeled with the
+    X-MOA-Mock header so clients are never misled into treating the vectors
+    as real model embeddings.
     """
     from ..capability.embedding import MockEmbeddingProvider
 
@@ -457,6 +491,8 @@ async def capability_embeddings(
     model = body.get("model", "mock-embedding-v1")
     provider = MockEmbeddingProvider(model=model, dim=dim)
     vectors = provider.embed(inputs)
+    for _hk, _hv in mock_headers(True).items():
+        response.headers[_hk] = _hv
     return {
         "object": "list",
         "data": [
@@ -464,6 +500,7 @@ async def capability_embeddings(
         ],
         "model": model,
         "dim": dim,
+        "mock": True,
         "usage": {
             "prompt_tokens": sum(len(t.split()) for t in inputs),
             "total_tokens": sum(len(t.split()) for t in inputs),
@@ -474,10 +511,15 @@ async def capability_embeddings(
 @router.post("/v1/capability/semantic-search")
 async def capability_semantic_search(
     body: CreateSemanticSearchRequest,
+    response: Response,
     key_info: dict[str, Any] = Depends(require_api_key),
 ):
     """L-36 语义搜索 (端到端: embed query + 搜 index)
     Body: {"query":"...","documents":["a","b","c"],"top_k":3,"dim":384}
+
+    Uses the deterministic hash-based MockEmbeddingProvider — results are
+    labeled X-MOA-Mock + mock:true (audit fix) so clients are never misled
+    into treating them as real model-backed similarity scores.
     """
     from ..capability.embedding import (
         EmbeddingIndex,
@@ -494,11 +536,14 @@ async def capability_semantic_search(
         index.add(doc, vec)
     query_vec = provider.embed([body.get("query", "")])[0]
     results = index.search(query_vec, top_k=body.get("top_k", 3))
+    for _hk, _hv in mock_headers(True).items():
+        response.headers[_hk] = _hv
     return {
         "query": body.get("query", ""),
         "results": [
             {"rank": i + 1, "score": s, "text": t} for i, (idx, s, t) in enumerate(results)
         ],
+        "mock": True,
     }
 
 
@@ -548,7 +593,7 @@ async def capability_provider_health(
 
     metrics_list = [HealthMetrics(**m) for m in body.get("providers", [])]
     scores = {m.provider: compute_score(m) for m in metrics_list}
-    agg = aggregate_scores(list(scores.values()))
+    _agg = aggregate_scores(list(scores.values()))
     ranked = rank_providers(scores)
     return {
         "scores": {
@@ -650,11 +695,11 @@ async def capability_multi_mode_synth(
     proposals = [Proposal(**p) for p in body.get("proposals", [])]
     mode = body.get("mode", "classification")
     kwargs = {}
-    if "scores" in body:
+    if "scores" in body:  # type: ignore[operator]
         kwargs["scores"] = body["scores"]
-    if "target_chars" in body:
+    if "target_chars" in body:  # type: ignore[operator]
         kwargs["target_chars"] = body["target_chars"]
-    if "prev_proposals" in body and "curr_proposals" in body:
+    if "prev_proposals" in body and "curr_proposals" in body:  # type: ignore[operator]
         kwargs["prev_proposals"] = [Proposal(**p) for p in body["prev_proposals"]]
         kwargs["curr_proposals"] = [Proposal(**p) for p in body["curr_proposals"]]
     try:
@@ -794,10 +839,15 @@ async def capability_feedback_iter(
 @router.post("/v1/capability/stream-aggregate")
 async def capability_stream_aggregate(
     body: CreateStreamAggregateRequest,
+    response: Response,
     key_info: dict[str, Any] = Depends(require_api_key),
 ):
     """M-06 Aggregator 流式 + 非流式 fallback
     Body: {"prompt":"...","model":"mock-stream-v1","fail_prob":0.0,"use_fallback":true}
+
+    Runs on MockStreamingProvider (synthetic echo output) — labeled X-MOA-Mock
+    + mock:true (audit fix) so the synthetic content is never mistaken for a
+    real LLM stream.
     """
     from ..capability.streaming_agg import (
         MockStreamingProvider,
@@ -818,12 +868,15 @@ async def capability_stream_aggregate(
 
     except Exception as e:
         raise err_500(e, "stream aggregate failed:") from e
+    for _hk, _hv in mock_headers(True).items():
+        response.headers[_hk] = _hv
     return {
         "full_content": result.full_content,
         "tool_calls": result.tool_calls,
         "finish_reason": result.finish_reason,
         "total_chunks": result.total_chunks,
         "streaming_succeeded": result.streaming_succeeded,
+        "mock": True,
         "chunks_preview": [
             {"idx": c.chunk_idx, "type": c.delta_type, "content_preview": c.content[:40]}
             for c in result.chunks[:5]
@@ -846,7 +899,7 @@ async def capability_per_provider_rl(
 
     # 单 provider 模式: limits 转 {provider: ProviderLimit}
     limits_data = body.get("limits", {})
-    if not limits_data and "provider" in body:
+    if not limits_data and "provider" in body:  # type: ignore[operator]
         limits_data = {
             body["provider"]: body.get(
                 "limit_config",
@@ -1041,13 +1094,13 @@ async def capability_quorum_check(
         }
     if body.get("judge_response"):
         jr = body["judge_response"]
-        if "response_a" in body and "response_b" in body:
+        if "response_a" in body and "response_b" in body:  # type: ignore[operator]
             result["battle"] = {
                 "winner": parse_battle(jr)[0],
                 "swap_consistent": swap_positions_battle(
                     body["response_a"],
                     body["response_b"],
-                    lambda r: parse_battle(r),
+                    lambda r: parse_battle(r),  # type: ignore[arg-type, misc]
                 )
                 == "consistent",
             }
@@ -1093,7 +1146,7 @@ async def capability_model_entry(
         result_models = filter_by_modality(result_models, Modality(flt["modality"].upper()))
     if "min_context" in flt:
         result_models = filter_by_min_context(result_models, flt["min_context"])
-    if "max_budget_input" in body or "max_budget_output" in body:
+    if "max_budget_input" in body or "max_budget_output" in body:  # type: ignore[operator]
         result_models = find_within_budget(
             result_models,
             body.get("max_budget_input"),
@@ -1173,8 +1226,8 @@ async def capability_hook_events(
 
     # 全局 registry (in-memory)
     if not hasattr(capability_hook_events, "_registry"):
-        capability_hook_events._registry = HookRegistry()
-    reg = capability_hook_events._registry
+        capability_hook_events._registry = HookRegistry()  # type: ignore[attr-defined]
+    reg = capability_hook_events._registry  # type: ignore[attr-defined]
     action = body.get("action", "ralph_advance")
     result = {}
     if action == "register":
@@ -1201,8 +1254,8 @@ async def capability_hook_events(
         stage = body.get("stage", "analyze")
         data = body.get("data", {})
         if not hasattr(capability_hook_events, "_ralph"):
-            capability_hook_events._ralph = RALPH_CYCLE(max_iter=body.get("max_iter", 5))
-        cycle = capability_hook_events._ralph
+            capability_hook_events._ralph = RALPH_CYCLE(max_iter=body.get("max_iter", 5))  # type: ignore[attr-defined]
+        cycle = capability_hook_events._ralph  # type: ignore[attr-defined]
         next_stage = cycle.advance(data)
         result = {
             "current_stage": stage,
@@ -1310,7 +1363,7 @@ async def capability_task_tree(
                     pass
     if tree is None:
         tree = TaskTree(root_id="root")
-        tree.add_task(TaskSegment(id="root", title="root", description="root", status="pending"))
+        tree.add_task(TaskSegment(id="root", title="root", description="root", status="pending"))  # type: ignore[arg-type, call-arg]
     # 修 v1.6.6: 删除 buggy "else: tree = TaskTree(root_id='root')" 覆盖代码
     action = body.get("action", "ready")
     task_id = body.get("task_id", "")
@@ -1319,15 +1372,15 @@ async def capability_task_tree(
         result = {"ready_tasks": _get_ready(tree)}
     elif action == "cycles":
         cycles = detect_cycles(tree)
-        result = {"cycles": cycles, "has_cycle": len(cycles) > 0}
+        result = {"cycles": cycles, "has_cycle": len(cycles) > 0}  # type: ignore[dict-item]
     elif action == "aggregates":
         result = compute_aggregates(tree, task_id) if task_id else {}
     elif action == "depth":
-        result = {"task_id": task_id, "depth": depth(tree, task_id) if task_id else -1}
+        result = {"task_id": task_id, "depth": depth(tree, task_id) if task_id else -1}  # type: ignore[dict-item]
     elif action == "is_leaf":
-        result = {"task_id": task_id, "is_leaf": is_leaf(tree, task_id) if task_id else False}
+        result = {"task_id": task_id, "is_leaf": is_leaf(tree, task_id) if task_id else False}  # type: ignore[dict-item]
     elif action == "is_root":
-        result = {"task_id": task_id, "is_root": is_root(tree, task_id) if task_id else False}
+        result = {"task_id": task_id, "is_root": is_root(tree, task_id) if task_id else False}  # type: ignore[dict-item]
     elif action == "set_status":
         new_status = body.get("status", "completed")
         try:
@@ -1335,10 +1388,10 @@ async def capability_task_tree(
         except ValueError:
             raise HTTPException(400, f"unknown status: {new_status}") from None
         tree.set_status(task_id, status_enum)
-        result = {"set": True, "task_id": task_id, "status": new_status}
+        result = {"set": True, "task_id": task_id, "status": new_status}  # type: ignore[dict-item]
     else:
         raise HTTPException(400, f"unknown action: {action}")
-    result["tree"] = tree_to_dict(tree)
+    result["tree"] = tree_to_dict(tree)  # type: ignore[assignment]
     return result
 
 
@@ -1368,17 +1421,17 @@ async def capability_distill(
             "kept_ideas": [i.__dict__ for i in distillation.kept_ideas],
         },
     }
-    if "evaluations" in body:
+    if "evaluations" in body:  # type: ignore[operator]
         evals = body["evaluations"]
         avg = multi_eval_average(evals)
-        biases = avg.pop("biases", {})
+        biases = avg.pop("biases", {})  # type: ignore[var-annotated]
         result["multi_eval"] = {
             "averages": avg,
             "biases": biases,
         }
         if body.get("apply_bias_correction") and biases:
             result["corrected"] = {
-                dim: apply_bias_correction({dim: scores}, {dim: biases.get(dim, 0)}).get(dim, 0)
+                dim: apply_bias_correction({dim: scores}, {dim: biases.get(dim, 0)}).get(dim, 0)  # type: ignore[union-attr]
                 for dim, scores in avg.items()
             }
     return result
@@ -1388,9 +1441,15 @@ async def capability_distill(
 @router.post("/v1/capability/rerank")
 async def capability_rerank(
     body: CreateRerankRequest,
+    response: Response,
     key_info: dict[str, Any] = Depends(require_api_key),
 ):
-    """L-37 Cohere Rerank v4 (latency-bounded) + L-31 Stream delta 完整代理
+    """L-37 Rerank (latency-bounded) + L-31 Stream delta 代理
+
+    NOTE (audit fix): the default reranker is the local heuristic
+    MockRerankProvider (Jaccard + length penalty) — NOT a live Cohere call.
+    The response is labeled X-MOA-Mock + mock:true so clients do not mistake
+    the heuristic scores for a production reranking model.
     Body: {"query":"...","documents":["d1","d2"],"top_n":3,"latency_budget_ms":2000}
     """
     from ..capability.rerank import (
@@ -1404,11 +1463,14 @@ async def capability_rerank(
     top_n = body.get("top_n", 10)
     budget = body.get("latency_budget_ms", 2000.0)
     result = rerank_with_budget(query, documents, top_n=top_n, latency_budget_ms=budget)
+    for _hk, _hv in mock_headers(True).items():
+        response.headers[_hk] = _hv
     result_data = {
         "query": result.query,
         "candidates": [c.__dict__ for c in result.candidates],
         "latency_ms": result.latency_ms,
         "truncated": result.truncated,
+        "mock": True,
     }
     if body.get("stream_chunks"):
         proxy = stream_delta_proxy(body["stream_chunks"])
@@ -1432,7 +1494,7 @@ async def capability_goal_eval(
     )
 
     tier_map = {1: "mechanical", 2: "model_declared"}
-    goals = []
+    goals = []  # type: ignore[var-annotated]
     for g in body.get("goals", []):
         tier_str = g.get("tier", "mechanical")
         if isinstance(tier_str, int):
@@ -1484,7 +1546,7 @@ async def capability_auto_converge(
     )
 
     result = {}
-    if "state" in body and "new_score" in body:
+    if "state" in body and "new_score" in body:  # type: ignore[operator]
         state_data = body["state"]
         state = ConvergenceState(
             iteration=state_data.get("iteration", 0),
@@ -1499,16 +1561,16 @@ async def capability_auto_converge(
         )
         new_state = check_convergence(state, cfg, body["new_score"])
         result["new_state"] = new_state.__dict__
-    if "classify_events" in body:
-        result["classified_tier"] = classify_tier(body["classify_events"])
-    if "history" in body:
-        result["stagnant"] = detect_stagnation(
+    if "classify_events" in body:  # type: ignore[operator]
+        result["classified_tier"] = classify_tier(body["classify_events"])  # type: ignore[assignment]
+    if "history" in body:  # type: ignore[operator]
+        result["stagnant"] = detect_stagnation(  # type: ignore[assignment]
             body["history"],
             threshold=body.get("stagnation_threshold", 3),
             epsilon=body.get("epsilon", 0.001),
         )
-    if "calibrate_score" in body:
-        result["calibrated"] = calibrate_confidence(
+    if "calibrate_score" in body:  # type: ignore[operator]
+        result["calibrated"] = calibrate_confidence(  # type: ignore[assignment]
             body["calibrate_score"],
             body.get("calibrate_samples", 0),
         )
@@ -1531,8 +1593,8 @@ async def capability_subagent_comms(
     try:
         if action in ("send", "broadcast", "reply", "inbox"):
             if not hasattr(capability_subagent_comms, "_hubs"):
-                capability_subagent_comms._hubs = {}
-            hubs = capability_subagent_comms._hubs
+                capability_subagent_comms._hubs = {}  # type: ignore[attr-defined]
+            hubs = capability_subagent_comms._hubs  # type: ignore[attr-defined]
             if session_id not in hubs:
                 hubs[session_id] = SubagentHub(session_id)
             hub = hubs[session_id]
@@ -1557,8 +1619,8 @@ async def capability_subagent_comms(
             "get_subtasks",
         ):
             if not hasattr(capability_subagent_comms, "_boards"):
-                capability_subagent_comms._boards = {}
-            boards = capability_subagent_comms._boards
+                capability_subagent_comms._boards = {}  # type: ignore[attr-defined]
+            boards = capability_subagent_comms._boards  # type: ignore[attr-defined]
             if session_id not in boards:
                 boards[session_id] = TaskBoard(session_id)
             board = boards[session_id]
@@ -1584,8 +1646,8 @@ async def capability_subagent_comms(
         elif action in ("acquire", "release", "is_held"):
             lock_id = body["lock_id"]
             if not hasattr(capability_subagent_comms, "_locks"):
-                capability_subagent_comms._locks = {}
-            locks = capability_subagent_comms._locks
+                capability_subagent_comms._locks = {}  # type: ignore[attr-defined]
+            locks = capability_subagent_comms._locks  # type: ignore[attr-defined]
             if lock_id not in locks:
                 locks[lock_id] = AdvisoryLock(
                     lock_id, body.get("holder", session_id), body.get("timeout", 10.0)
@@ -1624,8 +1686,8 @@ async def capability_version(
     )
 
     if not hasattr(capability_version, "_stores"):
-        capability_version._stores = {}
-    stores = capability_version._stores
+        capability_version._stores = {}  # type: ignore[attr-defined]
+    stores = capability_version._stores  # type: ignore[attr-defined]
     action = body.get("action", "add")
     result = {}
     try:
@@ -1702,8 +1764,8 @@ async def capability_config(
 
     # 全局 stack
     if not hasattr(capability_config, "_stack"):
-        capability_config._stack = ConfigStack()
-    stack = capability_config._stack
+        capability_config._stack = ConfigStack()  # type: ignore[attr-defined]
+    stack = capability_config._stack  # type: ignore[attr-defined]
     action = body.get("action", "get")
     result = {}
     try:
@@ -1758,15 +1820,15 @@ async def capability_bubble(
     )
 
     if not hasattr(capability_bubble, "_managers"):
-        capability_bubble._managers = {}
+        capability_bubble._managers = {}  # type: ignore[attr-defined]
     action = body.get("action", "escalate")
     result = {}
     try:
         if action in ("escalate", "resolve", "pending", "resolved"):
             parent_id = body.get("parent_id", "default")
-            if parent_id not in capability_bubble._managers:
-                capability_bubble._managers[parent_id] = BubbleManager(parent_id)
-            mgr = capability_bubble._managers[parent_id]
+            if parent_id not in capability_bubble._managers:  # type: ignore[attr-defined]
+                capability_bubble._managers[parent_id] = BubbleManager(parent_id)  # type: ignore[attr-defined]
+            mgr = capability_bubble._managers[parent_id]  # type: ignore[attr-defined]
             if action == "escalate":
                 req_id = mgr.escalate(
                     body["agent_id"], body.get("action_desc", ""), body.get("reason", "")
@@ -1783,8 +1845,8 @@ async def capability_bubble(
                 result = {"resolved": [r.__dict__ for r in resolved], "count": len(resolved)}
         elif action in ("schedule", "should_continue", "recent", "clear"):
             if not hasattr(capability_bubble, "_scheduler"):
-                capability_bubble._scheduler = EventScheduler()
-            sched = capability_bubble._scheduler
+                capability_bubble._scheduler = EventScheduler()  # type: ignore[attr-defined]
+            sched = capability_bubble._scheduler  # type: ignore[attr-defined]
             if action == "schedule":
                 ev = Event(
                     event_id=body.get("event_id", ""),
@@ -1902,7 +1964,7 @@ async def capability_route(
     result = {}
     try:
         if action == "route_request":
-            config = route_request(
+            config = route_request(  # type: ignore[call-arg]
                 task=body.get("task", ""),
                 file_count=body.get("file_count", 0),
                 single_domain=body.get("single_domain", True),
@@ -1949,11 +2011,11 @@ async def capability_session_lock(
     )
 
     if not hasattr(capability_session_lock, "_mgr"):
-        capability_session_lock._mgr = SessionLockManager()
+        capability_session_lock._mgr = SessionLockManager()  # type: ignore[attr-defined]
     if not hasattr(capability_session_lock, "_mcp"):
-        capability_session_lock._mcp = MCPRegistry()
-    mgr = capability_session_lock._mgr
-    mcp = capability_session_lock._mcp
+        capability_session_lock._mcp = MCPRegistry()  # type: ignore[attr-defined]
+    mgr = capability_session_lock._mgr  # type: ignore[attr-defined]
+    mcp = capability_session_lock._mcp  # type: ignore[attr-defined]
     action = body.get("action", "acquire")
     result = {}
     try:
@@ -2061,7 +2123,7 @@ async def capability_flask(
                     "weak": [d.name for d in f.weak_dimensions],
                 }
             )
-        result["task_scores"] = scores
+        result["task_scores"] = scores  # type: ignore[assignment]
     return result
 
 
@@ -2105,9 +2167,9 @@ async def capability_elo(
                 lb.record_match(m.winner_id, m.loser_id, m.timestamp)
             ratings_before = [
                 EloRating(
-                    model_id=r["model_id"],
-                    rating=r["rating"],
-                    matches_played=r.get("matches", 0),
+                    model_id=r["model_id"],  # type: ignore[index]
+                    rating=r["rating"],  # type: ignore[index]
+                    matches_played=r.get("matches", 0),  # type: ignore[attr-defined]
                 )
                 for r in lb.ranked()
             ]
@@ -2117,13 +2179,13 @@ async def capability_elo(
                 n_resamples=body.get("n_resamples", 1000),
                 ci=body.get("ci", 0.95),
             )
-            result["bootstrap_ci"] = {k: {"low": v[0], "high": v[1]} for k, v in ci.items()}
+            result["bootstrap_ci"] = {k: {"low": v[0], "high": v[1]} for k, v in ci.items()}  # type: ignore[assignment]
         elif action == "submit":
             pool = WorkerPool(body.get("workers", ["w1", "w2", "w3"]))
             pool.set_strategy(body.get("strategy", "shortest_queue"))
             # 真 submit 任务要 callable,这里返回调度决策
             loads = pool.worker_loads()
-            result["loads"] = loads
+            result["loads"] = loads  # type: ignore[assignment]
             result["strategy"] = body.get("strategy", "shortest_queue")
         else:
             raise HTTPException(400, f"unknown action: {action}")
@@ -2162,7 +2224,7 @@ async def capability_brainstorm(
         elif action == "decide":
             options = body.get("options", [])
             dm = DecideMode(topic, options)
-            result["advocates"] = dm.generate_advocates()
+            result["advocates"] = dm.generate_advocates()  # type: ignore[assignment]
         else:
             raise HTTPException(400, f"unknown action: {action}")
     except HTTPException:
@@ -2222,8 +2284,8 @@ async def capability_cross_iter(
             }
         elif action == "step5":
             mode = Step5Mode(body.get("step5_mode", "sintesis_central"))
-            r = run_step5(iters, mode)
-            result = {"mode": r.mode.value, "output": r.output, "action_taken": r.action_taken}
+            r = run_step5(iters, mode)  # type: ignore[assignment]
+            result = {"mode": r.mode.value, "output": r.output, "action_taken": r.action_taken}  # type: ignore[attr-defined]
         else:
             raise HTTPException(400, f"unknown action: {action}")
     except HTTPException:
@@ -2245,8 +2307,8 @@ async def capability_audit(
     from ..capability.action_audit import AuditGate
 
     if not hasattr(capability_audit, "_gate"):
-        capability_audit._gate = AuditGate()
-    gate = capability_audit._gate
+        capability_audit._gate = AuditGate()  # type: ignore[attr-defined]
+    gate = capability_audit._gate  # type: ignore[attr-defined]
     action_id = body.get("action_id", "a1")
     action_data = body.get("action_data", {})
     try:
@@ -2275,11 +2337,17 @@ async def capability_in_flight(
         TeamCheckpointMerger,
     )
 
+    # v3.1.1 audit P1-2 fix: state_dir is server-controlled. Accepting it
+    # from the request body let any key holder create arbitrary directories
+    # and write files (first caller won the singleton). Fixed path under
+    # DATA_DIR; the body field is ignored on purpose.
+    from ..config import DATA_DIR
+
     if not hasattr(capability_in_flight, "_detector"):
-        capability_in_flight._detector = InFlightDetector(
-            state_dir=body.get("state_dir", ".moai/state")
+        capability_in_flight._detector = InFlightDetector(  # type: ignore[attr-defined]
+            state_dir=str(Path(DATA_DIR) / "in_flight_state")
         )
-    detector = capability_in_flight._detector
+    detector = capability_in_flight._detector  # type: ignore[attr-defined]
     action = body.get("action", "in_flight")
     result = {}
     try:
@@ -2299,8 +2367,8 @@ async def capability_in_flight(
             result = {"next_phase": next_phase.value if next_phase else None}
         elif action == "merge":
             if not hasattr(capability_in_flight, "_merger"):
-                capability_in_flight._merger = TeamCheckpointMerger()
-            merger = capability_in_flight._merger
+                capability_in_flight._merger = TeamCheckpointMerger()  # type: ignore[attr-defined]
+            merger = capability_in_flight._merger  # type: ignore[attr-defined]
             for ckpt in body.get("checkpoints", []):
                 merger.add_checkpoint(
                     Checkpoint(
@@ -2415,7 +2483,7 @@ async def capability_tier_promo(
             result = {"can_spawn": boundary.can_spawn(body.get("child_id", ""))}
         elif action == "cohabitation":
             b1 = SubAgentBoundary(body.get("parent_a", "p1"), body.get("children_a", []))
-            b2 = SubAgentBoundary(body.get("parent_b", "p2"), body.get("children_b", []))
+            _b2 = SubAgentBoundary(body.get("parent_b", "p2"), body.get("children_b", []))
             result = {"cohabitation_safe": b1.cohabitation_check(body.get("parent_b", "p2"))}
         else:
             raise HTTPException(400, f"unknown action: {action}")
@@ -2444,11 +2512,11 @@ async def capability_artifact(
     )
 
     if not hasattr(capability_artifact, "_registry"):
-        capability_artifact._registry = SchemaRegistry()
+        capability_artifact._registry = SchemaRegistry()  # type: ignore[attr-defined]
     if not hasattr(capability_artifact, "_orchestrator"):
-        capability_artifact._orchestrator = TmuxOrchestrator(max_visible=body.get("max_visible", 3))
-    reg = capability_artifact._registry
-    orch = capability_artifact._orchestrator
+        capability_artifact._orchestrator = TmuxOrchestrator(max_visible=body.get("max_visible", 3))  # type: ignore[attr-defined]
+    reg = capability_artifact._registry  # type: ignore[attr-defined]
+    orch = capability_artifact._orchestrator  # type: ignore[attr-defined]
     action = body.get("action", "register")
     result = {}
     try:
@@ -2469,7 +2537,7 @@ async def capability_artifact(
         elif action == "list_by_type":
             t = ArtifactType(body.get("type", "agent"))
             arts = reg.list_by_type(t)
-            result = {"artifacts": [a.to_dict() for a in arts]}
+            result = {"artifacts": [a.to_dict() for a in arts]}  # type: ignore[dict-item]
         elif action == "validate":
             artifact = Artifact(
                 id=body.get("id", "test"),
@@ -2478,7 +2546,7 @@ async def capability_artifact(
                 description=body.get("description", ""),
             )
             missing = reg.validate(artifact)
-            result = {"missing_fields": missing, "valid": len(missing) == 0}
+            result = {"missing_fields": missing, "valid": len(missing) == 0}  # type: ignore[dict-item]
         elif action == "add_pane":
             pane = TmuxPane(
                 pane_id=body.get("pane_id", "p1"),
@@ -2489,9 +2557,9 @@ async def capability_artifact(
             orch.add_pane(pane)
             result = {"added": pane.pane_id}
         elif action == "layout":
-            result = {"panes": [p.__dict__ for p in orch.layout()]}
+            result = {"panes": [p.__dict__ for p in orch.layout()]}  # type: ignore[dict-item]
         elif action == "safe_layout":
-            result = {"panes": [p.__dict__ for p in orch.safe_layout()]}
+            result = {"panes": [p.__dict__ for p in orch.safe_layout()]}  # type: ignore[dict-item]
         else:
             raise HTTPException(400, f"unknown action: {action}")
     except HTTPException:
@@ -2521,8 +2589,8 @@ async def capability_frozen(
     )
 
     if not hasattr(capability_frozen, "_registry"):
-        capability_frozen._registry = FrozenRegistry()
-    reg = capability_frozen._registry
+        capability_frozen._registry = FrozenRegistry()  # type: ignore[attr-defined]
+    reg = capability_frozen._registry  # type: ignore[attr-defined]
     action = body.get("action", "is_frozen")
     result = {}
     try:
@@ -2542,22 +2610,22 @@ async def capability_frozen(
             result = {"is_evolvable": reg.is_evolvable(body["path"])}
         elif action == "can_modify":
             zone = Zone(body["zone"]) if isinstance(body["zone"], str) else body["zone"]
-            result = {"can_modify": can_modify(body["path"], zone)}
+            result = {"can_modify": can_modify(body["path"], zone)}  # type: ignore[dict-item]
         elif action == "assert_modifiable":
             try:
                 assert_modifiable(body["path"], reg)
-                result = {"modifiable": True}
+                result = {"modifiable": True}  # type: ignore[dict-item]
             except FrozenZoneError as e:
                 result = {
-                    "modifiable": False,
+                    "modifiable": False,  # type: ignore[dict-item]
                     "error": str(e),
                     "path": e.path,
                     "sentinel": e.sentinel,
                 }
         elif action == "list_sentinels":
             result = {
-                "sentinels": ALL_HARNESS_FROZEN_SENTINELS,
-                "count": len(ALL_HARNESS_FROZEN_SENTINELS),
+                "sentinels": ALL_HARNESS_FROZEN_SENTINELS,  # type: ignore[dict-item]
+                "count": len(ALL_HARNESS_FROZEN_SENTINELS),  # type: ignore[dict-item]
             }
         else:
             raise HTTPException(400, f"unknown action: {action}")
@@ -2601,7 +2669,7 @@ async def capability_turboquant(
         elif action == "apply":
             compressed = apply_turboquant(msgs, cfg)
             result = {
-                "compressed": [m.__dict__ for m in compressed],
+                "compressed": [m.__dict__ for m in compressed],  # type: ignore[dict-item]
                 "original_count": len(msgs),
                 "compressed_count": len(compressed),
             }
@@ -2618,10 +2686,15 @@ async def capability_turboquant(
 @router.post("/v1/capability/moa-engine")
 async def capability_moa_engine(
     body: CreateMoaEngineRequest,
+    response: Response,
     key_info: dict[str, Any] = Depends(require_api_key),
 ):
     """M-01 MoA 引擎核心 (3 proposer + 1 aggregator) + M-05 协同
     Body: {"proposers":[{...}],"aggregator":{...},"query":"...","validate_only":false}
+
+    NOTE (audit fix): when actually executing (validate_only=false) this uses a
+    built-in template provider (no live model), so the proposals/aggregation are
+    synthetic. The response is labeled X-MOA-Mock + mock:true to disclose that.
     """
     from ..capability.moa_engine import (
         Aggregator,
@@ -2645,19 +2718,22 @@ async def capability_moa_engine(
         return (f"[{type(actor).__name__}:{actor.model_id}] response to: {prompt[:50]}", 100)
 
     try:
-        moa_result = await run_moa(query, proposers, aggregator, mock_provider)
-        result["moa_result"] = {
+        moa_result = await run_moa(query, proposers, aggregator, mock_provider)  # type: ignore[arg-type]
+        result["moa_result"] = {  # type: ignore[assignment]
             "query": moa_result.query,
             "proposals": [p.__dict__ for p in moa_result.proposals],
             "aggregated": moa_result.aggregated,
             "total_tokens": moa_result.total_tokens,
             "total_latency_ms": moa_result.total_latency_ms,
+            "mock": True,
         }
     except HTTPException:
         raise  # patch v1.6.6: pass through 4xx
 
     except Exception as e:
         raise err_500(e, "MoA run failed") from e
+    for _hk, _hv in mock_headers(True).items():
+        response.headers[_hk] = _hv
     return result
 
 
@@ -2677,8 +2753,8 @@ async def capability_acceptance(
     )
 
     if not hasattr(capability_acceptance, "_trees"):
-        capability_acceptance._trees = {}
-    trees = capability_acceptance._trees
+        capability_acceptance._trees = {}  # type: ignore[attr-defined]
+    trees = capability_acceptance._trees  # type: ignore[attr-defined]
     action = body.get("action", "add")
     result = {}
     try:
@@ -2796,8 +2872,8 @@ async def capability_grace(
     )
 
     if not hasattr(capability_grace, "_registry"):
-        capability_grace._registry = CheckRegistry()
-    reg = capability_grace._registry
+        capability_grace._registry = CheckRegistry()  # type: ignore[attr-defined]
+    reg = capability_grace._registry  # type: ignore[attr-defined]
     action = body.get("action", "should_block")
     result = {}
     try:
@@ -2905,12 +2981,43 @@ async def capability_channels(
             if "ch1" in enabled:
                 chs.append(SubagentChannel())
             if "ch2" in enabled:
-                chs.append(CLIChannel(sleep_ms=body.get("cli_latency_ms", 50)))
+                chs.append(CLIChannel(sleep_ms=body.get("cli_latency_ms", 50)))  # type: ignore[arg-type]
             if "ch3" in enabled:
-                chs.append(APIChannel(sleep_ms=body.get("api_latency_ms", 150)))
+                chs.append(APIChannel(sleep_ms=body.get("api_latency_ms", 150)))  # type: ignore[arg-type]
             chain = ChannelChain(chs)
             result = await chain.execute(query, **body.get("kwargs", {}))
-            return result
+            # v3.1.1 audit P1-9: all three channels are simulations in this
+            # deployment (heuristic text + sleep, no real subagent/CLI/API).
+            # Label the output explicitly per the D6 explicit-mock policy.
+            _ch = result.get("channel")
+            _res = result.get("result")
+            payload = {
+                "channel": _ch.value if hasattr(_ch, "value") else str(_ch),
+                "success": bool(_res.success) if _res is not None else False,
+                "output": _res.output if _res is not None else "",
+                "latency_ms": _res.latency_ms if _res is not None else 0,
+                "error": _res.error if _res is not None else None,
+                "fallback_path": [
+                    c.value if hasattr(c, "value") else str(c)
+                    for c in result.get("fallback_path", [])
+                ],
+                "attempts": [
+                    {
+                        "channel": a.channel.value if hasattr(a.channel, "value") else str(a.channel),
+                        "success": a.success,
+                        "output": a.output,
+                        "latency_ms": a.latency_ms,
+                        "error": a.error,
+                    }
+                    for a in result.get("attempts", [])
+                ],
+                "mock": True,
+                "mock_note": (
+                    "simulated channel chain: outputs are heuristic/synthetic in "
+                    "this deployment, not real subagent/CLI/API execution"
+                ),
+            }
+            return JSONResponse(content=payload, headers=mock_headers(True))
         else:
             raise HTTPException(400, f"unknown action: {action}")
     except HTTPException:
@@ -2947,7 +3054,16 @@ async def capability_reference_router(
             cost_ratio_cap=float(body.get("cost_ratio_cap", 2.0)),
         )
         result = await route_with_reference(query, cfg)
-        return result
+        # v3.1.1 audit P1-10: route_with_reference uses a simulated model
+        # registry (sleep + template answers) in this deployment. Label the
+        # output explicitly per the D6 explicit-mock policy.
+        if isinstance(result, dict):
+            payload = {**result, "mock": True,
+                       "mock_note": "simulated reference routing: model answers are synthetic"}
+        else:
+            payload = {"result": str(result), "mock": True,
+                       "mock_note": "simulated reference routing: model answers are synthetic"}
+        return JSONResponse(content=payload, headers=mock_headers(True))
     except HTTPException:
         raise
 
@@ -3022,12 +3138,16 @@ async def capability_checkpoint(
 # ========== Wave 12 Capability Endpoints (5 new) ==========
 
 
-@router.post("/v1/capability/audit")
+@router.post("/v1/capability/audit-cache")
 async def capability_audit_cache(
     body: CreateAuditRequest,
     key_info: dict[str, Any] = Depends(require_api_key),
 ):
-    """A-36: 24h 审计缓存 — LRU + TTL"""
+    """A-36: 24h 审计缓存 — LRU + TTL
+
+    (audit F12 fix: previously shared the path /v1/capability/audit with the
+    AuditGate endpoint, which shadowed it entirely — renamed to audit-cache.)
+    """
     from ..capability.audit_cache import AuditCache, AuditEvent
 
     try:
@@ -3047,11 +3167,11 @@ async def capability_audit_cache(
             )
             # 模块级单例(避免每次请求 new 一个)
             if not hasattr(capability_audit_cache, "_cache"):
-                capability_audit_cache._cache = AuditCache(
+                capability_audit_cache._cache = AuditCache(  # type: ignore[attr-defined]
                     max_size=int(body.get("max_size", 10000)),
                     ttl_seconds=int(body.get("ttl_seconds", 86400)),
                 )
-            cache = capability_audit_cache._cache
+            cache = capability_audit_cache._cache  # type: ignore[attr-defined]
             eid = cache.record(ev)
             return {"recorded": True, "event_id": eid}
         elif action == "query":
@@ -3184,10 +3304,10 @@ async def capability_fuzzy_dedup(
     try:
         action = body.get("action", "check")
         if not hasattr(capability_fuzzy_dedup, "_index"):
-            capability_fuzzy_dedup._index = FuzzyDedupIndex(
+            capability_fuzzy_dedup._index = FuzzyDedupIndex(  # type: ignore[attr-defined]
                 max_size=int(body.get("max_size", 10000))
             )
-        idx = capability_fuzzy_dedup._index
+        idx = capability_fuzzy_dedup._index  # type: ignore[attr-defined]
         if action == "add":
             text = body.get("text", "")
             eid = idx.add(text, metadata=body.get("metadata"))
@@ -3239,14 +3359,14 @@ async def capability_input_fingerprint(
             return {"similarity": a.similar_to(b, level=level)}
         elif action == "store":
             if not hasattr(capability_input_fingerprint, "_store"):
-                capability_input_fingerprint._store = FingerprintStore(
+                capability_input_fingerprint._store = FingerprintStore(  # type: ignore[attr-defined]
                     max_size=int(body.get("max_size", 50000))
                 )
-            store = capability_input_fingerprint._store
-            if "text" in body:
+            store = capability_input_fingerprint._store  # type: ignore[attr-defined]
+            if "text" in body:  # type: ignore[operator]
                 fp = store.add(body["text"], metadata=body.get("metadata"))
                 return {"added": True, "attrs": fp.attrs, "size": store.size()}
-            elif "collisions_with" in body:
+            elif "collisions_with" in body:  # type: ignore[operator]
                 min_levels = int(body.get("min_levels", 2))
                 collisions = store.find_collisions(body["collisions_with"], min_levels=min_levels)
                 return {"collisions": len(collisions), "size": store.size()}
@@ -3353,11 +3473,11 @@ async def capability_token_bucket(
         action = body.get("action", "try_consume")
         if action == "try_consume":
             if not hasattr(capability_token_bucket, "_bucket"):
-                capability_token_bucket._bucket = MultiKeyTokenBucket(
+                capability_token_bucket._bucket = MultiKeyTokenBucket(  # type: ignore[attr-defined]
                     default_capacity=int(body.get("capacity", 60)),
                     default_refill_rate=float(body.get("refill_rate", 1.0)),
                 )
-            bucket = capability_token_bucket._bucket
+            bucket = capability_token_bucket._bucket  # type: ignore[attr-defined]
             key = body.get("key", "default")
             tokens = int(body.get("tokens", 1))
             allowed = bucket.try_consume(key, tokens)
@@ -3408,12 +3528,12 @@ async def capability_request_dedup(
                 strategy = _DS(strat_name)
             except ValueError:
                 strategy = _DS.NORMALIZED
-            capability_request_dedup._index = RequestDedupIndex(
+            capability_request_dedup._index = RequestDedupIndex(  # type: ignore[attr-defined]
                 strategy=strategy,
                 ttl_seconds=int(body.get("ttl_seconds", 60)),
                 max_size=int(body.get("max_size", 10000)),
             )
-        idx = capability_request_dedup._index
+        idx = capability_request_dedup._index  # type: ignore[attr-defined]
         method = body.get("method", "POST")
         path = body.get("path", "/")
         req_body = body.get("body")
@@ -3461,10 +3581,10 @@ async def capability_trace(
 
     try:
         if not hasattr(capability_trace, "_collector"):
-            capability_trace._collector = TraceCollector(
+            capability_trace._collector = TraceCollector(  # type: ignore[attr-defined]
                 max_traces=int(body.get("max_traces", 10000))
             )
-        collector = capability_trace._collector
+        collector = capability_trace._collector  # type: ignore[attr-defined]
         action = body.get("action", "start")
         if action == "start":
             traceparent = body.get("traceparent")

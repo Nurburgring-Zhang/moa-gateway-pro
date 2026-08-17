@@ -14,11 +14,9 @@ import (
 func (h *ProxyHandler) quickAuthCheck(r *http.Request) bool {
 	auth := r.Header.Get("Authorization")
 	if auth == "" {
-		// Fallback: API Key (validated by backend)
+		// Fallback: API Key header only (query-string removed for security —
+		// keys in URLs leak via logs, Referer headers, and browser history)
 		apiKey := r.Header.Get("X-API-Key")
-		if apiKey == "" {
-			apiKey = r.URL.Query().Get("api_key")
-		}
 		return apiKey != ""
 	}
 
@@ -35,10 +33,24 @@ func (h *ProxyHandler) quickAuthCheck(r *http.Request) bool {
 	return h.verifyJWT(token)
 }
 
-// verifyJWT validates HS256 signature and expiry only (fast path).
+// verifyJWT validates HS256 signature, algorithm, audience, issuer, and expiry.
 func (h *ProxyHandler) verifyJWT(token string) bool {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
+		return false
+	}
+
+	// Decode and validate header algorithm (prevent alg=none attack)
+	headerBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return false
+	}
+	var header map[string]interface{}
+	if err := json.Unmarshal(headerBytes, &header); err != nil {
+		return false
+	}
+	alg, _ := header["alg"].(string)
+	if alg != "HS256" {
 		return false
 	}
 
@@ -52,7 +64,7 @@ func (h *ProxyHandler) verifyJWT(token string) bool {
 		return false
 	}
 
-	// Verify expiry
+	// Decode payload and verify claims
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
 		return false
@@ -62,8 +74,25 @@ func (h *ProxyHandler) verifyJWT(token string) bool {
 		return false
 	}
 
+	// Verify expiry
 	if exp, ok := claims["exp"].(float64); ok {
 		if time.Now().Unix() > int64(exp) {
+			return false
+		}
+	} else {
+		return false
+	}
+
+	// Verify audience
+	if aud, ok := claims["aud"].(string); ok {
+		if aud != "moa-webui" {
+			return false
+		}
+	}
+
+	// Verify issuer
+	if iss, ok := claims["iss"].(string); ok {
+		if iss != "moa-gateway" {
 			return false
 		}
 	}

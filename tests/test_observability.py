@@ -14,11 +14,9 @@ import json
 import logging
 import time
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from starlette.testclient import TestClient
-
 
 # ============ Tracer Tests ============
 
@@ -109,10 +107,10 @@ class TestTracer:
     def test_trace_context_propagation(self):
         """Trace context should propagate via contextvars."""
         from moa_gateway.observability.tracer import (
-            get_current_trace_id,
-            get_current_span_id,
-            set_trace_context,
             clear_trace_context,
+            get_current_span_id,
+            get_current_trace_id,
+            set_trace_context,
         )
 
         trace_id = uuid.uuid4().hex
@@ -258,7 +256,7 @@ class TestStructuredLogging:
     def test_json_formatter_trace_correlation(self):
         """JSON logs should include trace_id when available."""
         from moa_gateway.observability.structured_logging import StructuredJsonFormatter
-        from moa_gateway.observability.tracer import set_trace_context, clear_trace_context
+        from moa_gateway.observability.tracer import clear_trace_context, set_trace_context
 
         trace_id = "abc123def456" * 3  # 36 chars, just needs to be present
         set_trace_context(trace_id, "span123")
@@ -280,7 +278,7 @@ class TestStructuredLogging:
     def test_trace_correlation_filter(self):
         """TraceCorrelationFilter should add trace fields to LogRecord."""
         from moa_gateway.observability.structured_logging import TraceCorrelationFilter
-        from moa_gateway.observability.tracer import set_trace_context, clear_trace_context
+        from moa_gateway.observability.tracer import clear_trace_context, set_trace_context
 
         filt = TraceCorrelationFilter()
         set_trace_context("trace999", "span888")

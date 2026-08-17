@@ -1,6 +1,8 @@
-﻿"""Web search skill -- real implementation with graceful fallback.
+﻿"""Web search skill -- real implementation with graceful degradation.
 
-Degradation chain: Tavily (requires TAVILY_API_KEY) -> DuckDuckGo (no key) -> Mock.
+Degradation chain: Tavily (requires TAVILY_API_KEY) -> DuckDuckGo (no key).
+If BOTH real backends are unavailable, the tool reports an honest
+"search unavailable" message — it never fabricates results (audit F11 fix).
 """
 
 from __future__ import annotations
@@ -70,7 +72,7 @@ async def web_search(query: str, max_results: int = 5) -> str:
     logger.info("web_search: query=%r max_results=%d", query, max_results)
 
     results: list[dict[str, Any]] = []
-    source = "mock"
+    source = "none"
 
     # 1. Try Tavily
     try:
@@ -84,20 +86,19 @@ async def web_search(query: str, max_results: int = 5) -> str:
             results = await _search_duckduckgo(query, max_results)
             source = "duckduckgo"
         except Exception as e2:
-            logger.warning("DuckDuckGo search failed: %s, using mock results", e2)
+            # 3. BOTH real backends unavailable — report honestly. Fabricating
+            #    example.com results would feed the agent false data (audit F11).
+            logger.warning("DuckDuckGo search failed: %s — no real search backend available", e2)
+            return (
+                f"Web search unavailable for '{query}': no search backend could be "
+                f"reached (Tavily: {e}; DuckDuckGo: {e2}). Set TAVILY_API_KEY or "
+                f"install/verify duckduckgo-search to enable real web search. "
+                f"No results were fabricated."
+            )
 
-            # 3. Final fallback: mock
-            results = [
-                {
-                    "title": f"Search result {i + 1} for: {query}",
-                    "url": f"https://example.com/result-{i + 1}",
-                    "snippet": (
-                        f"This is a simulated search result for '{query}'. "
-                        f"Configure TAVILY_API_KEY or install duckduckgo-search for real results."
-                    ),
-                }
-                for i in range(min(max_results, 5))
-            ]
+    # Enforce max_results defensively (backends already slice, but never trust
+    # an upstream to honour the limit).
+    results = results[:max_results]
 
     # Format output
     lines = [f"Found {len(results)} results for '{query}' (via {source}):"]

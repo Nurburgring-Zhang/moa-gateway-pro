@@ -32,6 +32,42 @@ class ToolResult:
 
 
 @dataclass
+class LlmUsage:
+    """Token/cost accounting for one LLM call (D7).
+
+    All fields are best-effort: providers that do not report usage leave
+    them at zero, in which case the loop records zero instead of guessing.
+    """
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cost: float = 0.0
+
+    @property
+    def total_tokens(self) -> int:
+        return self.prompt_tokens + self.completion_tokens
+
+
+@dataclass
+class LlmOutcome:
+    """Result of one LLM call: text content plus usage accounting (D7)."""
+
+    content: str
+    usage: LlmUsage | None = None
+
+
+def normalize_llm_outcome(raw: Any) -> LlmOutcome:
+    """Coerce an ``llm_call`` return value into an :class:`LlmOutcome`.
+
+    Legacy callbacks returning a bare string are wrapped with ``usage=None``
+    so loops can treat every response uniformly.
+    """
+    if isinstance(raw, LlmOutcome):
+        return raw
+    return LlmOutcome(content=str(raw), usage=None)
+
+
+@dataclass
 class AgentContext:
     """Runtime context shared across loop iterations (blackboard pattern)."""
 

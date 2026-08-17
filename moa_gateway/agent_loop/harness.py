@@ -9,6 +9,7 @@ from typing import Any
 from .base import (
     AgentContext,
     AgentLoop,
+    LlmOutcome,
     LoopResult,
     ToolExecutor,
 )
@@ -17,7 +18,7 @@ from .react_loop import ReActLoop
 
 logger = logging.getLogger(__name__)
 
-LlmCall = Callable[..., Awaitable[str]]
+LlmCall = Callable[..., Awaitable[str | LlmOutcome]]
 
 
 class AgentHarness:

@@ -208,7 +208,7 @@ def _vote_majority(votes: list[Vote], method: str) -> ConsensusResult:
     top_candidate, top_count = counter.most_common(1)[0]
     score = top_count / total  # agreement ratio
     distribution = dict(counter.items())
-    entropy = _shannon_entropy(distribution)
+    entropy = _shannon_entropy(distribution)  # type: ignore[arg-type]
     # 共识度 = agreement * (1 - entropy)
     consensus = score * (1.0 - entropy)
     return ConsensusResult(

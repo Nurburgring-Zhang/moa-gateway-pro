@@ -6,10 +6,16 @@
   3. 速率限制 (RPM 超限)
   4. server 故障 (DB 损坏, 大并发)
 """
-import json
-import time
+import sys
+
 import httpx
-import os
+
+# v3.1.1: Windows consoles default to GBK; the check marks below are UTF-8.
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 BASE = "http://127.0.0.1:8088"
 ADMIN_PWD = "TestPass#2024"
@@ -91,7 +97,7 @@ def main():
     r = httpx.post(f"{BASE}/v1/chat/completions",
                    json={"model": "fake-model-xyz", "messages": [{"role": "user", "content": "hi"}]},
                    headers=auth, timeout=30)
-    expect("1.7 未知 model", 503, r.status_code, r.text)  # 找不到 → 503
+    expect("1.7 未知 model", 404, r.status_code, r.text)  # v3.1.1: F29 语义,未知 model → 404
 
     # ===== 2. 鉴权 =====
     print("\n[2] 鉴权")
@@ -133,7 +139,7 @@ def main():
         low_auth = {"Authorization": f"Bearer {low_key}"}
         # 先打 6 个,第 6 个应该 429
         statuses = []
-        for i in range(6):
+        for _i in range(6):
             r = httpx.post(f"{BASE}/v1/chat/completions",
                            json={"model": "auto", "messages": [{"role": "user", "content": "hi"}]},
                            headers=low_auth, timeout=10)
@@ -147,9 +153,9 @@ def main():
 
     # ===== 4. 公共端点 =====
     print("\n[4] 公共端点 + 错误路径")
-    # 4.1 /v1/models 无 auth
+    # 4.1 /v1/models 无 auth → v3.1.1: 模型列表需要鉴权,无 key 必须 401
     r = httpx.get(f"{BASE}/v1/models", timeout=5)
-    expect("4.1 /v1/models 公共", 200, r.status_code, r.text)
+    expect("4.1 /v1/models 需鉴权", 401, r.status_code, r.text)
     # 4.2 /health
     r = httpx.get(f"{BASE}/health", timeout=5)
     expect("4.2 /health", 200, r.status_code, r.text)

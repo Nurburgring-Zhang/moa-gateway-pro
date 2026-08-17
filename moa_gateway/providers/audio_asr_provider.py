@@ -18,6 +18,11 @@ class ASRProvider(ABC):
         self.api_key = api_key
         self.timeout = timeout
 
+    def _check_api_key(self) -> None:
+        """Guard: raise if API key is not configured."""
+        if not self.api_key:
+            raise RuntimeError(f"API key not configured for {self.__class__.__name__}")
+
     @abstractmethod
     async def transcribe(self, audio_data: bytes, language: str = "zh") -> str:
         """Return transcribed text."""
@@ -28,6 +33,7 @@ class OpenAIASRProvider(ASRProvider):
     """OpenAI-compatible ASR provider (Whisper format)."""
 
     async def transcribe(self, audio_data: bytes, language: str = "zh") -> str:
+        self._check_api_key()
         url = f"{self.api_base}/audio/transcriptions"
         headers = {"Authorization": f"Bearer {self.api_key}"}
         files = {"file": ("audio.mp3", audio_data, "audio/mpeg")}
@@ -36,13 +42,14 @@ class OpenAIASRProvider(ASRProvider):
             resp = await client.post(url, files=files, data=data, headers=headers)
             if resp.status_code != 200:
                 raise RuntimeError(f"ASR failed: HTTP {resp.status_code}")
-            return resp.json().get("text", "")
+            return resp.json().get("text", "")  # type: ignore[no-any-return]
 
 
 class QwenASRProvider(ASRProvider):
     """Qwen (DashScope) ASR provider."""
 
     async def transcribe(self, audio_data: bytes, language: str = "zh") -> str:
+        self._check_api_key()
         url = f"{self.api_base}/api/v1/services/audio/asr/transcription"
         headers = {"Authorization": f"Bearer {self.api_key}"}
         files = {"file": ("audio.mp3", audio_data, "audio/mpeg")}
@@ -51,13 +58,14 @@ class QwenASRProvider(ASRProvider):
             resp = await client.post(url, files=files, data=data, headers=headers)
             if resp.status_code != 200:
                 raise RuntimeError(f"Qwen ASR failed: HTTP {resp.status_code}")
-            return resp.json().get("output", {}).get("text", "")
+            return resp.json().get("output", {}).get("text", "")  # type: ignore[no-any-return]
 
 
 class IFlytekASRProvider(ASRProvider):
     """iFlytek Spark ASR provider."""
 
     async def transcribe(self, audio_data: bytes, language: str = "zh") -> str:
+        self._check_api_key()
         url = f"{self.api_base}/v1/asr"
         headers = {
             "Content-Type": "application/octet-stream",
@@ -68,4 +76,4 @@ class IFlytekASRProvider(ASRProvider):
             resp = await client.post(url, content=audio_data, headers=headers, params=params)
             if resp.status_code != 200:
                 raise RuntimeError(f"iFlytek ASR failed: HTTP {resp.status_code}")
-            return resp.json().get("text", "")
+            return resp.json().get("text", "")  # type: ignore[no-any-return]

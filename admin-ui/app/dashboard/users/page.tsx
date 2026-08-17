@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Dialog } from '@/components/ui/dialog';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { getRoleColor, formatDate } from '@/lib/utils';
 import type { User } from '@/types';
@@ -12,34 +13,59 @@ import type { User } from '@/types';
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [newUser, setNewUser] = useState({ username: '', password: '', role: 'user' });
 
   useEffect(() => {
     loadUsers();
   }, []);
 
   async function loadUsers() {
+    setError(null);
     try {
       const data = await api.getUsers();
-      setUsers(data as unknown as User[]);
-    } catch {
-      setUsers([
-        { id: '1', username: 'admin', email: 'admin@moa-gateway.io', role: 'admin', status: 'active', last_login: '2024-08-01T10:00:00Z', created_at: '2024-01-01' },
-        { id: '2', username: 'operator1', email: 'op1@moa-gateway.io', role: 'operator', status: 'active', last_login: '2024-08-01T08:30:00Z', created_at: '2024-02-15' },
-        { id: '3', username: 'developer', email: 'dev@moa-gateway.io', role: 'user', status: 'active', last_login: '2024-07-31T16:00:00Z', created_at: '2024-03-10' },
-        { id: '4', username: 'viewer', email: 'view@moa-gateway.io', role: 'readonly', status: 'active', last_login: '2024-07-30T12:00:00Z', created_at: '2024-04-20' },
-        { id: '5', username: 'disabled_user', email: 'old@moa-gateway.io', role: 'user', status: 'disabled', last_login: '2024-05-01T00:00:00Z', created_at: '2024-01-15' },
-      ]);
+      setUsers((data || []) as unknown as User[]);
+    } catch (e) {
+      // Honest failure — no fabricated user list (audit F6).
+      setUsers([]);
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleRoleChange(userId: string, newRole: string) {
-    setUsers(users.map((u) => u.id === userId ? { ...u, role: newRole as User['role'] } : u));
+  async function handleRoleChange(userId: string, newRole: string, oldRole: string) {
+    setError(null);
     try {
       await api.updateUserRole(userId, newRole);
-    } catch {
-      // Demo
+      setUsers((prev) => prev.map((u) => (String(u.id) === String(userId) ? { ...u, role: newRole as User['role'] } : u)));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function handleCreateUser() {
+    if (!newUser.username.trim() || !newUser.password) return;
+    setError(null);
+    try {
+      await api.createUser(newUser.username, newUser.password, newUser.role);
+      setDialogOpen(false);
+      setNewUser({ username: '', password: '', role: 'user' });
+      await loadUsers();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function handleDelete(user: User) {
+    if (!window.confirm(`确认删除用户 "${user.username}"?`)) return;
+    setError(null);
+    try {
+      await api.deleteUser(String(user.id));
+      await loadUsers();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -51,8 +77,12 @@ export default function UsersPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">用户权限管理</h1>
-        <Button>+ 添加用户</Button>
+        <Button onClick={() => setDialogOpen(true)}>+ 添加用户</Button>
       </div>
+
+      {error && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+      )}
 
       {/* Role Legend */}
       <div className="flex gap-4 text-sm">
@@ -75,46 +105,78 @@ export default function UsersPage() {
           <TableHeader>
             <TableRow>
               <TableHead>用户名</TableHead>
-              <TableHead>邮箱</TableHead>
               <TableHead>角色</TableHead>
-              <TableHead>状态</TableHead>
               <TableHead>最后登录</TableHead>
               <TableHead>操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {users.map((user) => (
-              <TableRow key={user.id}>
+              <TableRow key={String(user.id)}>
                 <TableCell className="font-medium">{user.username}</TableCell>
-                <TableCell className="text-sm text-gray-500">{user.email}</TableCell>
                 <TableCell>
                   <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getRoleColor(user.role)}`}>
                     {user.role}
                   </span>
                 </TableCell>
-                <TableCell>
-                  <Badge variant={user.status === 'active' ? 'success' : 'error'}>
-                    {user.status}
-                  </Badge>
+                <TableCell className="text-xs text-gray-500">
+                  {user.last_login ? formatDate(user.last_login as unknown as string) : '-'}
                 </TableCell>
-                <TableCell className="text-xs text-gray-500">{formatDate(user.last_login)}</TableCell>
                 <TableCell>
-                  <select
-                    value={user.role}
-                    onChange={(e) => handleRoleChange(user.id, e.target.value)}
-                    className="text-sm border border-gray-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="admin">admin</option>
-                    <option value="operator">operator</option>
-                    <option value="user">user</option>
-                    <option value="readonly">readonly</option>
-                  </select>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={user.role}
+                      onChange={(e) => handleRoleChange(String(user.id), e.target.value, user.role)}
+                      className="text-sm border border-gray-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="admin">admin</option>
+                      <option value="operator">operator</option>
+                      <option value="user">user</option>
+                      <option value="readonly">readonly</option>
+                    </select>
+                    <Button variant="danger" size="sm" onClick={() => handleDelete(user)}>删除</Button>
+                  </div>
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </Card>
+
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} title="添加用户">
+        <div className="space-y-4">
+          <Input
+            label="用户名"
+            value={newUser.username}
+            onChange={(e) => setNewUser({ ...newUser, username: e.target.value })}
+            placeholder="e.g. operator1"
+          />
+          <Input
+            label="密码"
+            type="password"
+            value={newUser.password}
+            onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+            placeholder="强密码"
+          />
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">角色</label>
+            <select
+              value={newUser.role}
+              onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
+              className="w-full text-sm border border-gray-300 rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="admin">admin</option>
+              <option value="operator">operator</option>
+              <option value="user">user</option>
+              <option value="readonly">readonly</option>
+            </select>
+          </div>
+          <div className="flex justify-end gap-3 pt-4">
+            <Button variant="secondary" onClick={() => setDialogOpen(false)}>取消</Button>
+            <Button onClick={handleCreateUser} disabled={!newUser.username.trim() || !newUser.password}>创建</Button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   );
 }

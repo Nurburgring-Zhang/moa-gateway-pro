@@ -19,6 +19,11 @@ class VideoGenerationProvider(ABC):
         self.api_key = api_key
         self.timeout = timeout
 
+    def _check_api_key(self) -> None:
+        """Guard: raise if API key is not configured."""
+        if not self.api_key:
+            raise RuntimeError(f"API key not configured for {self.__class__.__name__}")
+
     @abstractmethod
     async def create_video_task(self, prompt: str, duration: int = 5) -> str:
         """Create a video generation task, return task_id."""
@@ -34,6 +39,7 @@ class KlingVideoProvider(VideoGenerationProvider):
     """Kuaishou Kling video generation provider."""
 
     async def create_video_task(self, prompt: str, duration: int = 5) -> str:
+        self._check_api_key()
         url = f"{self.api_base}/videos/text2video"
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"}
         payload: dict[str, Any] = {"model": "kling-v1", "prompt": prompt, "duration": str(duration)}
@@ -45,9 +51,10 @@ class KlingVideoProvider(VideoGenerationProvider):
         task_id = data.get("data", {}).get("task_id", "")
         if not task_id:
             raise RuntimeError(f"Kling: no task_id: {data}")
-        return task_id
+        return task_id  # type: ignore[no-any-return]
 
     async def query_video_task(self, task_id: str) -> dict[str, Any]:
+        self._check_api_key()
         url = f"{self.api_base}/videos/text2video/{task_id}"
         headers = {"Authorization": f"Bearer {self.api_key}"}
         async with httpx.AsyncClient(timeout=self.timeout) as client:

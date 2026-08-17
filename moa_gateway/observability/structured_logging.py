@@ -101,7 +101,7 @@ def setup_logging(
     if json_mode:
         fmt = StructuredJsonFormatter()
     else:
-        fmt = logging.Formatter(
+        fmt = logging.Formatter(  # type: ignore[assignment]
             "%(asctime)s [%(levelname)s] %(name)s [trace=%(trace_id)s] %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )

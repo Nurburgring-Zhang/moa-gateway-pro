@@ -1,36 +1,37 @@
-﻿server:
+server:
   host: 0.0.0.0
   port: 8910
   workers: 1
   log_level: INFO
-  # SEC-010: CORS 閰嶇疆璀﹀憡
-  # 鈹佲攣 鐢熶骇鐜蹇呴』淇敼 鈹佲攣
-  # '*' 浠呴€傜敤浜庡紑鍙戠幆澧冦€傜敓浜ч儴缃叉椂蹇呴』鏇挎崲涓虹簿纭殑鍩熷悕锛屽:
+  # SEC-010: CORS 配置警告
+  # ⚠️ 生产环境必须修改 ⚠️
+  # '*' 仅适用于开发环境。生产部署时必须替换为精确的域名，如:
   # cors_origins: ["https://your-domain.com", "https://admin.your-domain.com"]
-  # 鍚﹀垯灏嗗瓨鍦ㄨ法绔欒姹備吉閫?(CSRF) 鍜屾暟鎹硠闇查闄┿€?
+  # 否则将存在跨站请求伪造(CSRF) 和数据泄露风险。
   cors_origins:
   - http://localhost:3000
   - http://127.0.0.1:3000
 storage:
   db_path: data/config.db
   log_retention_days: 30
-  # 鈹佲攣 鏁版嵁搴撳悗绔厤缃?鈹佲攣
-  # 榛樿 SQLite (闆堕厤缃?閫傚悎寮€鍙?娴嬭瘯):
-  #   database_url: ""  (浣跨敤 db_path)
-  # PostgreSQL (鐢熶骇鐜,楂樺苟鍙?:
+  # ⚠️ 数据库后端配置 ⚠️
+  # 默认 SQLite (零配置, 适合开发/测试):
+  #   database_url: ""  (使用 db_path)
+  # PostgreSQL (生产环境, 高并发):
   #   database_url: "postgresql+psycopg2://moa:password@localhost:5432/moa_gateway"
-  # 鎴栭€氳繃鐜鍙橀噺: export DATABASE_URL="postgresql+psycopg2://..."
+  # 或通过环境变量: export DATABASE_URL="postgresql+psycopg2://..."
   database_url: ""
-  # 杩炴帴姹犲弬鏁?(浠?PostgreSQL 鐢熸晥)
+  # 连接池参数 (仅 PostgreSQL 生效)
   db_pool_size: 20
   db_max_overflow: 10
   db_pool_timeout: 30
   db_pool_recycle: 3600
 auth:
+  # 生产环境请通过环境变量 MOA_GATEWAY_KEY 配置,或使用 DB 密钥管理
   gateway_api_keys: []
   admin_username: admin
-  # 淇?6: 瀹夊叏鍔犲浐 鈥?鍚姩鍓嶅繀椤绘樉寮忚缃?涓嶈兘鐢ㄩ粯璁?'admin' / 绌?
-  # 鎺ㄨ崘鐢ㄧ幆澧冨彉閲忚鐩? export MOA_ADMIN_PASSWORD='YourStrong#Pass1'
+  # 保障6: 安全加固 — 启动前必须显式设置, 不能用默认 'admin' / 空密码
+  # 推荐用环境变量覆盖: export MOA_ADMIN_PASSWORD='YourStrong#Pass1'
   admin_password: ''
   jwt_secret: ''
   jwt_expire_minutes: 1440
@@ -162,6 +163,57 @@ models:
   enabled: true
   tags:
   - cn
+  - openai-compat
+  api_key: ''
+- id: qwen3.8-max
+  provider: qwen
+  model: qwen3.8-max
+  tier: flagship
+  api_base: https://dashscope.aliyuncs.com/compatible-mode/v1
+  api_key_env: QWEN_API_KEY
+  cost_per_1k_input: 0.003
+  cost_per_1k_output: 0.009
+  max_tokens: 65536
+  timeout: 300
+  weight: 100
+  enabled: true
+  tags:
+  - cn
+  - reasoning
+  - openai-compat
+  api_key: ''
+- id: kimi-k3
+  provider: moonshot
+  model: kimi-k3
+  tier: flagship
+  api_base: https://api.moonshot.cn/v1
+  api_key_env: MOONSHOT_API_KEY
+  cost_per_1k_input: 0.002
+  cost_per_1k_output: 0.008
+  max_tokens: 131072
+  timeout: 300
+  weight: 100
+  enabled: true
+  tags:
+  - cn
+  - reasoning
+  - openai-compat
+  api_key: ''
+- id: glm-5.2
+  provider: zhipu
+  model: glm-5.2
+  tier: flagship
+  api_base: https://open.bigmodel.cn/api/paas/v4
+  api_key_env: ZHIPU_API_KEY
+  cost_per_1k_input: 0.002
+  cost_per_1k_output: 0.008
+  max_tokens: 65536
+  timeout: 300
+  weight: 100
+  enabled: true
+  tags:
+  - cn
+  - reasoning
   - openai-compat
   api_key: ''
 - id: doubao-pro
@@ -373,7 +425,7 @@ moa:
       reference_temperature: 0.5
       aggregator_temperature: 0.5
       tier: lite
-      description: 鍗?lite 妯″瀷,鏈€蹇渶渚垮疁
+      description: 单lite模型,最快最便宜
     balanced:
       enabled: true
       strategy: parallel
@@ -382,7 +434,7 @@ moa:
       critic_rounds: 1
       reference_temperature: 0.6
       aggregator_temperature: 0.4
-      description: 4 妯″瀷骞惰 + 鏃楄埌鑱氬悎 + 1 浜掑
+      description: 4模型并行 + 旗舰聚合 + 1轮互审
     quality:
       enabled: true
       strategy: parallel
@@ -391,7 +443,7 @@ moa:
       critic_rounds: 2
       reference_temperature: 0.6
       aggregator_temperature: 0.3
-      description: 5 妯″瀷 + 鏃楄埌鑱氬悎 + 2 浜掑
+      description: 5模型并行 + 旗舰聚合 + 2轮互审
     chinese_battalion:
       enabled: true
       strategy: parallel
@@ -409,7 +461,7 @@ moa:
       critic_rounds: 1
       reference_temperature: 0.6
       aggregator_temperature: 0.4
-      description: OpenSquilla v0.5.0 椋庢牸:4 鍥戒骇妯″瀷骞惰 + 鍥戒骇鑱氬悎,闆跺浗澶栨棗鑸?
+      description: OpenSquilla v0.5.0 风格:4国产模型并行 + 国产聚合,零国外旗舰
       max_tokens: 4096
     compose_analyst:
       enabled: true
@@ -419,7 +471,7 @@ moa:
       critic_rounds: 0
       reference_temperature: 0.6
       aggregator_temperature: 0.4
-      description: 4 妯″瀷鍒嗗伐:feasibility / performance / security / ux
+      description: 4模型分工:feasibility / performance / security / ux
       max_tokens: 4096
     judge:
       enabled: true
@@ -428,7 +480,7 @@ moa:
       critic_rounds: 3
       reference_temperature: 0.5
       aggregator_temperature: 0.3
-      description: 鍗曟ā鍨嬪杞弽鎬?閫傚悎棰勭畻绱у紶浣嗛渶瑕佽川閲忕殑鍦烘櫙
+      description: 单模型多轮反思,适合预算紧张但需要质量的场景
       max_tokens: 4096
     chain_deep:
       enabled: true
@@ -442,7 +494,7 @@ moa:
         tier: premium
       reference_temperature: 0.6
       aggregator_temperature: 0.4
-      description: 3 姝ヤ覆琛?MoA,閫傚悎闀块摼璺皟鐮斿垎鏋?
+      description: 3步串联 MoA,适合长链路调试分析
       max_tokens: 4096
     pipeline:
       enabled: true
@@ -454,7 +506,7 @@ moa:
         tier: standard
       - name: evaluator
         tier: premium
-      description: planner 鈫?generator 鈫?evaluator 鍗曠嚎娴佺▼
+      description: planner → generator → evaluator 单线流程
       max_tokens: 4096
     chinese_battalion_layered:
       enabled: true
@@ -474,7 +526,7 @@ moa:
       layer_count: 3
       reference_temperature: 0.6
       aggregator_temperature: 0.4
-      description: Together AI MoA 3 灞傛灦鏋?4 鍥戒骇 L1 骞惰 鈫?L2 鍚屾壒妯″瀷鑱氬悎 鈫?L3 鏃楄埌鑱氬悎
+      description: Together AI MoA 3层框架:4国产 L1并行 → L2同步批量聚合 → L3旗舰聚合
       max_tokens: 4096
     chinese_battalion_lite:
       enabled: true
@@ -492,7 +544,7 @@ moa:
       layer_count: 2
       reference_temperature: 0.6
       aggregator_temperature: 0.4
-      description: Together AI MoA-Lite:2 灞?MoA,1.8% 鎻愬崌 + 鎴愭湰鏈€浼?
+      description: Together AI MoA-Lite:2层 MoA,1.8%提升 + 成本最优
       max_tokens: 4096
     qwen_single_proposer:
       enabled: true
@@ -504,7 +556,7 @@ moa:
       aggregator: qwen-plus
       aggregator_tier: premium
       reference_temperature: 0.7
-      description: Single-Proposer:Qwen-Plus 楂樻俯閲囨牱 4 娆″啀鑱氬悎(璁烘枃瀵圭収缁?
+      description: Single-Proposer:Qwen-Plus 高温采样4次再聚合(论文对照组)
       max_tokens: 4096
     ranker_qwen110b:
       enabled: true
@@ -513,8 +565,26 @@ moa:
       aggregator: qwen-max
       aggregator_tier: premium
       reference_temperature: 0.6
-      description: LLM Ranker baseline:骞惰 4 鍙傝€?+ 鏃楄埌閫夋渶浣?璁烘枃 搂3.3 瀵圭収缁?
+      description: LLM Ranker baseline:并行4参考 + 旗舰选最佳,论文§3.3对照组
       max_tokens: 4096
+    tri_model_review:
+      enabled: true
+      strategy: parallel
+      reference_count: 3
+      reference_models:
+      - id: qwen3.8-max
+        role: proposer
+      - id: kimi-k3
+        role: proposer
+      - id: glm-5.2
+        role: proposer
+      aggregator: glm-5.2
+      aggregator_tier: flagship
+      critic_rounds: 3
+      reference_temperature: 0.6
+      aggregator_temperature: 0.3
+      description: 三模型互审互查互检:Qwen3.8+Kimi-K3+GLM-5.2并行提议→聚合→三轮交叉审查
+      max_tokens: 8192
 health:
   interval_seconds: 30
   timeout_seconds: 10
@@ -529,6 +599,13 @@ health:
   probe_interval_unhealthy: 180
   purge_threshold_days: 7
   probe_timeout: 15
+  # D3: 首轮 purge 延迟（秒），避免启动即清除端点；探测/清除跳过 mock 端点
+  purge_initial_delay_seconds: 86400
+  skip_mock_endpoints: true
+# D6: Mock 显式化配置 —— explicit=MockProvider 服务但处处标注；disabled=无 Key 直接 503
+mock:
+  mode: explicit
+  header_name: X-MOA-Mock
 ratelimit:
   enabled: true
   per_key_rpm: 60

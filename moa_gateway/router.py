@@ -324,8 +324,14 @@ class IntelligentRouter:
         prefer_provider: str | None = None,
         max_cost: float | None = None,
         require_tier: ModelTier | None = None,
+        allow_tier_fallback: bool = True,
     ) -> RoutingDecision:
-        """路由决策"""
+        """路由决策
+
+        allow_tier_fallback: 目标 tier 无端点时是否向上升级兜底。
+        仅适用于 model="auto" 这类由网关自主选型的请求；显式指定了
+        不存在模型 ID 的调用应保持失败(503)而不是被静默改道。
+        """
         complexity = self.evaluate_complexity(query, context)
         tier_str = self.tier_mapping.get(complexity.value, "standard")
         tier = ModelTier(tier_str)
@@ -342,6 +348,17 @@ class IntelligentRouter:
                 primary = self.pool.select_one(lower, prefer_provider=prefer_provider)
                 if primary:
                     tier = lower
+                    break
+        if not primary and allow_tier_fallback:
+            # 升级兜底:目标 tier 无端点时向上找(避免 auto 请求 503,
+            # 如 trivial→free 但配置中无 free 端点)
+            for delta in range(1, 5):
+                higher = tier.next(delta)
+                if higher == tier:
+                    break
+                primary = self.pool.select_one(higher, prefer_provider=prefer_provider)
+                if primary:
+                    tier = higher
                     break
         if not primary:
             return RoutingDecision(
@@ -430,17 +447,20 @@ class IntelligentRouter:
 
 # 单例
 _router: IntelligentRouter | None = None
+_router_lock = __import__("threading").Lock()
 
 
 def get_router() -> IntelligentRouter:
     global _router
     if _router is None:
-        from . import config as _cfg
+        with _router_lock:
+            if _router is None:
+                from . import config as _cfg
 
-        s = _cfg.get_settings()
-        _router = IntelligentRouter(
-            thresholds=s.routing.thresholds,
-            tier_mapping=s.routing.tier_mapping,
-            max_cost_per_request=s.routing.max_cost_per_request,
-        )
+                s = _cfg.get_settings()
+                _router = IntelligentRouter(
+                    thresholds=s.routing.thresholds,
+                    tier_mapping=s.routing.tier_mapping,
+                    max_cost_per_request=s.routing.max_cost_per_request,
+                )
     return _router

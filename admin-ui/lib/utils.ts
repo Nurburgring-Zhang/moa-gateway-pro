@@ -8,8 +8,18 @@ export function formatNumber(num: number): string {
   return num.toString();
 }
 
-export function formatDate(date: string | Date): string {
-  const d = new Date(date);
+export function formatDate(date: string | number | Date): string {
+  let d: Date;
+  if (typeof date === 'number') {
+    // Epoch — treat values < 1e12 as seconds, otherwise milliseconds.
+    d = new Date(date < 1e12 ? date * 1000 : date);
+  } else if (typeof date === 'string' && /^\d+(\.\d+)?$/.test(date)) {
+    const n = parseFloat(date);
+    d = new Date(n < 1e12 ? n * 1000 : n);
+  } else {
+    d = new Date(date);
+  }
+  if (isNaN(d.getTime())) return String(date);
   return d.toLocaleString('zh-CN', {
     year: 'numeric',
     month: '2-digit',

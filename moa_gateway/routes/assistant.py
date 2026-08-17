@@ -2,15 +2,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from ..auth import require_api_key
-from ..assistant.models import Assistant, Thread, Message, Run
-from ..assistant.storage import get_storage
 from ..assistant.executor import execute_run, submit_tool_outputs
+from ..assistant.models import Assistant, Message, Run, Thread
+from ..assistant.storage import get_storage
+from ..auth import require_api_key
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["assistants"])
@@ -20,9 +20,9 @@ router = APIRouter(tags=["assistants"])
 
 class CreateAssistantRequest(BaseModel):
     model: str = "gpt-4o"
-    name: Optional[str] = None
-    description: Optional[str] = None
-    instructions: Optional[str] = None
+    name: str | None = None
+    description: str | None = None
+    instructions: str | None = None
     tools: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     temperature: float = 1.0
@@ -42,11 +42,11 @@ class CreateMessageRequest(BaseModel):
 
 class CreateRunRequest(BaseModel):
     assistant_id: str
-    model: Optional[str] = None
-    instructions: Optional[str] = None
+    model: str | None = None
+    instructions: str | None = None
     tools: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
-    temperature: Optional[float] = None
+    temperature: float | None = None
     stream: bool = False
 
 
@@ -211,6 +211,18 @@ async def create_run(
     if not assistant or assistant.owner_key_id != key_info.get("key_id", ""):
         raise HTTPException(status_code=404, detail="Assistant not found")
 
+    # D12: one active run per thread. Creating a second while one is still
+    # queued/in_progress would race on the same thread and double-bill LLM
+    # calls, so reject loudly with 409 instead of silently queueing.
+    active = [
+        r for r in storage.list_runs(thread_id, limit=50) if r.status in ("queued", "in_progress")
+    ]
+    if active:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Thread already has an active run: {active[0].id}",
+        )
+
     # Create run
     run = Run(
         thread_id=thread_id,
@@ -276,10 +288,17 @@ async def submit_run_tool_outputs(
     if run.status != "requires_action":
         raise HTTPException(status_code=400, detail="Run is not awaiting tool outputs")
 
+    # Claim the run *before* scheduling the background task: persist the
+    # requires_action -> in_progress flip so (a) a racing second submit sees
+    # in_progress and gets the 400 above, and (b) the executor never receives
+    # an object whose in-memory state diverges from disk (the old code mutated
+    # run.status without saving, then the background task rejected it).
+    run.status = "in_progress"
+    storage.save_run(run)
+
     # Process in background
     background_tasks.add_task(_submit_outputs_bg, run, req.tool_outputs)
 
-    run.status = "in_progress"
     return run.model_dump()
 
 

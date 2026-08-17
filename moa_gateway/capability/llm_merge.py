@@ -393,7 +393,7 @@ class FallbackChain:
                 errors.append(e)
                 continue
 
-        raise AllProvidersFailedError(providers_tried, errors)
+        raise AllProvidersFailedError(providers_tried, errors)  # type: ignore[arg-type]
 
 
 # ============ JSON 序列化辅助 ============

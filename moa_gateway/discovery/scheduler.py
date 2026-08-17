@@ -83,7 +83,7 @@ class DiscoveryScheduler:
                         logger.warning("Failed to start monitoring %s: %s", eid, e)
 
             # Task #43: Run purge check for dead endpoints
-            purge_result = {"purged": []}
+            purge_result = {"purged": []}  # type: ignore[var-annotated]
             if self._purge_manager:
                 try:
                     purged = await self._purge_manager.check_and_purge()
@@ -99,8 +99,8 @@ class DiscoveryScheduler:
                     bench_results = await self._benchmark_engine.benchmark_all()
                     benchmark_result = {
                         "status": "completed",
-                        "total": len(bench_results),
-                        "successful": sum(1 for r in bench_results.values() if r.success),
+                        "total": len(bench_results),  # type: ignore[dict-item]
+                        "successful": sum(1 for r in bench_results.values() if r.success),  # type: ignore[dict-item]
                     }
                 except Exception as e:
                     logger.warning("Benchmark trigger failed: %s", e)
@@ -110,7 +110,7 @@ class DiscoveryScheduler:
                     cap_results = await self._capability_probe.probe_all()
                     capability_result = {
                         "status": "completed",
-                        "total": len(cap_results),
+                        "total": len(cap_results),  # type: ignore[dict-item]
                     }
                 except Exception as e:
                     logger.warning("Capability probe trigger failed: %s", e)

@@ -3,10 +3,9 @@
 OSV.dev 提供 free public API,POST /v1/query 一次查多个包
 """
 import json
-import os
 import sys
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
 
 

@@ -16,11 +16,40 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from .base import AgentContext, AgentLoop, LoopResult, ToolCall, ToolExecutor, ToolResult
+from .base import (
+    AgentContext,
+    AgentLoop,
+    LlmOutcome,
+    LlmUsage,
+    LoopResult,
+    ToolCall,
+    ToolExecutor,
+    ToolResult,
+    normalize_llm_outcome,
+)
 
 logger = logging.getLogger(__name__)
 
-LlmCall = Callable[..., Awaitable[str]]
+LlmCall = Callable[..., Awaitable[str | LlmOutcome]]
+
+
+@dataclass
+class _UsageAcc:
+    """Per-run usage accumulator (D7).
+
+    Created fresh for every run()/run_scenario() call and passed explicitly
+    through the call chain, so two concurrent runs on the same loop instance
+    can never cross-contaminate each other's counters.
+    """
+
+    cost: float = 0.0
+    tokens: int = 0
+
+    def add(self, usage: LlmUsage | None) -> None:
+        if usage is not None:
+            self.cost += usage.cost
+            self.tokens += usage.total_tokens
+
 
 PLAN_SYSTEM_PROMPT = """\
 You are a planning agent. Decompose the user's request into a JSON array of steps.
@@ -104,7 +133,7 @@ def _topological_sort(steps: list[ScenarioStep]) -> list[list[ScenarioStep]]:
     Raises:
         ValueError: If a circular dependency is detected.
     """
-    step_map = {s.id: s for s in steps}
+    _step_map = {s.id: s for s in steps}
     completed: set[str] = set()
     waves: list[list[ScenarioStep]] = []
     remaining = list(steps)
@@ -139,6 +168,7 @@ class ScenarioExecutor:
         self,
         steps: list[ScenarioStep],
         context: dict[str, Any] | None = None,
+        acc: _UsageAcc | None = None,
     ) -> dict[str, Any]:
         """Execute scenario steps in topological order.
 
@@ -154,6 +184,7 @@ class ScenarioExecutor:
             - error: str (empty if success)
         """
         ctx = dict(context) if context else {}
+        acc = acc if acc is not None else _UsageAcc()
         step_results: dict[str, Any] = {}
         all_tool_calls: list[ToolCall] = []
         all_tool_results: list[ToolResult] = []
@@ -177,7 +208,7 @@ class ScenarioExecutor:
             )
 
             if len(wave) == 1:
-                result = await self._execute_step(wave[0], ctx)
+                result = await self._execute_step(wave[0], ctx, acc)
                 self._collect_results(
                     wave[0],
                     result,
@@ -187,9 +218,9 @@ class ScenarioExecutor:
                     all_tool_results,
                 )
             else:
-                tasks = [self._execute_step(s, ctx) for s in wave]
+                tasks = [self._execute_step(s, ctx, acc) for s in wave]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
-                for step, result in zip(wave, results):
+                for step, result in zip(wave, results):  # type: ignore[assignment]
                     if isinstance(result, Exception):
                         step_results[step.id] = {
                             "success": False,
@@ -232,6 +263,7 @@ class ScenarioExecutor:
         self,
         step: ScenarioStep,
         context: dict[str, Any],
+        acc: _UsageAcc,
     ) -> dict[str, Any]:
         """Execute a single scenario step.
 
@@ -245,8 +277,8 @@ class ScenarioExecutor:
             prompt = resolved_inputs.get("prompt", resolved_inputs.get("query", ""))
             messages = [{"role": "user", "content": str(prompt)}]
             try:
-                response = await self._loop._llm_call(messages)
-                return {"success": True, "output": response, "action": "plan"}
+                outcome = await self._loop._call_llm(messages, acc)
+                return {"success": True, "output": outcome.content, "action": "plan"}
             except Exception as exc:  # noqa: BLE001
                 return {"success": False, "output": "", "error": str(exc), "action": "plan"}
 
@@ -259,10 +291,10 @@ class ScenarioExecutor:
             if tool_name == "llm":
                 llm_prompt = arguments.get("query", arguments.get("prompt", ""))
                 try:
-                    response = await self._loop._llm_call(
-                        [{"role": "user", "content": str(llm_prompt)}]
+                    outcome = await self._loop._call_llm(
+                        [{"role": "user", "content": str(llm_prompt)}], acc
                     )
-                    return {"success": True, "output": response, "action": "execute"}
+                    return {"success": True, "output": outcome.content, "action": "execute"}
                 except Exception as exc:  # noqa: BLE001
                     return {"success": False, "output": "", "error": str(exc), "action": "execute"}
             else:
@@ -294,8 +326,8 @@ class ScenarioExecutor:
             prompt = resolved_inputs.get("prompt", resolved_inputs.get("query", ""))
             messages = [{"role": "user", "content": str(prompt)}]
             try:
-                response = await self._loop._llm_call(messages)
-                return {"success": True, "output": response, "action": "transform"}
+                outcome = await self._loop._call_llm(messages, acc)
+                return {"success": True, "output": outcome.content, "action": "transform"}
             except Exception as exc:  # noqa: BLE001
                 return {"success": False, "output": "", "error": str(exc), "action": "transform"}
 
@@ -386,6 +418,14 @@ class PlanExecuteLoop(AgentLoop):
         self._default_max_iterations = max_iterations
         self._scenario_executor = ScenarioExecutor(self)
 
+    async def _call_llm(
+        self, messages: list[dict[str, Any]], acc: _UsageAcc
+    ) -> LlmOutcome:
+        """Invoke the llm callback and accumulate reported usage (D7)."""
+        outcome = normalize_llm_outcome(await self._llm_call(messages))
+        acc.add(outcome.usage)
+        return outcome
+
     async def run(
         self,
         messages: list[dict[str, Any]],
@@ -393,6 +433,7 @@ class PlanExecuteLoop(AgentLoop):
     ) -> LoopResult:
         """Execute the Plan-Execute loop."""
         ctx = context or AgentContext(max_iterations=self._default_max_iterations)
+        acc = _UsageAcc()
         tool_names = self._tool_executor.list_tools()
         tools_str = ", ".join(tool_names) if tool_names else "(none)"
 
@@ -404,24 +445,35 @@ class PlanExecuteLoop(AgentLoop):
         ]
 
         try:
-            plan_response = await self._llm_call(plan_messages)
+            plan_outcome = await self._call_llm(plan_messages, acc)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Plan generation failed")
             return LoopResult(
                 success=False,
                 final_response="",
                 iterations=0,
+                total_cost=acc.cost,
+                total_tokens=acc.tokens,
                 error=f"Plan generation failed: {exc}",
             )
 
-        steps = _extract_json_array(plan_response)
+        steps = _extract_json_array(plan_outcome.content)
         if not steps:
-            return LoopResult(
-                success=False,
-                final_response="",
-                iterations=0,
-                error="Failed to parse plan from LLM response",
+            # Audit F30 fix: degrade gracefully instead of hard-failing. A
+            # planner that does not emit a parseable JSON plan (e.g. a mock or
+            # weak LLM) should not abort the whole loop — fall back to a single
+            # LLM step that answers the request directly, so execute+synthesize
+            # still really run.
+            logger.warning(
+                "Plan not parseable as JSON; falling back to a single LLM step"
             )
+            steps = [
+                {
+                    "description": user_request or "Answer the request",
+                    "tool": "llm",
+                    "arguments": {"query": user_request},
+                }
+            ]
 
         logger.info("Plan generated with %d steps", len(steps))
 
@@ -450,10 +502,10 @@ class PlanExecuteLoop(AgentLoop):
                 # Use LLM directly for this step
                 llm_prompt = arguments.get("query", arguments.get("prompt", step_desc))
                 try:
-                    step_result = await self._llm_call(
-                        [{"role": "user", "content": str(llm_prompt)}]
+                    step_outcome = await self._call_llm(
+                        [{"role": "user", "content": str(llm_prompt)}], acc
                     )
-                    step_results.append(f"Step {i + 1} ({step_desc}): {step_result}")
+                    step_results.append(f"Step {i + 1} ({step_desc}): {step_outcome.content}")
                 except Exception as exc:  # noqa: BLE001
                     step_results.append(f"Step {i + 1} ({step_desc}): ERROR - {exc}")
             else:
@@ -482,7 +534,8 @@ class PlanExecuteLoop(AgentLoop):
         ]
 
         try:
-            final_response = await self._llm_call(synthesis_messages)
+            final_outcome = await self._call_llm(synthesis_messages, acc)
+            final_response = final_outcome.content
         except Exception:  # noqa: BLE001
             logger.exception("Synthesis failed")
             final_response = results_text
@@ -493,6 +546,8 @@ class PlanExecuteLoop(AgentLoop):
             iterations=iteration,
             tool_calls=all_tool_calls,
             tool_results=all_tool_results,
+            total_cost=acc.cost,
+            total_tokens=acc.tokens,
         )
 
     async def run_scenario(
@@ -511,7 +566,8 @@ class PlanExecuteLoop(AgentLoop):
         Returns:
             LoopResult with scenario execution results.
         """
-        result = await self._scenario_executor.execute_scenario(steps, context)
+        acc = _UsageAcc()
+        result = await self._scenario_executor.execute_scenario(steps, context, acc)
 
         step_summaries = []
         for step_id, step_result in result.get("step_results", {}).items():
@@ -528,5 +584,7 @@ class PlanExecuteLoop(AgentLoop):
             iterations=len(result.get("step_results", {})),
             tool_calls=result.get("tool_calls", []),
             tool_results=result.get("tool_results", []),
+            total_cost=acc.cost,
+            total_tokens=acc.tokens,
             error=result.get("error", ""),
         )

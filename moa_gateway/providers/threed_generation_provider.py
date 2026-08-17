@@ -18,6 +18,11 @@ class ThreeDGenerationProvider(ABC):
         self.api_key = api_key
         self.api_base = api_base
 
+    def _check_api_key(self) -> None:
+        """Guard: raise if API key is not configured."""
+        if not self.api_key:
+            raise RuntimeError(f"API key not configured for {self.__class__.__name__}")
+
     @abstractmethod
     async def text_to_3d(
         self,
@@ -59,6 +64,7 @@ class Tripo3DProvider(ThreeDGenerationProvider):
             self.api_base = "https://api.tripo3d.ai/v2/openapi"
 
     def _headers(self) -> dict[str, str]:
+        self._check_api_key()
         return {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -86,7 +92,7 @@ class Tripo3DProvider(ThreeDGenerationProvider):
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["data"]["task_id"]
+            return data["data"]["task_id"]  # type: ignore[no-any-return]
 
     async def image_to_3d(
         self,
@@ -108,7 +114,7 @@ class Tripo3DProvider(ThreeDGenerationProvider):
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["data"]["task_id"]
+            return data["data"]["task_id"]  # type: ignore[no-any-return]
 
     async def query_task(self, task_id: str) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -158,6 +164,7 @@ class MeshyProvider(ThreeDGenerationProvider):
             self.api_base = "https://api.meshy.ai/v2"
 
     def _headers(self) -> dict[str, str]:
+        self._check_api_key()
         return {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -186,7 +193,7 @@ class MeshyProvider(ThreeDGenerationProvider):
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["result"]
+            return data["result"]  # type: ignore[no-any-return]
 
     async def image_to_3d(
         self,
@@ -207,7 +214,7 @@ class MeshyProvider(ThreeDGenerationProvider):
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["result"]
+            return data["result"]  # type: ignore[no-any-return]
 
     async def query_task(self, task_id: str) -> dict[str, Any]:
         # Meshy uses different endpoints for text-to-3d and image-to-3d tasks
@@ -252,3 +259,31 @@ class MeshyProvider(ThreeDGenerationProvider):
             result["error"] = task_data.get("message", "Unknown error")
 
         return result
+
+
+class Mock3DProvider(ThreeDGenerationProvider):
+    """Mock 3D generation provider — returns fake task_ids + placeholder model
+    URLs labeled X-MOA-Mock. Used when no real 3D key is configured and
+    mock.mode=explicit, so the 3D pipeline returns 200 instead of 503."""
+
+    async def text_to_3d(
+        self, prompt: str, model_version: str = "default", output_format: str = "glb",
+    ) -> str:
+        logger.warning("[mock] 3d.text_to_3d: no real provider configured; returning synthetic task")
+        return f"mock-3d-task-{abs(hash(prompt)) % 100000:05d}"
+
+    async def image_to_3d(self, image_url: str, output_format: str = "glb") -> str:
+        logger.warning("[mock] 3d.image_to_3d: synthetic")
+        return f"mock-3d-task-img-{abs(hash(image_url)) % 100000:05d}"
+
+    async def query_task(self, task_id: str) -> dict[str, Any]:
+        logger.warning("[mock] 3d.query_task: synthetic")
+        return {
+            "task_id": task_id,
+            "status": "completed",
+            "progress": 100,
+            "model_url": "https://mock.example.com/model.glb",
+            "thumbnail_url": "https://mock.example.com/thumbnail.png",
+            "error": None,
+            "mock": True,
+        }

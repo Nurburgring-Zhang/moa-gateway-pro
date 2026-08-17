@@ -3,11 +3,11 @@
 用 prometheus_client.text_string_to_metric_families 解析 /metrics 输出
 等效于 prometheus server 抓取 + 解析的完整流程
 """
-import urllib.request
-import urllib.error
-from prometheus_client.parser import text_string_to_metric_families
-import json
 import sys
+import urllib.error
+import urllib.request
+
+from prometheus_client.parser import text_string_to_metric_families
 
 
 def main():
@@ -27,7 +27,7 @@ def main():
         sys.exit(1)
 
     # 2. 解析 (真 Prometheus 行为)
-    print(f"\n[parse] 用 prometheus_client.parser 真解析:")
+    print("\n[parse] 用 prometheus_client.parser 真解析:")
     families = list(text_string_to_metric_families(body))
     print(f"  parsed {len(families)} metric families")
     moa_families = [f for f in families if f.name.startswith("moa_")]
@@ -36,7 +36,7 @@ def main():
         print(f"    {f.name} ({f.type}): {len(f.samples)} samples")
 
     # 3. 提取关键 metric 值
-    print(f"\n[key metrics]:")
+    print("\n[key metrics]:")
     interesting = ["moa_chat_requests_total", "moa_endpoint_health",
                     "moa_rate_limit_blocked_total", "moa_moa_executions_total",
                     "moa_capability_calls_total"]

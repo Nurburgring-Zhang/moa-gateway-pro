@@ -262,13 +262,34 @@ class TestGDPR:
     @pytest.mark.asyncio
     async def test_process_deletion(self):
         """Can process a deletion request."""
+        import sqlite3
+
         from moa_gateway.compliance.gdpr import GDPRManager
+
+        # v3.1.1: GDPR deletion targets the REAL schema (admin_users, and
+        # api_keys/request_logs keyed by key_id) — mirror it exactly.
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE admin_users (username TEXT)")
+        conn.execute("CREATE TABLE request_logs (api_key_id TEXT)")
+        conn.execute("CREATE TABLE api_keys (key_id TEXT, name TEXT)")
+        conn.execute("INSERT INTO admin_users VALUES ('user-456')")
+        conn.execute("INSERT INTO api_keys VALUES ('key_1', 'user-456')")
+        conn.execute("INSERT INTO request_logs VALUES ('key_1')")
 
         mgr = GDPRManager()
         req = await mgr.create_deletion_request("user-456")
-        result = await mgr.process_deletion(req.request_id)
-        assert result["status"] == "completed"
+        result = await mgr.process_deletion(req.request_id, db_conn=conn)
+        assert result["status"] == "completed", result
         assert req.status == "completed"
+        # the user row must actually be gone (right to be forgotten)
+        left = conn.execute(
+            "SELECT COUNT(*) FROM admin_users WHERE username = 'user-456'"
+        ).fetchone()[0]
+        assert left == 0
+        # and the log row must be anonymized, not left attributable
+        log_key = conn.execute("SELECT api_key_id FROM request_logs").fetchone()[0]
+        assert log_key.startswith("anon_")
+        conn.close()
 
     @pytest.mark.asyncio
     async def test_export_user_data(self):

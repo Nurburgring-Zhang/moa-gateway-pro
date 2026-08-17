@@ -122,7 +122,7 @@ class ServerRunner:
         if port == 0:
             port = self._find_free_port(8765)
         self._port = port
-        self.last_error = None
+        self.last_error = None  # type: ignore[assignment]
         # 用 -m uvicorn 模式(更稳,被验证可用)
         cmd = [
             sys.executable,
@@ -150,7 +150,7 @@ class ServerRunner:
                 stderr=subprocess.DEVNULL,
                 cwd=root,
                 env=env,
-                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,  # type: ignore[attr-defined]
             )
         except Exception as e:
             self.last_error = f"Popen 失败: {e}"
@@ -211,9 +211,9 @@ class ServerRunner:
                 self._process.wait(timeout=3)
         except Exception as e:
             logger.warning("stop: %s", e)
-        self._process = None
+        self._process = None  # type: ignore[assignment]
         self.is_running = False
-        self._port = None
+        self._port = None  # type: ignore[assignment]
         return True
 
     def _read_log(self, proc: subprocess.Popen):
@@ -232,7 +232,7 @@ class ServerRunner:
             req = urllib.request.Request(f"http://127.0.0.1:{self._port}/health")
             with urllib.request.urlopen(req, timeout=2) as r:
                 # urllib 返回 http.client.HTTPResponse,属性是 .status 不是 .status_code
-                return r.status == 200
+                return r.status == 200  # type: ignore[no-any-return]
         except TimeoutError:
             return False
         except ConnectionRefusedError:

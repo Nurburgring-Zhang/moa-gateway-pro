@@ -18,6 +18,11 @@ class VideoEditProvider(ABC):
         self.api_key = api_key
         self.api_base = api_base
 
+    def _check_api_key(self) -> None:
+        """Guard: raise if API key is not configured."""
+        if not self.api_key:
+            raise RuntimeError(f"API key not configured for {self.__class__.__name__}")
+
     @abstractmethod
     async def text_to_video(
         self,
@@ -65,6 +70,7 @@ class RunwayVideoProvider(VideoEditProvider):
             self.api_base = "https://api.runwayml.com/v1"
 
     def _headers(self) -> dict[str, str]:
+        self._check_api_key()
         return {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -93,7 +99,7 @@ class RunwayVideoProvider(VideoEditProvider):
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["id"]
+            return data["id"]  # type: ignore[no-any-return]
 
     async def image_to_video(
         self,
@@ -118,7 +124,7 @@ class RunwayVideoProvider(VideoEditProvider):
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["id"]
+            return data["id"]  # type: ignore[no-any-return]
 
     async def edit_video(
         self,
@@ -141,7 +147,7 @@ class RunwayVideoProvider(VideoEditProvider):
             )
             resp.raise_for_status()
             data = resp.json()
-            return data["id"]
+            return data["id"]  # type: ignore[no-any-return]
 
     async def query_task(self, task_id: str) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -181,6 +187,7 @@ class KlingVideoEditProvider(VideoEditProvider):
             self.api_base = "https://api.klingai.com/v1"
 
     def _headers(self) -> dict[str, str]:
+        self._check_api_key()
         return {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -208,7 +215,7 @@ class KlingVideoEditProvider(VideoEditProvider):
             )
             resp.raise_for_status()
             data = resp.json()
-            return data.get("data", {}).get("task_id", data.get("task_id", ""))
+            return data.get("data", {}).get("task_id", data.get("task_id", ""))  # type: ignore[no-any-return]
 
     async def image_to_video(
         self,
@@ -231,7 +238,7 @@ class KlingVideoEditProvider(VideoEditProvider):
             )
             resp.raise_for_status()
             data = resp.json()
-            return data.get("data", {}).get("task_id", data.get("task_id", ""))
+            return data.get("data", {}).get("task_id", data.get("task_id", ""))  # type: ignore[no-any-return]
 
     async def edit_video(
         self,
@@ -271,3 +278,38 @@ class KlingVideoEditProvider(VideoEditProvider):
                 result["error"] = task_data.get("task_status_msg", "Unknown error")
 
             return result
+
+
+class MockVideoProvider(VideoEditProvider):
+    """Mock video provider — returns fake task_ids + placeholder output URLs
+    labeled X-MOA-Mock. Used when no real video key is configured and
+    mock.mode=explicit, so the video pipeline returns 200 instead of 503."""
+
+    async def text_to_video(
+        self, prompt: str, duration: int = 5, dimensions: str = "1280x720", fps: int = 24,
+    ) -> str:
+        logger.warning("[mock] video.text_to_video: no real provider configured; returning synthetic task")
+        return f"mock-video-task-{abs(hash(prompt)) % 100000:05d}"
+
+    async def image_to_video(
+        self, image_url: str, prompt: str, duration: int = 5, dimensions: str = "1280x720",
+    ) -> str:
+        logger.warning("[mock] video.image_to_video: synthetic")
+        return f"mock-video-task-img-{abs(hash(image_url)) % 100000:05d}"
+
+    async def edit_video(
+        self, video_url: str, prompt: str, operation: str = "style_transfer",
+    ) -> str:
+        logger.warning("[mock] video.edit_video: synthetic")
+        return f"mock-video-edit-{abs(hash(video_url)) % 100000:05d}"
+
+    async def query_task(self, task_id: str) -> dict[str, Any]:
+        logger.warning("[mock] video.query_task: synthetic")
+        return {
+            "task_id": task_id,
+            "status": "completed",
+            "progress": 100,
+            "output_url": "https://mock.example.com/video.mp4",
+            "error": None,
+            "mock": True,
+        }

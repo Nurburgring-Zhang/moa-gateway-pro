@@ -5,6 +5,7 @@ Gracefully degrades when Redis is unavailable.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -14,6 +15,8 @@ from typing import Any
 from .base import CacheBackend, CacheEntry
 
 logger = logging.getLogger(__name__)
+
+_OPERATION_TIMEOUT = 2.0  # seconds — never block request handling on Redis
 
 
 class RedisCache(CacheBackend):
@@ -41,7 +44,7 @@ class RedisCache(CacheBackend):
             import redis.asyncio as aioredis  # noqa: PLC0415
 
             self._redis = aioredis.from_url(self._url, decode_responses=True, socket_timeout=5)
-            await self._redis.ping()
+            await asyncio.wait_for(self._redis.ping(), timeout=_OPERATION_TIMEOUT)
             self._available = True
             logger.info("Redis cache connected: %s", self._url.split("@")[-1])
             return True
@@ -68,7 +71,9 @@ class RedisCache(CacheBackend):
         if not self._available or not self._redis:
             return None
         try:
-            data = await self._redis.get(f"{self._prefix}{key}")
+            data = await asyncio.wait_for(
+                self._redis.get(f"{self._prefix}{key}"), timeout=_OPERATION_TIMEOUT
+            )
             if data:
                 obj = json.loads(data)
                 return CacheEntry(
@@ -80,6 +85,8 @@ class RedisCache(CacheBackend):
                     similarity=obj.get("similarity", 1.0),
                     layer="l3_redis",
                 )
+        except (asyncio.TimeoutError, TimeoutError):
+            logger.debug("Redis get timeout for key: %s", key[:32])
         except Exception as e:
             logger.debug("Redis get error: %s", e)
         return None
@@ -96,11 +103,16 @@ class RedisCache(CacheBackend):
                 "hit_count": 0,
                 "similarity": 1.0,
             }
-            await self._redis.setex(
-                f"{self._prefix}{key}",
-                ttl,
-                json.dumps(entry_data, default=str, ensure_ascii=False),
+            await asyncio.wait_for(
+                self._redis.setex(
+                    f"{self._prefix}{key}",
+                    ttl,
+                    json.dumps(entry_data, default=str, ensure_ascii=False),
+                ),
+                timeout=_OPERATION_TIMEOUT,
             )
+        except (asyncio.TimeoutError, TimeoutError):
+            logger.debug("Redis set timeout for key: %s", key[:32])
         except Exception as e:
             logger.debug("Redis set error: %s", e)
 
@@ -108,7 +120,11 @@ class RedisCache(CacheBackend):
         if not self._available or not self._redis:
             return
         try:
-            await self._redis.delete(f"{self._prefix}{key}")
+            await asyncio.wait_for(
+                self._redis.delete(f"{self._prefix}{key}"), timeout=_OPERATION_TIMEOUT
+            )
+        except (asyncio.TimeoutError, TimeoutError):
+            logger.debug("Redis delete timeout")
         except Exception as e:
             logger.debug("Redis delete error: %s", e)
 
@@ -118,11 +134,18 @@ class RedisCache(CacheBackend):
         try:
             cursor = 0
             while True:
-                cursor, keys = await self._redis.scan(cursor, match=f"{self._prefix}*", count=100)
+                cursor, keys = await asyncio.wait_for(
+                    self._redis.scan(cursor, match=f"{self._prefix}*", count=100),
+                    timeout=_OPERATION_TIMEOUT,
+                )
                 if keys:
-                    await self._redis.delete(*keys)
+                    await asyncio.wait_for(
+                        self._redis.delete(*keys), timeout=_OPERATION_TIMEOUT
+                    )
                 if cursor == 0:
                     break
+        except (asyncio.TimeoutError, TimeoutError):
+            logger.debug("Redis clear timeout")
         except Exception as e:
             logger.debug("Redis clear error: %s", e)
 
@@ -133,10 +156,15 @@ class RedisCache(CacheBackend):
             cursor = 0
             count = 0
             while True:
-                cursor, keys = await self._redis.scan(cursor, match=f"{self._prefix}*", count=100)
+                cursor, keys = await asyncio.wait_for(
+                    self._redis.scan(cursor, match=f"{self._prefix}*", count=100),
+                    timeout=_OPERATION_TIMEOUT,
+                )
                 count += len(keys)
                 if cursor == 0:
                     break
             return count
+        except (asyncio.TimeoutError, TimeoutError):
+            return -1
         except Exception:
             return -1

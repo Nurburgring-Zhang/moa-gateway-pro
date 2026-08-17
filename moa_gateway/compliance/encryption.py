@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 
 class FieldEncryptor:
     """Field-level encryptor — protects sensitive data at rest."""
 
     def __init__(self, master_key: str | None = None):
-        key_material = (master_key or os.getenv("MOA_ENCRYPTION_KEY", "")).encode()
+        key_material = (master_key or os.getenv("MOA_ENCRYPTION_KEY", "")).encode()  # type: ignore[union-attr]
         if not key_material:
             self._key: bytes | None = None
         else:
@@ -26,46 +29,24 @@ class FieldEncryptor:
         if not self.enabled or not plaintext:
             return plaintext
 
-        try:
-            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-            nonce = os.urandom(12)  # 96-bit nonce
-            aesgcm = AESGCM(self._key)
-            ciphertext = aesgcm.encrypt(nonce, plaintext.encode("utf-8"), None)
-            # Format: ENC:base64(nonce + ciphertext)
-            return "ENC:" + base64.b64encode(nonce + ciphertext).decode()
-        except ImportError:
-            return self._simple_encrypt(plaintext)
+        nonce = os.urandom(12)  # 96-bit nonce
+        aesgcm = AESGCM(self._key)  # type: ignore[arg-type]
+        ciphertext = aesgcm.encrypt(nonce, plaintext.encode("utf-8"), None)
+        return "ENC:" + base64.b64encode(nonce + ciphertext).decode()
 
     def decrypt(self, ciphertext: str) -> str:
         """Decrypt a field value."""
         if not self.enabled or not ciphertext or not ciphertext.startswith("ENC:"):
             return ciphertext
 
-        try:
-            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-            raw = base64.b64decode(ciphertext[4:])
-            nonce, ct = raw[:12], raw[12:]
-            aesgcm = AESGCM(self._key)
-            return aesgcm.decrypt(nonce, ct, None).decode("utf-8")
-        except ImportError:
-            return self._simple_decrypt(ciphertext)
-
-    def _simple_encrypt(self, text: str) -> str:
-        """Fallback XOR encryption when cryptography is unavailable."""
-        assert self._key is not None
-        key_bytes = self._key
-        encrypted = bytes(b ^ key_bytes[i % 32] for i, b in enumerate(text.encode("utf-8")))
-        return "ENC:" + base64.b64encode(encrypted).decode()
-
-    def _simple_decrypt(self, text: str) -> str:
-        """Fallback XOR decryption."""
-        assert self._key is not None
-        key_bytes = self._key
-        raw = base64.b64decode(text[4:])
-        decrypted = bytes(b ^ key_bytes[i % 32] for i, b in enumerate(raw))
-        return decrypted.decode("utf-8")
+        raw = base64.b64decode(ciphertext[4:])
+        nonce, ct = raw[:12], raw[12:]
+        aesgcm = AESGCM(self._key)  # type: ignore[arg-type]
+        return aesgcm.decrypt(nonce, ct, None).decode("utf-8")
 
 
 # Global encryptor instance

@@ -22,16 +22,16 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .audit import setup_audit_logging
-from .cache.manager import get_cache_manager
 from . import config as _cfg
-from .model_pool import get_model_pool
-from .health import init_health_system, shutdown_health_system
+from .audit import setup_audit_logging
 from .benchmark import init_benchmark_system, shutdown_benchmark_system
-from .discovery import DiscoveryScheduler, FreeModelDiscoveryEngine, AutoConfigurator
+from .cache.manager import get_cache_manager
+from .discovery import AutoConfigurator, DiscoveryScheduler, FreeModelDiscoveryEngine
+from .ha import graceful, health_checker
+from .health import init_health_system, shutdown_health_system
+from .model_pool import get_model_pool
 from .observability import Metrics, ObservabilityMiddleware, setup_logging
 from .storage import get_storage
-from .ha import graceful, health_checker
 
 logger = logging.getLogger(__name__)
 
@@ -85,13 +85,21 @@ def _ensure_gateway_key(settings) -> None:
 
 def _ensure_admin_password(settings) -> None:
     """确保admin密码存在且强度足够"""
+    from .config import DATA_DIR as _DATA_DIR
+
     password = settings.auth.admin_password or os.environ.get("MOA_ADMIN_PASSWORD", "").strip()
 
     if not password:
         # 自动生成强密码
         password = secrets.token_urlsafe(16)
-        logger.warning("[!] No admin password configured. Auto-generated: %s", password)
+        logger.warning("[!] No admin password configured. Auto-generated password written to data/.admin_password")
         logger.warning("[!] Set MOA_ADMIN_PASSWORD environment variable for persistence")
+        # Write to secure file instead of logging in plaintext
+        _pw_file = _DATA_DIR / ".admin_password"
+        _pw_file.parent.mkdir(parents=True, exist_ok=True)
+        _fd = os.open(str(_pw_file), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.write(_fd, password.encode())
+        os.close(_fd)
 
     if len(password) < 8:
         raise SystemExit(
@@ -166,19 +174,27 @@ def _print_startup_summary(settings) -> None:
     _safe_print("\n".join(lines))
 
 
-async def _daily_purge_loop(purge_manager) -> None:
-    """Background loop: daily purge check for dead endpoints."""
+async def _daily_purge_loop(
+    purge_manager, initial_delay_seconds: float = 86400.0
+) -> None:
+    """Background loop: daily purge check for dead endpoints.
+
+    D3 fix: the first purge is deferred by ``initial_delay_seconds`` so a
+    freshly started gateway never purges endpoints immediately
+    (previously ``last_purge = 0.0`` triggered a purge on the very first
+    iteration, deleting all unhealthy mock-backed endpoints at startup).
+    """
     import time as _time
-    last_purge = 0.0
+    next_purge = _time.monotonic() + max(0.0, initial_delay_seconds)
     while True:
         try:
-            now = _time.time()
-            if now - last_purge > 86400:
+            now = _time.monotonic()
+            if now >= next_purge:
                 purged = await purge_manager.check_and_purge()
                 if purged:
                     logger.info('Daily purge: removed %d dead endpoints', len(purged))
-                last_purge = now
-            await asyncio.sleep(3600)
+                next_purge = _time.monotonic() + 86400
+            await asyncio.sleep(min(3600.0, max(1.0, next_purge - _time.monotonic())))
         except asyncio.CancelledError:
             break
         except Exception as e:
@@ -290,15 +306,20 @@ def create_app() -> FastAPI:
                 model_pool=pool,
             )
             from .routes import optimizer as _opt_mod
-            _opt_mod._optimizer_singleton = optimizer
-            logger.info("MoaOptimizer initialized")
+            _opt_mod._optimizer_singleton = optimizer  # type: ignore[attr-defined]
+            application.state.optimizer = optimizer
+            logger.info("MoaOptimizer initialized and bound to app.state")
         else:
             logger.info("MoaOptimizer disabled by config")
 
         # P1-1: Instantiate and start DiscoveryScheduler
         discovery_scheduler = None
         if settings.discovery.enabled:
-            discovery_engine = FreeModelDiscoveryEngine()
+            # D5: inject configured platform keys so discovery can probe
+            # authenticated endpoints instead of only the no-auth catalog.
+            discovery_engine = FreeModelDiscoveryEngine(
+                api_keys=dict(settings.discovery.api_keys)
+            )
             configurator = AutoConfigurator(pool=pool, storage=get_storage())
             discovery_scheduler = DiscoveryScheduler(
                 engine=discovery_engine,
@@ -319,19 +340,92 @@ def create_app() -> FastAPI:
         else:
             logger.info("Discovery system disabled by config")
 
-        # Start daily purge check task
-        purge_task = asyncio.create_task(_daily_purge_loop(purge_manager))
+        # Start daily purge check task (D3: first purge deferred by config)
+        purge_task = asyncio.create_task(
+            _daily_purge_loop(purge_manager, settings.health.purge_initial_delay_seconds)
+        )
+
+        # D3: restore endpoints that were wrongly purged in previous runs
+        restored = await purge_manager.restore_purged_endpoints()
+        if restored:
+            logger.info("Restored %d previously purged endpoints: %s", len(restored), restored)
 
         cleanup_task = asyncio.create_task(_background_cleanup_loop())
 
         # Initialize cache system
         await get_cache_manager().initialize()
 
+        # T5.1: initialize the tracer. Even when trace_enabled is off the
+        # lightweight in-memory tracer is used lazily, but turning this on
+        # wires the OTel/OTLP exporter so spans leave the process.
+        try:
+            if settings.observability.trace_enabled:
+                from .observability import setup_tracer
+
+                setup_tracer(
+                    service_name="moa-gateway-pro",
+                    otlp_endpoint=settings.observability.otlp_endpoint or None,
+                )
+                logger.info(
+                    "Tracer enabled (otlp=%s)",
+                    settings.observability.otlp_endpoint or "in-memory",
+                )
+        except Exception as _e:  # noqa: BLE001
+            logger.warning("tracer setup failed (falling back to in-memory): %s", _e)
+
+        # D12: fail assistant runs left queued/in_progress by a previous
+        # process so they cannot block new runs on the same thread forever.
+        try:
+            from .assistant.storage import get_storage as get_assistant_storage
+
+            _stale = get_assistant_storage().cleanup_stale_runs()
+            if _stale:
+                logger.info("Assistant runs: marked %d stale run(s) as failed", _stale)
+        except Exception as _e:  # noqa: BLE001
+            logger.warning("assistant stale-run cleanup failed: %s", _e)
+
         # Initialize test report generator (P1-6)
         from .observability.test_report import init_report_generator
         report_storage = os.path.join("data", "reports")
         init_report_generator(storage_dir=report_storage)
         logger.info("Test report generator initialized (storage=%s)", report_storage)
+
+        # HA: Register component health checks for readiness probe
+        def _model_pool_ready() -> bool:
+            # Healthy if any endpoint is healthy, OR the pool is non-empty but
+            # no endpoint has been marked unhealthy yet (startup grace period —
+            # health probes haven't completed, so we don't 503 K8s into a
+            # restart-loop on fresh deploy).
+            if not pool.endpoints:
+                return False
+            has_healthy = any(e.health_status == "healthy" for e in pool.endpoints.values())
+            has_failed = any(e.health_status == "unhealthy" for e in pool.endpoints.values())
+            return has_healthy or not has_failed
+
+        health_checker.register_check("model_pool", _model_pool_ready)
+        health_checker.register_check(
+            "storage",
+            lambda: get_storage().db_path.exists(),
+        )
+        health_checker.register_check(
+            "cache",
+            lambda: True,  # cache is always available (in-memory fallback)
+        )
+
+        # External MCP servers: restore persisted registrations and reconnect.
+        # Run as a background task so a slow/unreachable external server never
+        # blocks readiness. (audit F10 fix)
+        try:
+            from .routes.mcp import restore_persisted_external_servers
+
+            _mcp_restore_task = asyncio.create_task(restore_persisted_external_servers())
+            _mcp_restore_task.add_done_callback(
+                lambda t: logger.warning("external MCP restore error: %s", t.exception())
+                if not t.cancelled() and t.exception()
+                else None
+            )
+        except Exception as _e:  # noqa: BLE001
+            logger.warning("external MCP server restore failed: %s", _e)
 
         # HA: Mark instance as ready to receive traffic
         health_checker.mark_ready()
@@ -403,7 +497,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="MoA Gateway Pro",
-        version="2.0.0",
+        version="3.1.1",
         description="工业级多模型协作网关 — 一份 OpenAI Key 接入所有大模型",
         lifespan=lifespan,
     )
@@ -510,6 +604,24 @@ def create_app() -> FastAPI:
         "/v1/video/",
     )
 
+    # Gateway-level request timeout (prevents indefinite hangs from MoA orchestration)
+    GATEWAY_TIMEOUT_SECONDS = 300  # 5 minutes max for any single request
+
+    @app.middleware("http")
+    async def gateway_timeout_middleware(request, call_next):
+        # Skip timeout for streaming responses and health checks
+        if request.url.path.startswith("/health") or request.url.path == "/metrics":
+            return await call_next(request)
+        try:
+            return await asyncio.wait_for(
+                call_next(request), timeout=GATEWAY_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError:
+            return JSONResponse(
+                {"error": {"message": "Gateway timeout", "type": "timeout_error", "code": "gateway_timeout"}},
+                status_code=504,
+            )
+
     @app.middleware("http")
     async def add_security_headers(request, call_next):
         # Allow larger body for multimodal upload endpoints
@@ -523,6 +635,14 @@ def create_app() -> FastAPI:
                 {"detail": f"request body too large (> {max_body} bytes)"},
                 status_code=413,
             )
+        # Enforce body size for chunked transfer (no content-length header)
+        if request.method in ("POST", "PUT", "PATCH") and not cl:
+            body = await request.body()
+            if len(body) > max_body:
+                return JSONResponse(
+                    {"detail": f"request body too large (> {max_body} bytes)"},
+                    status_code=413,
+                )
         resp = await call_next(request)
         resp.headers["X-Content-Type-Options"] = "nosniff"
         resp.headers["X-Frame-Options"] = "DENY"
@@ -539,30 +659,32 @@ def create_app() -> FastAPI:
 
     # ============ Register Route Modules ============
     from .routes import (
+        admin_console_router,
         admin_router,
         agent_router,
+        assistant_router,
+        audio_router,
         auth_router,
+        benchmark_router,
         capability_router,
         chat_router,
+        compliance_router,
+        embodied_router,
         health_router,
+        image_edit_router,
         mcp_router,
         metrics_router,
         moa_router,
         models_router,
-        webui_router,
-        compliance_router,
-        workflow_router,
         observability_router,
-        benchmark_router,
         optimizer_router,
-        vision_router,
-        audio_router,
-        image_edit_router,
-        video_router,
-        embodied_router,
-        world_model_router,
+        tasks_router,
         threed_router,
-        assistant_router,
+        video_router,
+        vision_router,
+        webui_router,
+        workflow_router,
+        world_model_router,
     )
 
     app.include_router(health_router)
@@ -574,6 +696,7 @@ def create_app() -> FastAPI:
     app.include_router(capability_router)
     app.include_router(auth_router)
     app.include_router(admin_router)
+    app.include_router(admin_console_router)
     app.include_router(agent_router)
     app.include_router(webui_router)
     app.include_router(compliance_router)
@@ -589,6 +712,9 @@ def create_app() -> FastAPI:
     app.include_router(world_model_router)
     app.include_router(threed_router)
     app.include_router(assistant_router)
+    # D13: persistent agent TaskBoard CRUD (must be included after agent_router
+    # so /v1/agent/tasks/{id} does not shadow fixed /v1/agent/* routes)
+    app.include_router(tasks_router)
 
     return app
 

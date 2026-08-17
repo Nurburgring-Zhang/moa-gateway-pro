@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -18,18 +19,31 @@ type TokenBucket struct {
 
 // RateLimiter manages per-IP token buckets.
 type RateLimiter struct {
-	buckets map[string]*TokenBucket
-	limit   int
-	mu      sync.RWMutex
+	buckets       map[string]*TokenBucket
+	limit         int
+	trustedCIDRs  []*net.IPNet
+	mu            sync.RWMutex
 }
 
 // NewRateLimiter creates a limiter with given RPS per key.
-func NewRateLimiter(rps int) *RateLimiter {
+func NewRateLimiter(rps int, trustedProxies []string) *RateLimiter {
 	rl := &RateLimiter{
 		buckets: make(map[string]*TokenBucket),
 		limit:   rps,
 	}
-	// Background cleanup of stale buckets
+	for _, cidr := range trustedProxies {
+		cidr = strings.TrimSpace(cidr)
+		if cidr == "" {
+			continue
+		}
+		if !strings.Contains(cidr, "/") {
+			cidr = cidr + "/32"
+		}
+		_, network, err := net.ParseCIDR(cidr)
+		if err == nil {
+			rl.trustedCIDRs = append(rl.trustedCIDRs, network)
+		}
+	}
 	go rl.cleanup()
 	return rl
 }
@@ -87,10 +101,10 @@ func (rl *RateLimiter) cleanup() {
 
 // RateLimitMiddleware returns an HTTP middleware that applies per-IP rate limiting.
 func RateLimitMiddleware(cfg *Config) func(http.Handler) http.Handler {
-	limiter := NewRateLimiter(cfg.RateLimit)
+	limiter := NewRateLimiter(cfg.RateLimit, cfg.TrustedProxies)
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ip := extractClientIP(r)
+			ip := limiter.extractClientIP(r)
 			if !limiter.Allow(ip) {
 				w.Header().Set("Retry-After", "1")
 				w.Header().Set("Content-Type", "application/json")
@@ -102,12 +116,36 @@ func RateLimitMiddleware(cfg *Config) func(http.Handler) http.Handler {
 	}
 }
 
-func extractClientIP(r *http.Request) string {
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		return strings.Split(forwarded, ",")[0]
+// extractClientIP gets the real client IP. Only trusts forwarded headers when
+// the direct connection comes from a configured trusted proxy.
+func (rl *RateLimiter) extractClientIP(r *http.Request) string {
+	remoteHost, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if remoteHost == "" {
+		remoteHost = r.RemoteAddr
 	}
-	if real := r.Header.Get("X-Real-IP"); real != "" {
-		return real
+
+	remoteIP := net.ParseIP(remoteHost)
+	if remoteIP != nil && rl.isTrustedProxy(remoteIP) {
+		if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+			clientIP := strings.TrimSpace(strings.Split(forwarded, ",")[0])
+			if clientIP != "" {
+				return clientIP
+			}
+		}
+		if real := r.Header.Get("X-Real-IP"); real != "" {
+			return strings.TrimSpace(real)
+		}
 	}
-	return r.RemoteAddr
+
+	return remoteHost
 }
+
+func (rl *RateLimiter) isTrustedProxy(ip net.IP) bool {
+	for _, cidr := range rl.trustedCIDRs {
+		if cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+

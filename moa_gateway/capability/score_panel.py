@@ -862,7 +862,7 @@ def multi_eval_average(scores: list[PanelScore]) -> PanelScore:
     in_ = avg_dim(lambda s: s.in_)
 
     # 合并权重(取平均)
-    all_keys = set()
+    all_keys = set()  # type: ignore[var-annotated]
     for s in scores:
         all_keys.update(s.weights.keys())
     merged_weights: dict[str, float] = {}

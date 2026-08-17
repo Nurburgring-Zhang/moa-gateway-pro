@@ -9,11 +9,20 @@ Service 是 capability 模块的封装,提供:
 
 from __future__ import annotations
 
+import contextvars
 import time
 import traceback
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+
+# Context propagated from the HTTP dispatch route to service methods.
+# Carries the caller's role so services can make authorization decisions
+# without polluting method payloads (audit F9). ContextVars propagate across
+# asyncio.gather, so dispatch_batch inherits it too.
+dispatch_ctx: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar(
+    "dispatch_ctx", default={}
+)
 
 
 @dataclass

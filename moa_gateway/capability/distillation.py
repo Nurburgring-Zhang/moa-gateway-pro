@@ -58,7 +58,7 @@ SENTENCE_SPLIT_RE = re.compile(r"[。.!?！？;；\n]+")
 WORD_RE = re.compile(r"[a-zA-Z][a-zA-Z\-]*|[\u4e00-\u9fff]|\d+")
 
 # 停用词 (英文 + 中文, 精简版)
-STOPWORDS: set[str] = frozenset(
+STOPWORDS: set[str] = frozenset(  # type: ignore[assignment]
     {
         "the",
         "a",
@@ -509,8 +509,8 @@ def multi_eval_average(
     if not evaluations:
         return {
             "evaluator_count": 0,
-            "biases": {},
-            "dimensions": [],
+            "biases": {},  # type: ignore[dict-item]
+            "dimensions": [],  # type: ignore[dict-item]
         }
 
     # 收集所有维度
@@ -521,8 +521,8 @@ def multi_eval_average(
     if not all_dims:
         return {
             "evaluator_count": len(evaluations),
-            "biases": {},
-            "dimensions": [],
+            "biases": {},  # type: ignore[dict-item]
+            "dimensions": [],  # type: ignore[dict-item]
         }
 
     # 计算每个维度的平均

@@ -189,7 +189,7 @@ class CapabilityProbe:
     def _validate_streaming(resp_data: dict[str, Any]) -> bool:
         # For streaming, success means the request didn't error
         # The streaming probe sets a special marker
-        return resp_data.get("_stream_success", False)
+        return resp_data.get("_stream_success", False)  # type: ignore[no-any-return]
 
     # ========== Endpoint access ==========
 
@@ -325,7 +325,7 @@ class CapabilityProbe:
 
                 # Run validation
                 validate_fn = test_def["validate"]
-                return validate_fn(response_data)
+                return validate_fn(response_data)  # type: ignore[no-any-return]
 
         except httpx.TimeoutException:
             logger.debug("Capability probe %s: timeout", endpoint_id)
@@ -399,7 +399,7 @@ class CapabilityProbe:
                 resp = await client.post(url, json=payload, headers=headers)
 
             if resp.status_code == 200:
-                return resp.json()
+                return resp.json()  # type: ignore[no-any-return]
             else:
                 logger.debug(
                     "Capability probe %s/%s: HTTP %d",

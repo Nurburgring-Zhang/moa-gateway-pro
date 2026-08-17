@@ -201,20 +201,26 @@ class TestCacheManager:
 
     @pytest.mark.asyncio
     async def test_semantic_fallback(self, cache_manager):
-        """Test L2 semantic hit when L1 misses."""
+        """L2 semantic hit when L1 misses (same scope) + scope isolation.
+
+        Audit F32: a semantic hit is only valid within the same
+        model|strategy|preset scope. A DIFFERENT model must not reuse the
+        cached response.
+        """
         messages = [{"role": "user", "content": "What is the capital of France?"}]
         response = {"id": "test", "content": "Paris"}
 
         await cache_manager.set(messages, "gpt-4", response, temperature=0.7)
 
-        # Same messages but different temperature -> L1 miss, L2 might hit
-        # Actually with exact same text, semantic should match
-        similar_messages = [{"role": "user", "content": "What is the capital of France?"}]
-        # Use different model to miss L1 but text is same for L2
-        result = await cache_manager.get(similar_messages, "gpt-3.5", temperature=0.7)
-        # L1 misses (different model), L3 misses (no redis), L2 should hit on text
+        # Same model, different temperature -> L1 exact misses (temp differs) but
+        # L2 semantic hits because text + scope (model|strategy|preset) match.
+        result = await cache_manager.get(messages, "gpt-4", temperature=0.9)
         assert result is not None
         assert result["layer"] == "l2_semantic"
+
+        # Different model -> different scope -> must NOT semantically hit.
+        result2 = await cache_manager.get(messages, "gpt-3.5", temperature=0.7)
+        assert result2 is None
 
     @pytest.mark.asyncio
     async def test_null_entry_protection(self, cache_manager):

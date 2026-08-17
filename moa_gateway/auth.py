@@ -87,6 +87,7 @@ async def authenticate_api_key(request: Request) -> dict[str, Any] | None:
                 "source": "yaml",
                 "key_id": "yaml",
                 "name": "yaml-config",
+                "role": "admin",  # yaml trusted gateway keys are admin-level
                 "quota_rpm": settings.ratelimit.per_key_rpm,
                 "quota_daily_tokens": 999_999_999,
             }
@@ -120,7 +121,7 @@ def create_jwt_token(subject: str, role: str = "admin", expires_minutes: int | N
         "iat": int(time.time()),
         "exp": int(time.time()) + expires_minutes * 60,
     }
-    return jwt.encode(payload, settings.auth.jwt_secret, algorithm="HS256")
+    return jwt.encode(payload, settings.auth.jwt_secret, algorithm="HS256")  # type: ignore[no-any-return]
 
 
 def decode_jwt_token(token: str) -> dict[str, Any] | None:
@@ -134,7 +135,7 @@ def decode_jwt_token(token: str) -> dict[str, Any] | None:
         logger.warning("JWT with alg=none rejected")
         return None
     try:
-        return jwt.decode(
+        return jwt.decode(  # type: ignore[no-any-return]
             token,
             settings.auth.jwt_secret,
             algorithms=["HS256"],

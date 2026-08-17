@@ -33,11 +33,26 @@ def get_current_span_id() -> str | None:
     return _current_span_id.get()
 
 
-def set_trace_context(trace_id: str, span_id: str = None):
+def set_trace_context(trace_id: str, span_id: str = None):  # type: ignore[assignment]
     """Set trace context."""
     _current_trace_id.set(trace_id)
     if span_id:
         _current_span_id.set(span_id)
+
+
+def get_traceparent_header() -> dict[str, str]:
+    """Generate W3C traceparent header from current context.
+
+    Returns empty dict if no trace context is active.
+    Format: 00-<trace_id>-<parent_id>-01
+    """
+    trace_id = _current_trace_id.get()
+    span_id = _current_span_id.get()
+    if trace_id and span_id:
+        parent_id = span_id.ljust(16, "0")[:16]
+        trace_id_padded = trace_id.ljust(32, "0")[:32]
+        return {"traceparent": f"00-{trace_id_padded}-{parent_id}-01"}
+    return {}
 
 
 def clear_trace_context():
@@ -64,7 +79,7 @@ class SpanRecord:
     def set_attribute(self, key: str, value: Any):
         self.attributes[key] = value
 
-    def add_event(self, name: str, attributes: dict = None):
+    def add_event(self, name: str, attributes: dict = None):  # type: ignore[assignment]
         self.events.append(
             {
                 "name": name,
@@ -102,7 +117,7 @@ class SpanRecord:
 class SpanContext:
     """Context manager for spans."""
 
-    def __init__(self, tracer: GatewayTracer, name: str, attributes: dict = None):
+    def __init__(self, tracer: GatewayTracer, name: str, attributes: dict = None):  # type: ignore[assignment]
         self._tracer = tracer
         self._name = name
         self._attributes = attributes or {}
@@ -141,6 +156,9 @@ class SpanContext:
 
 
 # ============ Gateway Tracer ============
+_UNSET: Any = object()
+
+
 class GatewayTracer:
     """Lightweight tracer compatible with OTel concepts."""
 
@@ -150,19 +168,32 @@ class GatewayTracer:
         self._spans: list[SpanRecord] = []
         self._exporters: list = []
 
-    def start_span(self, name: str, attributes: dict = None) -> SpanContext:
+    def start_span(self, name: str, attributes: dict = None) -> SpanContext:  # type: ignore[assignment]
         """Create a new span context manager."""
         return SpanContext(self, name, attributes)
 
     def create_span(
-        self, name: str, trace_id: str = None, parent_span_id: str = None
+        self,
+        name: str,
+        trace_id: str | None = None,
+        parent_span_id: str | None | object = _UNSET,
+        span_id: str | None = None,
     ) -> SpanRecord:
-        """Create a span directly (without context manager)."""
+        """Create a span directly (without context manager).
+
+        ``parent_span_id`` distinguishes "not given" (inherit the current
+        context span) from an explicit ``None`` (force a parentless root,
+        which is what the HTTP middleware wants for request spans).
+        ``span_id`` lets callers (the middleware) pin the recorded span to
+        the id they already advertised via X-Span-ID.
+        """
         tid = trace_id or get_current_trace_id() or uuid.uuid4().hex
+        if parent_span_id is _UNSET:
+            parent_span_id = get_current_span_id()
         span = SpanRecord(
             trace_id=tid,
-            span_id=uuid.uuid4().hex[:16],
-            parent_span_id=parent_span_id or get_current_span_id(),
+            span_id=span_id or uuid.uuid4().hex[:16],
+            parent_span_id=parent_span_id,  # type: ignore[arg-type]
             name=name,
             start_time=time.time(),
         )
@@ -193,7 +224,7 @@ _otel_tracer = None
 _gateway_tracer: GatewayTracer | None = None
 
 
-def setup_tracer(service_name: str = "moa-gateway-pro", otlp_endpoint: str = None) -> GatewayTracer:
+def setup_tracer(service_name: str = "moa-gateway-pro", otlp_endpoint: str | None = None) -> GatewayTracer:
     """Initialize the tracing system."""
     global _otel_tracer, _gateway_tracer  # noqa: PLW0603
 

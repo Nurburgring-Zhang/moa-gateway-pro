@@ -4,15 +4,20 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 
-from ..auth import require_api_key
+from ..auth import require_admin, require_api_key
 from ..ha import health_checker
 from ..model_pool import get_model_pool
+from .admin import EndpointUpsert
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["health"])
+
+# v3.1.1: unified version constant (audit P3 — was hardcoded "1.0.0")
+_HEALTH_VERSION = "3.1.1"
 
 
 @router.get("/health")
@@ -22,11 +27,24 @@ async def health():
     snap = pool.snapshot()
     return {
         "status": "ok",
-        "version": "1.0.0",
+        "version": _HEALTH_VERSION,
         "endpoints_total": snap["total"],
         "endpoints_enabled": snap["enabled"],
         "endpoints_healthy": snap["healthy"],
+        # D6: explicit mock visibility
+        "mock_endpoints_count": snap.get("mock_backed", 0),
+        "real_endpoints_count": snap.get("real_backed", 0),
+        "mock_mode": _mock_mode(),
     }
+
+
+def _mock_mode() -> str:
+    try:
+        from ..config import get_settings
+
+        return get_settings().mock.mode
+    except Exception:
+        return "explicit"
 
 
 @router.get("/health/live")
@@ -43,8 +61,11 @@ async def health_readiness():
     """Readiness probe — can the instance accept traffic?
 
     Used by load balancers to route traffic only to ready instances.
+    Returns 503 if not ready (K8s/load-balancer compatible).
     """
     result = await health_checker.readiness()
+    if result.get("status") in ("unhealthy", "not_ready"):
+        return JSONResponse(content=result, status_code=503)
     return result
 
 
@@ -58,7 +79,7 @@ async def health_startup():
 
 
 @router.get("/api/health/detailed")
-async def health_detailed():
+async def health_detailed(key_info: dict = Depends(require_api_key)):
     """Detailed health check with component-level status."""
     pool = get_model_pool()
     snapshot = pool.snapshot()
@@ -119,8 +140,8 @@ async def api_health_probe(endpoint_id: str, key_info: dict = Depends(require_ap
 
 
 @router.get("/v1/health/purge/history")
-async def api_purge_history(key_info: dict = Depends(require_api_key)):
-    """Get purge history."""
+async def api_purge_history(key_info: dict = Depends(require_admin)):
+    """Get purge history (admin-only: records may contain endpoint metadata)."""
     from ..health import get_purge_manager
 
     manager = get_purge_manager()
@@ -131,8 +152,8 @@ async def api_purge_history(key_info: dict = Depends(require_api_key)):
 
 
 @router.post("/v1/health/purge/run")
-async def api_purge_run(key_info: dict = Depends(require_api_key)):
-    """Manually trigger a purge check."""
+async def api_purge_run(admin: dict = Depends(require_admin)):
+    """Manually trigger a purge check (admin-only: destructive ops action)."""
     from ..health import get_purge_manager
 
     manager = get_purge_manager()
@@ -145,15 +166,32 @@ async def api_purge_run(key_info: dict = Depends(require_api_key)):
 
 @router.post("/v1/health/{endpoint_id}/restore")
 async def api_health_restore(
-    endpoint_id: str, config: dict, key_info: dict = Depends(require_api_key)
+    endpoint_id: str,
+    config: "EndpointUpsert",
+    admin: dict = Depends(require_admin),
 ):
-    """Restore a purged endpoint."""
-    from fastapi import HTTPException
+    """Restore a purged endpoint.
 
+    v3.1.1 audit P1-3 fix:
+    - admin-only (a plain API key could inject arbitrary endpoint configs
+      into the model pool before — SSRF / cross-tenant poisoning surface)
+    - config is validated by the strict EndpointUpsert schema instead of a
+      raw dict, and its endpoint_id must match the path parameter.
+    """
     from ..health import get_purge_manager
 
+    if config.endpoint_id != endpoint_id:
+        raise HTTPException(
+            status_code=400,
+            detail=f"config.endpoint_id '{config.endpoint_id}' does not match "
+            f"path endpoint_id '{endpoint_id}'",
+        )
     manager = get_purge_manager()
-    success = await manager.restore_endpoint(endpoint_id, config)
+    success = await manager.restore_endpoint(endpoint_id, config.model_dump())
     if not success:
-        raise HTTPException(status_code=500, detail=f"Failed to restore endpoint {endpoint_id}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to restore endpoint {endpoint_id} "
+            "(upsert rejected — check provider/api_base/field validity)",
+        )
     return {"endpoint_id": endpoint_id, "restored": True}

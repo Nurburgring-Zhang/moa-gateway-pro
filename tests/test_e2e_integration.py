@@ -48,8 +48,10 @@ async def app(tmp_path, monkeypatch):
         optimizer={"enabled": False},
         health={"enabled": False},
     )
+    # NOTE: never replace ``config.get_settings`` itself here — modules bind it
+    # at import time, and a test double installed during their first import
+    # would leak into every later test. Patching ``_settings`` is enough.
     monkeypatch.setattr("moa_gateway.config._settings", test_settings)
-    monkeypatch.setattr("moa_gateway.config.get_settings", lambda: test_settings)
     monkeypatch.setattr("moa_gateway.config.DATA_DIR", tmp_path)
     monkeypatch.setattr("moa_gateway.config.DEFAULT_CONFIG_PATH", tmp_path / "config.yaml")
 
@@ -243,7 +245,12 @@ class TestChatCompletions:
 
     @pytest.mark.anyio
     async def test_chat_specific_model_not_found(self, client):
-        """指定不存在的模型ID应返回503。"""
+        """指定不存在的模型ID应明确报错。
+
+        Audit F29: explicitly-named unknown models now return 404 "model not
+        found" (OpenAI-style) instead of being silently rerouted. 503 is also
+        accepted for the empty-pool edge case.
+        """
         resp = await client.post(
             "/v1/chat/completions",
             headers=HEADERS,
@@ -252,8 +259,7 @@ class TestChatCompletions:
                 "messages": [{"role": "user", "content": "Hello"}],
             },
         )
-        # model not in pool -> routes to auto -> 503
-        assert resp.status_code == 503
+        assert resp.status_code in (404, 503)
 
     @pytest.mark.anyio
     async def test_chat_model_oversized_name_422(self, client):
@@ -328,7 +334,13 @@ class TestImageEdit:
 
     @pytest.mark.anyio
     async def test_image_edit_with_file(self, client):
-        """图片编辑上传文件 - 无配置provider时返回502。"""
+        """图片编辑上传文件 — 无真实 provider 时返回标注的 mock 200 (audit F26).
+
+        Previously this returned 502 when no provider was configured; the
+        labeled-mock fallback (consistent with every other multimodal path)
+        now returns 200 with X-MOA-Mock so the pipeline stays runnable and
+        honest. A 502 is still acceptable if mock mode is disabled.
+        """
         # Create a minimal PNG file (1x1 pixel)
         png_data = (
             b'\x89PNG\r\n\x1a\n'
@@ -342,11 +354,15 @@ class TestImageEdit:
         # Remove Content-Type from headers for multipart
         headers = {"Authorization": f"Bearer {API_KEY}"}
         resp = await client.post("/v1/images/edits", headers=headers, files=files, data=data)
-        assert resp.status_code == 502
-        resp_data = resp.json()
-        assert "detail" in resp_data
-        assert isinstance(resp_data["detail"], str)
-        assert len(resp_data["detail"]) > 0
+        if resp.status_code == 200:
+            # Mock fallback path — must be clearly labeled.
+            assert resp.headers.get("X-MOA-Mock") == "true"
+            body = resp.json()
+            assert "data" in body
+        else:
+            assert resp.status_code == 502
+            resp_data = resp.json()
+            assert "detail" in resp_data
 
     @pytest.mark.anyio
     async def test_image_variations_no_file_422(self, client):
@@ -376,17 +392,16 @@ class TestThreeDGeneration:
 
     @pytest.mark.anyio
     async def test_3d_generate_with_prompt(self, client):
-        """3D生成带prompt - 无配置provider时返回502。"""
+        """3D生成带prompt - 无配置provider + mock.mode=explicit 返回 200 mock task。"""
         resp = await client.post(
             "/v1/3d/generate",
             headers=HEADERS,
             json={"prompt": "A red sports car", "model": "auto"},
         )
-        assert resp.status_code == 502
+        # Mock fallback (R6): no real 3D key + mock.mode=explicit → 200 mock task
+        assert resp.status_code == 200
         data = resp.json()
-        assert "detail" in data
-        assert isinstance(data["detail"], str)
-        assert len(data["detail"]) > 0
+        assert "task_id" in data
 
     @pytest.mark.anyio
     async def test_3d_generate_invalid_format(self, client):
@@ -417,7 +432,7 @@ class TestWorldModel:
 
     @pytest.mark.anyio
     async def test_world_simulate(self, client):
-        """世界模型模拟请求 - 无配置provider时返回502。"""
+        """世界模型模拟请求 - 无配置provider + mock.mode=explicit 返回 200 mock。"""
         resp = await client.post(
             "/v1/world/simulate",
             headers=HEADERS,
@@ -426,15 +441,14 @@ class TestWorldModel:
                 "steps": 5,
             },
         )
-        assert resp.status_code == 502
+        # Mock fallback (R6): no real VLM key + mock.mode=explicit → 200 labeled mock
+        assert resp.status_code == 200
         data = resp.json()
-        assert "detail" in data
-        assert isinstance(data["detail"], str)
-        assert len(data["detail"]) > 0
+        assert "states" in data or "mock" in data
 
     @pytest.mark.anyio
     async def test_world_predict(self, client):
-        """状态预测请求 - 无配置provider时返回502。"""
+        """状态预测请求 - 无配置provider + mock.mode=explicit 返回 200 mock。"""
         resp = await client.post(
             "/v1/world/predict",
             headers=HEADERS,
@@ -443,11 +457,9 @@ class TestWorldModel:
                 "action": "release ball",
             },
         )
-        assert resp.status_code == 502
+        assert resp.status_code == 200
         data = resp.json()
-        assert "detail" in data
-        assert isinstance(data["detail"], str)
-        assert len(data["detail"]) > 0
+        assert "next_state" in data or "mock" in data
 
     @pytest.mark.anyio
     async def test_world_simulate_invalid_steps(self, client):
@@ -487,11 +499,10 @@ class TestEmbodied:
                 "goal": "Pick up the cup",
             },
         )
-        assert resp.status_code == 502
+        # Mock fallback (R6): no real VLM key + mock.mode=explicit → 200 labeled mock
+        assert resp.status_code == 200
         data = resp.json()
-        assert "detail" in data
-        assert isinstance(data["detail"], str)
-        assert len(data["detail"]) > 0
+        assert "actions" in data or "mock" in data
 
     @pytest.mark.anyio
     async def test_embodied_execute(self, client):
@@ -549,11 +560,10 @@ class TestAudio:
                 "voice": "alloy",
             },
         )
-        assert resp.status_code == 501
-        data = resp.json()
-        assert "detail" in data
-        assert isinstance(data["detail"], str)
-        assert len(data["detail"]) > 0
+        # Mock fallback (R6): no real TTS key + mock.mode=explicit → 200 mock audio
+        assert resp.status_code == 200
+        # audio/speech returns binary audio bytes (a valid WAV header)
+        assert resp.headers.get("content-type", "").startswith("audio/")
 
     @pytest.mark.anyio
     async def test_audio_tts_invalid_format(self, client):
@@ -589,7 +599,7 @@ class TestVideo:
 
     @pytest.mark.anyio
     async def test_video_generate(self, client):
-        """视频生成请求 - 无配置provider时返回502。"""
+        """视频生成请求 - 无配置provider时返回503(config error, not upstream 502)。"""
         resp = await client.post(
             "/v1/video/generate",
             headers=HEADERS,
@@ -598,11 +608,10 @@ class TestVideo:
                 "duration": 4,
             },
         )
-        assert resp.status_code == 502
+        # Mock fallback (R6): no real video key + mock.mode=explicit → 200 mock task
+        assert resp.status_code == 200
         data = resp.json()
-        assert "detail" in data
-        assert isinstance(data["detail"], str)
-        assert len(data["detail"]) > 0
+        assert "task_id" in data
 
     @pytest.mark.anyio
     async def test_video_generate_invalid_duration(self, client):

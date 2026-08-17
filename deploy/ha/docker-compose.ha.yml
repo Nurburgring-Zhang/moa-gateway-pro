@@ -170,6 +170,28 @@ services:
     ports:
       - "26379:26379"
 
+  redis-sentinel-2:
+    image: redis:7-alpine
+    command: >
+      sh -c "echo 'sentinel monitor mymaster redis-master 6379 2' > /tmp/sentinel.conf &&
+             echo 'sentinel down-after-milliseconds mymaster 5000' >> /tmp/sentinel.conf &&
+             echo 'sentinel failover-timeout mymaster 10000' >> /tmp/sentinel.conf &&
+             redis-sentinel /tmp/sentinel.conf"
+    depends_on:
+      redis-master:
+        condition: service_healthy
+
+  redis-sentinel-3:
+    image: redis:7-alpine
+    command: >
+      sh -c "echo 'sentinel monitor mymaster redis-master 6379 2' > /tmp/sentinel.conf &&
+             echo 'sentinel down-after-milliseconds mymaster 5000' >> /tmp/sentinel.conf &&
+             echo 'sentinel failover-timeout mymaster 10000' >> /tmp/sentinel.conf &&
+             redis-sentinel /tmp/sentinel.conf"
+    depends_on:
+      redis-master:
+        condition: service_healthy
+
   # ====== Monitoring Stack ======
   prometheus:
     image: prom/prometheus:v2.50.0

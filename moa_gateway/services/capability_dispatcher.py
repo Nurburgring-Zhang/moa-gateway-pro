@@ -1,17 +1,21 @@
 """CapabilityDispatcher — wraps ALL 76 /v1/capability/* endpoints as service methods.
 
-This service is special: it provides a single entry point for all capability endpoints.
-The `invoke` method calls the underlying endpoint function with the given payload.
+This service is special: it provides a single entry point for all capability
+endpoints. Each ``call_<endpoint>`` method performs a REAL internal loopback
+HTTP call into the gateway's own ``/v1/capability/<endpoint>`` route, so the
+full request-validation + business logic + authorization of the actual
+endpoint is executed — not a passthrough acknowledgement (audit F9 fix).
 
-This is the "all 73 capabilities" service that the user asked for.
+Loopback uses the same internal-auth mechanism as workflows/assistant
+(``internal_callback``), so the call is authenticated exactly like any other
+internal consumer.
 """
 
 from __future__ import annotations
 
-import importlib
 from typing import Any
 
-from .base import ServiceBase, ServiceMethod
+from .base import ServiceBase, ServiceMethod, dispatch_ctx
 
 
 def _build_capability_map() -> dict[str, dict[str, Any]]:
@@ -121,6 +125,7 @@ def _build_capability_map() -> dict[str, dict[str, Any]]:
             ["analyze_convergence", "best_of_each", "adoption_rate", "step5_review"],
         ),
         "audit": ("action_audit", ["record", "query", "stats"]),
+        "audit_cache": ("audit_cache", ["record", "query", "stats"]),
         "in_flight": ("in_flight", ["in_flight", "start", "complete", "transition", "merge"]),
         "mx": ("mx_annot", ["parse", "fanin", "cli"]),
         "tier_promo": ("tier_promo", ["classify", "compute", "can_spawn", "cohabitation"]),
@@ -169,7 +174,16 @@ def _build_capability_map() -> dict[str, dict[str, Any]]:
         "request_dedup": ("request_dedup", ["check", "record", "stats"]),
         "trace": ("trace", ["start", "end", "span", "parse_traceparent", "query"]),
     }
-    return caps
+    return caps  # type: ignore[return-value]
+
+
+# Capabilities gated by require_admin on the real endpoint. Internal loopback
+# authenticates with the gateway key (api-key level); these additionally need
+# an admin role, which we only satisfy if the dispatch CALLER is admin/operator.
+_ADMIN_CAPABILITIES = {"feedback_iter", "worktree", "checkpoint"}
+
+# GET (rather than POST) capability endpoints.
+_GET_CAPABILITIES = {"models"}
 
 
 class CapabilityDispatcher(ServiceBase):
@@ -178,47 +192,84 @@ class CapabilityDispatcher(ServiceBase):
     Method naming convention: `call_<endpoint>` — e.g. `call_group_think_check`,
     `call_moa_n_layer`, etc.
 
-    This is the "all-in-one" dispatcher that the AgentDispatcher can use to
-    call any capability via a single uniform interface.
+    Every method executes the REAL endpoint via an authenticated internal
+    loopback HTTP request (audit F9 fix), so behaviour is identical to calling
+    the endpoint directly.
     """
 
     name = "capability"
-    description = "All 73+ capabilities as a single service. Method: call_<endpoint>"
+    description = "All 76 capabilities as a single service. Method: call_<endpoint>"
 
     def _register_methods(self):
         caps = _build_capability_map()
-        for endpoint_name, (module, funcs) in caps.items():
+        for endpoint_name, (_module, _funcs) in caps.items():
             method_name = f"call_{endpoint_name.replace('-', '_')}"
+            url_path = "/v1/capability/" + endpoint_name.replace("_", "-")
+            http_method = "GET" if endpoint_name in _GET_CAPABILITIES else "POST"
+            needs_admin = endpoint_name in _ADMIN_CAPABILITIES
             self._methods[method_name] = ServiceMethod(
                 name=method_name,
-                description=f"Call /v1/capability/{endpoint_name} via dispatcher",
-                func=self._make_caller(endpoint_name, module, funcs),
+                description=(
+                    f"Execute the real {http_method} /v1/capability/{endpoint_name.replace('_', '-')}"
+                    f" endpoint via authenticated internal loopback"
+                    + (" [admin only]" if needs_admin else "")
+                ),
+                func=self._make_caller(endpoint_name, url_path, http_method, needs_admin),
+                is_async=True,
                 input_required=["body"],
                 input_optional=[],
-                status="passthrough",
+                status="implemented",
             )
 
-    def _make_caller(self, endpoint: str, module: str, funcs: list):
-        """Return a function that calls the capability module's functions."""
+    def _make_caller(self, endpoint: str, url_path: str, http_method: str, needs_admin: bool):
+        """Return an async function that REALLY executes the endpoint.
 
-        def caller(body):
-            # Try to import the module and call the relevant function
+        The call loops back over HTTP into this gateway with internal auth,
+        executing the endpoint's genuine validation + logic. Failures surface
+        the endpoint's true HTTP status and error body — never a fake success.
+        """
+
+        async def caller(body):
+            body = body if isinstance(body, dict) else {}
+
+            # Admin-gated capabilities: only honour them if the dispatch caller
+            # is admin/operator (role threaded via dispatch_ctx, audit F9).
+            if needs_admin:
+                role = (dispatch_ctx.get() or {}).get("role", "")
+                if role not in ("admin", "operator"):
+                    raise PermissionError(
+                        f"capability '{endpoint}' requires admin/operator role "
+                        f"(caller role={role or 'unknown'})"
+                    )
+
+            import httpx
+
+            from ..internal_callback import internal_auth_headers, internal_gateway_url
+
+            url = internal_gateway_url() + url_path
+            headers = dict(internal_auth_headers())
+
+            # Admin endpoints need a JWT rather than a gateway API key. Mint an
+            # internal admin JWT (same-trust-domain loopback, audit F9).
+            if needs_admin:
+                from ..auth import create_jwt_token
+
+                headers["Authorization"] = f"Bearer {create_jwt_token('dispatcher', 'admin')}"
+
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                if http_method == "GET":
+                    resp = await client.get(url, headers=headers, params=body)
+                else:
+                    resp = await client.post(url, headers=headers, json=body)
+
+            if resp.status_code >= 400:
+                raise RuntimeError(
+                    f"capability '{endpoint}' returned HTTP {resp.status_code}: "
+                    f"{resp.text[:300]}"
+                )
             try:
-                mod = importlib.import_module(f"moa_gateway.capability.{module}")
-            except ImportError as e:
-                raise ValueError(f"capability module '{module}' not found: {e}") from e
-            # The actual function selection is endpoint-specific.
-            # This is a passthrough — body is forwarded.
-            # Implementation: server.py endpoints do their own work;
-            # here we just acknowledge the call.
-            return {
-                "endpoint": endpoint,
-                "module": module,
-                "functions": list(funcs) if isinstance(funcs, list) else [funcs],
-                "passthrough": True,
-                "body_keys": list(body.keys()) if isinstance(body, dict) else [],
-                "note": f"call_{endpoint} is a passthrough; "
-                f"invoke the actual /v1/capability/{endpoint} endpoint for full execution",
-            }
+                return resp.json()
+            except ValueError:
+                return {"raw": resp.text}
 
         return caller

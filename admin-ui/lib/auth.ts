@@ -47,6 +47,16 @@ export function initAuth(): boolean {
   return false;
 }
 
+// Audit fix (P1): restore the token synchronously at module load (browser
+// only), not inside a useEffect. Child-component effects run BEFORE the
+// parent layout's initAuth() effect, so relying on effect ordering made the
+// first request after a hard refresh go out with an empty token → 401 →
+// a valid session got wiped. This closes that race; initAuth() remains for
+// the explicit redirect check in the dashboard layout.
+if (typeof window !== 'undefined') {
+  initAuth();
+}
+
 export function isAuthenticated(): boolean {
   return !!getStoredToken();
 }

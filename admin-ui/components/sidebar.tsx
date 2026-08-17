@@ -4,6 +4,11 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
 
+// Hardcoded constant kept in sync with releases (audit F16) — not fetched
+// from /health; update on every release.
+const APP_VERSION = 'v3.1.1';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8910';
+
 const navItems = [
   { href: '/dashboard', label: '仪表板', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
   { href: '/dashboard/models', label: '模型管理', icon: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
@@ -50,8 +55,8 @@ export function Sidebar() {
       </nav>
       <div className="absolute bottom-4 left-0 right-0 px-4">
         <div className="rounded-lg bg-gray-800 p-3 text-xs text-gray-400">
-          <p>MOA Gateway Pro v1.8</p>
-          <p className="mt-1">API: localhost:8910</p>
+          <p>MOA Gateway Pro {APP_VERSION}</p>
+          <p className="mt-1 break-all">API: {API_BASE.replace(/^https?:\/\//, '')}</p>
         </div>
       </div>
     </aside>

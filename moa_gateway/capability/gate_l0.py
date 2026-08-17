@@ -23,8 +23,7 @@ __all__ = [
     "_extract_numbers",
     "_is_greeting",
     "handle_unit_convert",
-    "handle_datetime",
-    "handle_validator",
+        "handle_validator",
     "handle_encode",
 ]
 
@@ -86,7 +85,7 @@ def _eval_arithmetic(expr: str) -> tuple[bool, str]:
         return (False, "")
 
     # 多余小数点
-    for num in re.findall(r"\d+\.\d+\.\d+", expr):
+    for _num in re.findall(r"\d+\.\d+\.\d+", expr):
         return (False, "")
     # 单数字多个小数点
     for num in re.findall(r"\d+(?:\.\d+)+", expr):
@@ -124,9 +123,9 @@ def _eval_arithmetic(expr: str) -> tuple[bool, str]:
             right = _eval(node.right)
             if isinstance(node.op, ast.Div) and right == 0:
                 raise ZeroDivisionError("division by zero")
-            return _BIN_OPS[type(node.op)](left, right)
+            return _BIN_OPS[type(node.op)](left, right)  # type: ignore[no-any-return]
         if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY_OPS:
-            return _UNARY_OPS[type(node.op)](_eval(node.operand))
+            return _UNARY_OPS[type(node.op)](_eval(node.operand))  # type: ignore[no-any-return]
         raise ValueError(f"unsupported node: {type(node).__name__}")
 
     try:

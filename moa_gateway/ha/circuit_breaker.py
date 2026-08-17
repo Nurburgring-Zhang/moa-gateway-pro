@@ -6,6 +6,7 @@ import threading
 import time
 from dataclasses import dataclass
 from enum import Enum
+from typing import Callable
 
 
 class CircuitState(str, Enum):
@@ -27,9 +28,19 @@ class CircuitBreakerConfig:
 
 
 class CircuitBreaker:
-    """Provider-level circuit breaker with thread-safe state transitions."""
+    """Provider-level circuit breaker with thread-safe state transitions.
 
-    def __init__(self, name: str, config: CircuitBreakerConfig | None = None):
+    Uses threading.Lock for lightweight synchronization — the critical sections
+    are pure in-memory counter updates with no I/O, so blocking is negligible
+    even when called from async contexts.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        config: CircuitBreakerConfig | None = None,
+        on_state_change: Callable[[str, CircuitState], None] | None = None,
+    ):
         self.name = name
         self.config = config or CircuitBreakerConfig()
         self._state = CircuitState.CLOSED
@@ -38,6 +49,7 @@ class CircuitBreaker:
         self._last_failure_time: float | None = None
         self._half_open_calls = 0
         self._lock = threading.Lock()
+        self._on_state_change = on_state_change
 
     @property
     def state(self) -> CircuitState:
@@ -48,9 +60,12 @@ class CircuitBreaker:
                 and self._last_failure_time
                 and time.time() - self._last_failure_time >= self.config.recovery_timeout
             ):
+                old = self._state
                 self._state = CircuitState.HALF_OPEN
                 self._half_open_calls = 0
                 self._success_count = 0
+                if self._on_state_change and old != self._state:
+                    self._on_state_change(self.name, self._state)
             return self._state
 
     def allow_request(self) -> bool:
@@ -70,6 +85,7 @@ class CircuitBreaker:
     def record_success(self) -> None:
         """Record a successful request."""
         with self._lock:
+            old = self._state
             if self._state == CircuitState.HALF_OPEN:
                 self._success_count += 1
                 if self._success_count >= self.config.success_threshold:
@@ -77,10 +93,13 @@ class CircuitBreaker:
                     self._failure_count = 0
             else:
                 self._failure_count = 0
+            if self._on_state_change and old != self._state:
+                self._on_state_change(self.name, self._state)
 
     def record_failure(self) -> None:
         """Record a failed request."""
         with self._lock:
+            old = self._state
             self._failure_count += 1
             self._last_failure_time = time.time()
 
@@ -89,15 +108,29 @@ class CircuitBreaker:
                 or self._failure_count >= self.config.failure_threshold
             ):
                 self._state = CircuitState.OPEN
+                # Reset half-open probe counters so the next recovery window
+                # starts fresh; otherwise _half_open_calls stays saturated and
+                # no probes are ever allowed after recovery_timeout.
+                self._half_open_calls = 0
+                self._success_count = 0
+            if self._on_state_change and old != self._state:
+                self._on_state_change(self.name, self._state)
 
     def reset(self) -> None:
         """Manually reset the circuit breaker to CLOSED."""
         with self._lock:
+            old = self._state
             self._state = CircuitState.CLOSED
             self._failure_count = 0
             self._success_count = 0
             self._half_open_calls = 0
             self._last_failure_time = None
+            if self._on_state_change and old != self._state:
+                self._on_state_change(self.name, self._state)
+
+    @property
+    def failure_count(self) -> int:
+        return self._failure_count
 
     def get_status(self) -> dict:
         """Return a status dict for monitoring."""
@@ -117,13 +150,20 @@ class CircuitBreakerRegistry:
         self._lock = threading.Lock()
 
     def get_or_create(
-        self, name: str, config: CircuitBreakerConfig | None = None
+        self,
+        name: str,
+        config: CircuitBreakerConfig | None = None,
+        on_state_change: Callable[[str, CircuitState], None] | None = None,
     ) -> CircuitBreaker:
         """Get an existing breaker or create a new one."""
         with self._lock:
             if name not in self._breakers:
-                self._breakers[name] = CircuitBreaker(name, config)
+                self._breakers[name] = CircuitBreaker(name, config, on_state_change)
             return self._breakers[name]
+
+    def get(self, name: str) -> CircuitBreaker | None:
+        """Get a breaker by name, or None if not registered."""
+        return self._breakers.get(name)
 
     def get_all_status(self) -> list[dict]:
         """Return status of all registered breakers."""

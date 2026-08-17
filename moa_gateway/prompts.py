@@ -92,7 +92,7 @@ def get_prompt(name: str, **kwargs) -> str:
         if not kwargs:
             return body
         try:
-            return Jinja2Template(body).render(**kwargs)
+            return Jinja2Template(body).render(**kwargs)  # type: ignore[no-any-return]
         except Exception:
             return body
     if not kwargs:

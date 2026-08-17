@@ -1,10 +1,6 @@
 """QUAL: 代码质量修复回归测试"""
 from __future__ import annotations
 
-from unittest.mock import patch
-
-import pytest
-
 
 # ---------------------------------------------------------------------------
 # QUAL-P0-002: _bcrypt_verify 异常处理
@@ -59,8 +55,6 @@ class TestPragmaIndependent:
         """即使 WAL 设置失败, conn() 仍应正常返回连接.
         验证方式: 检查源码中每个 PRAGMA 都被 try/except 包裹,
         确保单个 PRAGMA 失败不会影响其他操作。"""
-        import sqlite3
-        import logging
 
         # We verify the defensive coding pattern by inspecting actual behavior:
         # The conn() context manager wraps each PRAGMA in its own try/except.
@@ -78,6 +72,7 @@ class TestPragmaIndependent:
     def test_pragma_individual_try_except_pattern(self, storage_instance):
         """Verify PRAGMA statements are wrapped in individual try/except blocks"""
         import inspect
+
         from moa_gateway.database import SQLiteBackend
 
         source = inspect.getsource(SQLiteBackend._apply_pragmas)
@@ -93,47 +88,44 @@ class TestPragmaIndependent:
 
 
 # ---------------------------------------------------------------------------
-# QUAL-P0-005: QuotaService 索引越界防护
+# QUAL-P0-005: QuotaService self-heal / tier-promo 走真实路径
 # ---------------------------------------------------------------------------
 class TestQuotaServiceIndexSafety:
-    """QUAL-P0-005: 索引越界防护"""
+    """QUAL-P0-005: 原 mock-loader 测试已改为真实调用.
 
-    def test_self_heal_auto_balance_short_list_raises(self):
-        """函数列表长度不足时应抛 RuntimeError"""
+    旧版本 patch 掉 _load_self_heal / _load_tier_promo 并断言"函数列表过短抛
+    RuntimeError"——那是死方法时代的防御性桩。loader 修复后, 这些方法直接驱动
+    真实的 capability API, 这里用真实参数验证其行为。
+    """
+
+    def test_self_heal_auto_balance_real_path(self):
+        """auto_balance 走真实 self_heal.auto_balance, 返回动作列表"""
         from moa_gateway.services.quota_service import QuotaService
 
         svc = QuotaService.__new__(QuotaService)
+        result = svc.self_heal_auto_balance(endpoints=["ep1", "ep2"], at=1000.0)
+        # auto_balance 返回 list[HealAction] 的序列化结果 (可能为空列表)
+        assert isinstance(result, list)
 
-        # Mock _load_self_heal to return fewer functions than expected
-        with patch(
-            "moa_gateway.services.quota_service._load_self_heal",
-            return_value=(lambda: None, lambda: None, lambda: None, lambda: None),
-        ):
-            with pytest.raises(RuntimeError, match="self_heal module expected 5\\+ functions"):
-                svc.self_heal_auto_balance(endpoints=[], at=0.0)
-
-    def test_self_heal_check_recovery_short_list_raises(self):
-        """函数列表长度不足时应抛 RuntimeError"""
+    def test_self_heal_check_recovery_real_path(self):
+        """check_recovery 走真实 self_heal.check_recovery, 返回 HealAction"""
         from moa_gateway.services.quota_service import QuotaService
 
         svc = QuotaService.__new__(QuotaService)
+        result = svc.self_heal_check_recovery(endpoints=["ep1"], endpoint_id="ep1", at=1000.0)
+        assert isinstance(result, dict)
+        assert result["endpoint_id"] == "ep1"
 
-        with patch(
-            "moa_gateway.services.quota_service._load_self_heal",
-            return_value=(lambda: None,) * 5,  # only 5, needs 6+
-        ):
-            with pytest.raises(RuntimeError, match="self_heal module expected 6\\+ functions"):
-                svc.self_heal_check_recovery(endpoints=[], endpoint_id="ep1", at=0.0)
-
-    def test_tier_promo_compute_short_list_raises(self):
-        """tier_promo 函数列表不足时应抛 RuntimeError"""
+    def test_tier_promo_compute_real_path(self):
+        """tier_promo_compute 走真实 compute_tier: confidence 不足时抑制提升"""
         from moa_gateway.services.quota_service import QuotaService
 
         svc = QuotaService.__new__(QuotaService)
-
-        with patch(
-            "moa_gateway.services.quota_service._load_tier_promo",
-            return_value=(lambda: None,),  # only 1, needs 2+
-        ):
-            with pytest.raises(RuntimeError, match="tier_promo module expected 2\\+ functions"):
-                svc.tier_promo_compute(count=1, confidence=0.5)
+        result = svc.tier_promo_compute(count=1, confidence=0.5)
+        # confidence 0.5 < 阈值 0.7 → 维持 TIER_1 且标记 suppressed
+        assert result["tier"] == "TIER_1"
+        assert result["suppressed"] is True
+        # confidence 充足且 count 达到 tier_2 阈值 (3) → TIER_2
+        promoted = svc.tier_promo_compute(count=3, confidence=0.9)
+        assert promoted["tier"] == "TIER_2"
+        assert promoted["suppressed"] is False

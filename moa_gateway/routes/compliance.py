@@ -50,22 +50,35 @@ class GDPRDeleteRequest(BaseModel):
 async def create_gdpr_deletion(
     req: GDPRDeleteRequest, request: Request, admin: dict[str, Any] = Depends(require_admin)
 ):
-    """Create a GDPR data deletion request (right to be forgotten)."""
+    """Create a GDPR data deletion request (right to be forgotten).
+
+    v3.1.1 audit P1-13 fix: process the deletion with a REAL database
+    connection. v3.1.0 never passed db_conn, so every request failed with
+    NotImplementedError and the data was never deleted.
+    """
     check_permission_or_raise(admin, Permission.WRITE_USERS)
+    from ..storage import get_storage
+
     deletion_req = await _gdpr_manager.create_deletion_request(req.user_id, req.categories)
-    # Auto-process immediately
-    result = await _gdpr_manager.process_deletion(deletion_req.request_id)
+    # Auto-process immediately against the live storage
+    with get_storage().conn() as db_conn:
+        result = await _gdpr_manager.process_deletion(
+            deletion_req.request_id, db_conn=db_conn
+        )
     await audit_action(
         request,
         "gdpr_delete",
         "compliance",
         resource_id=deletion_req.request_id,
-        detail={"user_id": req.user_id},
+        # v3.1.1 P2-E: do not retain the personal identifier in the audit
+        # trail of an erasure request; request_id above is the reference.
+        detail={"categories": req.categories},
     )
     return {
         "request_id": deletion_req.request_id,
         "status": result.get("status", "pending"),
         "deleted": result.get("deleted", {}),
+        "error": result.get("error"),
     }
 
 
@@ -88,7 +101,11 @@ async def export_user_data(
 ):
     """Export user data (data portability right)."""
     check_permission_or_raise(admin, Permission.READ_USERS)
-    data = await _gdpr_manager.export_user_data(req.user_id)
+    from ..storage import get_storage
+
+    # v3.1.1: export with a real connection (skeleton-only before).
+    with get_storage().conn() as db_conn:
+        data = await _gdpr_manager.export_user_data(req.user_id, db_conn=db_conn)
     await audit_action(
         request,
         "gdpr_export",

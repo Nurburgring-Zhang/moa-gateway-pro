@@ -1,0 +1,8 @@
+name: audit_probe_wf
+description: probe workflow
+version: '1.0'
+steps:
+  - id: s1
+    type: transform
+    inputs: {msg: 'hello {{user_input}}'}
+    outputs: [out]

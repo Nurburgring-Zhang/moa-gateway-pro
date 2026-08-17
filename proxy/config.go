@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Config holds all proxy configuration.
@@ -16,6 +17,7 @@ type Config struct {
 	WriteTimeout   int // seconds
 	EnableMetrics  bool
 	EnableAuth     bool
+	TrustedProxies []string // CIDRs allowed to set X-Forwarded-For
 }
 
 // LoadConfig creates a Config from file path, flags, and environment.
@@ -30,6 +32,7 @@ func LoadConfig(file, listen, backend string) *Config {
 		WriteTimeout:   getEnvInt("PROXY_WRITE_TIMEOUT", 120),
 		EnableMetrics:  getEnv("PROXY_METRICS", "true") == "true",
 		EnableAuth:     getEnv("PROXY_AUTH", "true") == "true",
+		TrustedProxies: getEnvList("PROXY_TRUSTED_PROXIES"),
 	}
 	return cfg
 }
@@ -49,3 +52,20 @@ func getEnvInt(key string, def int) int {
 	}
 	return def
 }
+
+func getEnvList(key string) []string {
+	v := os.Getenv(key)
+	if v == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	var result []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
+}
+

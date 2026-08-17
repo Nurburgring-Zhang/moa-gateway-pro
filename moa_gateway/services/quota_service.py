@@ -29,41 +29,60 @@ Exposes:
 
 from __future__ import annotations
 
+import logging
+
 from .base import ServiceBase, ServiceMethod
+
+logger = logging.getLogger(__name__)
 
 
 def _load_rate_quota():
+    # Audit F31 fix: rate_quota exposes check_available/eta_exhaustion — there
+    # is no `check_quota` symbol (the old import raised ImportError at call time).
     from ..capability.rate_quota import (
         QuotaState,
         QuotaWindow,
-        check_quota,
+        check_available,
+        eta_exhaustion,
         record_usage,
     )
 
-    return check_quota, record_usage, QuotaWindow, QuotaState
+    return check_available, eta_exhaustion, record_usage, QuotaWindow, QuotaState
 
 
-def _load_per_provider():
-    from ..capability.per_provider_rl import (
-        check_limit,
-        get_status,
-        mark_429,
-        record_request,
-    )
-
-    return check_limit, record_request, mark_429, get_status
+# Audit fix: the previous loaders imported module-level functions that do not
+# exist (the logic lives on classes). Use real class singletons instead so the
+# service methods actually execute.
+_per_provider_limiter = None
+_token_buckets = None
+_dedup_index = None
 
 
-def _load_token_bucket():
-    from ..capability.token_bucket import cleanup, get_state, try_consume
+def _get_per_provider_limiter():
+    global _per_provider_limiter
+    if _per_provider_limiter is None:
+        from ..capability.per_provider_rl import MultiProviderLimiter, make_default_limits
 
-    return try_consume, get_state, cleanup
+        _per_provider_limiter = MultiProviderLimiter(make_default_limits())
+    return _per_provider_limiter
 
 
-def _load_request_dedup():
-    from ..capability.request_dedup import check, record, stats
+def _get_token_buckets():
+    global _token_buckets
+    if _token_buckets is None:
+        from ..capability.token_bucket import MultiKeyTokenBucket
 
-    return check, record, stats
+        _token_buckets = MultiKeyTokenBucket(default_capacity=60, default_refill_rate=1.0)
+    return _token_buckets
+
+
+def _get_dedup_index():
+    global _dedup_index
+    if _dedup_index is None:
+        from ..capability.request_dedup import RequestDedupIndex
+
+        _dedup_index = RequestDedupIndex(ttl_seconds=60, max_size=10000)
+    return _dedup_index
 
 
 def _load_self_heal():
@@ -86,14 +105,31 @@ def _load_tier_recalibrate():
 
 
 def _load_tier_promo():
+    # Audit fix: tier_promo exports compute_tier / record_evidence /
+    # classify_tier_from_evidence + SubAgentBoundary (can_spawn /
+    # cohabitation_check are methods). The old loader imported
+    # classify/compute/can_spawn/cohabitation which do not exist.
     from ..capability.tier_promo import (
-        can_spawn,
-        classify,
-        cohabitation,
-        compute,
+        Evidence,
+        PromotionConfig,
+        PromotionState,
+        SubAgentBoundary,
+        classify_tier_from_evidence,
+        compute_tier,
+        promotion_state_to_dict,
+        record_evidence,
     )
 
-    return classify, compute, can_spawn, cohabitation
+    return (
+        compute_tier,
+        record_evidence,
+        classify_tier_from_evidence,
+        Evidence,
+        PromotionConfig,
+        PromotionState,
+        SubAgentBoundary,
+        promotion_state_to_dict,
+    )
 
 
 def _load_provider_health():
@@ -108,9 +144,14 @@ def _load_provider_health():
 
 
 def _load_consumption_intel():
-    from ..capability.consumption_intel import analyze
+    # Audit fix: the real entry point is select_endpoint (no `analyze` exists).
+    from ..capability.consumption_intel import (
+        EndpointSpec,
+        RequestContext,
+        select_endpoint,
+    )
 
-    return analyze
+    return select_endpoint, RequestContext, EndpointSpec
 
 
 def _load_consensus():
@@ -128,6 +169,45 @@ def _load_cost_estimator():
     )
 
     return estimate_moa_cost, dry_run_preset, compare_presets, format_report
+
+
+def _build_heal_state(endpoints, endpoint_id=None):
+    """Build a real HealState from an endpoint list (audit fix).
+
+    ``endpoints`` may be a list of endpoint-id strings or dicts carrying an
+    ``endpoint_id``/``id`` key. The optional ``endpoint_id`` target is always
+    registered so record_success/record_failure/etc. can find it.
+    """
+    from ..capability.self_heal import HealState
+
+    state = HealState()
+    ids: list[str] = []
+    if isinstance(endpoints, list):
+        for e in endpoints:
+            if isinstance(e, str):
+                ids.append(e)
+            elif isinstance(e, dict):
+                ids.append(str(e.get("endpoint_id") or e.get("id") or ""))
+    if endpoint_id:
+        ids.append(str(endpoint_id))
+    for eid in {i for i in ids if i}:
+        state.add_endpoint(eid)
+    return state
+
+
+def _heal_result(result):
+    """Serialize HealAction (or a list of them) into JSON-safe dicts."""
+
+    def _one(action):
+        if hasattr(action, "to_dict"):
+            return action.to_dict()
+        if hasattr(action, "__dict__"):
+            return dict(action.__dict__)
+        return action
+
+    if isinstance(result, list):
+        return [_one(a) for a in result]
+    return _one(result)
 
 
 class QuotaService(ServiceBase):
@@ -247,27 +327,27 @@ class QuotaService(ServiceBase):
         # tier promo
         self._methods["tier_promo_classify"] = ServiceMethod(
             name="tier_promo_classify",
-            description="tier 提升分类(基于 evidence 事件)",
+            description="tier 提升分类: 逐条 record_evidence 累加 evidence, 返回最终 PromotionState (tier/count/confidence)",
             func=self.tier_promo_classify,
             input_required=["evidence"],
             input_optional=["tier_1", "tier_2", "tier_3", "tier_4", "confidence_threshold"],
         )
         self._methods["tier_promo_compute"] = ServiceMethod(
             name="tier_promo_compute",
-            description="tier 提升计算",
+            description="tier 提升计算: compute_tier(evidence_count, confidence) — confidence 低于阈值时维持当前 tier",
             func=self.tier_promo_compute,
             input_required=["count"],
-            input_optional=["confidence"],
+            input_optional=["confidence", "current_tier"],
         )
         self._methods["tier_promo_can_spawn"] = ServiceMethod(
             name="tier_promo_can_spawn",
-            description="检查 parent 是否可 spawn child",
+            description="检查 parent 是否可 spawn child (SubAgentBoundary.can_spawn 白名单检查)",
             func=self.tier_promo_can_spawn,
             input_required=["parent_id", "allowed_children", "child_id"],
         )
         self._methods["tier_promo_cohabitation"] = ServiceMethod(
             name="tier_promo_cohabitation",
-            description="检查两个 parent 是否可同居",
+            description="检查两个 parent 边界是否兼容 (SubAgentBoundary.cohabitation_check: 同 parent → True, 跨 parent → False)",
             func=self.tier_promo_cohabitation,
             input_required=["parent_a", "children_a", "parent_b", "children_b"],
         )
@@ -303,11 +383,12 @@ class QuotaService(ServiceBase):
 
     # rate quota
     def check_quota(self, windows, requested, burn_rate_per_hour=None):
-        check_quota, _, _, _ = _load_rate_quota()
+        check_available, eta_exhaustion, _, QuotaWindow, QuotaState = _load_rate_quota()
         wins = [w for w in windows if isinstance(w, dict)]
         if not wins:
             raise ValueError("windows must be non-empty list")
-        from ..capability.rate_quota import QuotaWindow
+
+        import time as _t
 
         qwins = {
             w["name"]: QuotaWindow(
@@ -315,11 +396,21 @@ class QuotaService(ServiceBase):
             )
             for w in wins
         }
-        return check_quota(qwins, requested, burn_rate_per_hour=burn_rate_per_hour or 0)
+        state = QuotaState(windows=qwins, last_updated=_t.time())
+        ok, reason = check_available(state, requested)
+        burn = burn_rate_per_hour or 0
+        return {
+            "available": ok,
+            "reason": reason,
+            "eta_hours": (
+                {name: eta_exhaustion(state, float(burn), name) for name in qwins}
+                if burn
+                else {}
+            ),
+        }
 
     def record_quota(self, windows, tokens, at=None):
-        _, record_usage, _, QuotaState = _load_rate_quota()
-        from ..capability.rate_quota import QuotaWindow
+        _, _, record_usage, QuotaWindow, QuotaState = _load_rate_quota()
 
         qwins = {
             w["name"]: QuotaWindow(
@@ -347,119 +438,230 @@ class QuotaService(ServiceBase):
         max_inputs_per_minute=1000,
         max_concurrent=5,
     ):
-        check_limit, record_request, mark_429, get_status = _load_per_provider()
-        if not limits:
-            limits = {
-                provider: {
-                    "provider": provider,
-                    "max_requests_per_minute": max_requests_per_minute,
-                    "max_inputs_per_minute": max_inputs_per_minute,
-                    "max_concurrent": max_concurrent,
-                }
-            }
+        # Audit fix: drive the real MultiProviderLimiter (module-level functions
+        # never existed).
+        from ..capability.per_provider_rl import decision_to_dict
+
+        limiter = _get_per_provider_limiter()
         if action == "check":
-            return check_limit(limits, provider, concurrent=concurrent)
+            return decision_to_dict(limiter.check(provider, concurrent_now=concurrent))
         if action == "record":
-            return record_request(limits, provider, request_count=request_count)
+            limiter.record(provider, request_count=request_count)
+            return {"recorded": True, "provider": provider, "request_count": request_count}
         if action == "mark_429":
-            return mark_429(limits, provider, cooldown_seconds=cooldown_seconds)
+            cooldown_until = limiter.mark_429(provider, duration_seconds=cooldown_seconds)
+            return {"provider": provider, "cooldown_until": cooldown_until}
         if action == "status":
-            return get_status(limits, provider)
+            snap = limiter.snapshot()
+            return snap.get(provider, {"provider": provider})
         raise ValueError(f"unknown action: {action}")
 
     # token bucket
     def try_consume(self, key, tokens, capacity=60, refill_rate=1.0):
-        try_consume, _, _ = _load_token_bucket()
-        return try_consume(key=key, tokens=tokens, capacity=capacity, refill_rate=refill_rate)
+        # Audit fix: use the real MultiKeyTokenBucket. (capacity/refill_rate apply
+        # when the bucket is lazily created for a new key.)
+        buckets = _get_token_buckets()
+        bucket = buckets.get_bucket(str(key))
+        # honour caller-requested capacity for a freshly created bucket
+        if getattr(bucket, "capacity", None) is not None and capacity:
+            try:
+                bucket.capacity = int(capacity)
+            except (TypeError, ValueError) as e:
+                logger.warning("try_consume: invalid capacity %r, keeping default: %s", capacity, e)
+        return {"allowed": bool(buckets.try_consume(str(key), int(tokens))), "key": str(key)}
 
     def token_bucket_state(self, **kwargs):
-        _, get_state, _ = _load_token_bucket()
-        return get_state()
+        return _get_token_buckets().all_states()
 
     def token_bucket_cleanup(self):
-        _, _, cleanup = _load_token_bucket()
-        return {"cleaned": cleanup()}
+        return {"cleaned": _get_token_buckets().cleanup_inactive()}
 
     # dedup
     def dedup_check(self, method, path, body, source=""):
-        check, _, _ = _load_request_dedup()
-        return check(method=method, path=path, body=body, source=source)
+        idx = _get_dedup_index()
+        entry = idx.check(method, path, body, source=source)
+        if entry is None:
+            return {"duplicate": False}
+        return {"duplicate": True, "has_response": getattr(entry, "response", None) is not None}
 
     def dedup_record(self, method, path, body, response, source=""):
-        _, record, _ = _load_request_dedup()
-        return record(method=method, path=path, body=body, response=response, source=source)
+        idx = _get_dedup_index()
+        idx.record(method, path, body, source=source, response=response)
+        return {"recorded": True}
 
     def dedup_stats(self):
-        _, _, stats = _load_request_dedup()
-        return stats()
+        return _get_dedup_index().stats()
 
     # self heal
+    # Audit fix: the underlying self_heal functions take a HealState (``state=``),
+    # not an ``endpoints=`` kwarg. Build a real HealState from the provided
+    # endpoint list and call them correctly (was: guaranteed TypeError).
     def self_heal_record_failure(self, endpoints, endpoint_id, at=0.0):
         rf, *_ = _load_self_heal()
-        return rf(endpoints=endpoints, endpoint_id=endpoint_id, at=at)
+        state = _build_heal_state(endpoints, endpoint_id)
+        return _heal_result(rf(state=state, endpoint_id=endpoint_id, at=at or None))
 
     def self_heal_record_success(self, endpoints, endpoint_id, at=0.0):
         _, rs, *_ = _load_self_heal()
-        return rs(endpoints=endpoints, endpoint_id=endpoint_id, at=at)
+        state = _build_heal_state(endpoints, endpoint_id)
+        return _heal_result(rs(state=state, endpoint_id=endpoint_id, at=at or None))
 
     def self_heal_promote(self, endpoints, endpoint_id, reason="", at=0.0):
-        *_, promote, _, _ = _load_self_heal()
-        return promote(endpoints=endpoints, endpoint_id=endpoint_id, reason=reason, at=at)
+        # _load_self_heal order: (record_failure, record_success, promote,
+        # demote, auto_balance, check_recovery). promote is index 2.
+        promote = _load_self_heal()[2]
+        state = _build_heal_state(endpoints, endpoint_id)
+        return _heal_result(promote(state=state, endpoint_id=endpoint_id, reason=reason, at=at or None))
 
     def self_heal_demote(self, endpoints, endpoint_id, reason="", at=0.0):
-        *_, demote, _ = _load_self_heal()
-        return demote(endpoints=endpoints, endpoint_id=endpoint_id, reason=reason, at=at)
+        # demote is index 3 in the _load_self_heal tuple.
+        demote = _load_self_heal()[3]
+        state = _build_heal_state(endpoints, endpoint_id)
+        return _heal_result(demote(state=state, endpoint_id=endpoint_id, reason=reason, at=at or None))
 
     def self_heal_auto_balance(self, endpoints, at=0.0):
         all_fns = _load_self_heal()
         if len(all_fns) <= 4:
             raise RuntimeError(f"self_heal module expected 5+ functions, got {len(all_fns)}")
-        return all_fns[4](endpoints=endpoints, at=at)
+        state = _build_heal_state(endpoints)
+        return _heal_result(all_fns[4](state=state, at=at or None))
 
     def self_heal_check_recovery(self, endpoints, endpoint_id, at=0.0):
         all_fns = _load_self_heal()
         if len(all_fns) <= 5:
             raise RuntimeError(f"self_heal module expected 6+ functions, got {len(all_fns)}")
-        return all_fns[5](endpoints=endpoints, endpoint_id=endpoint_id, at=at)
+        state = _build_heal_state(endpoints, endpoint_id)
+        return _heal_result(all_fns[5](state=state, endpoint_id=endpoint_id, at=at or None))
 
     # tier recalibrate
     def tier_recalibrate(self, tiers):
+        # Audit fix: recalibrate takes a list[TierMetrics] positional
+        # (metrics_list), not a tiers= kwarg.
+        from dataclasses import asdict
+
+        from ..capability.tier_recalibrate import TierLabel, TierMetrics, should_retrain
+
         recalibrate = _load_tier_recalibrate()
-        return recalibrate(tiers=tiers)
+        if not isinstance(tiers, list) or not tiers:
+            raise ValueError("tiers must be a non-empty list of tier metric dicts")
+        metrics_list = []
+        for t in tiers:
+            if not isinstance(t, dict):
+                raise ValueError("each tier entry must be a dict")
+            fields = dict(t)
+            fields["tier"] = TierLabel(str(fields.get("tier", "standard")))
+            valid = {k: v for k, v in fields.items() if k in TierMetrics.__dataclass_fields__}
+            metrics_list.append(TierMetrics(**valid))
+        plans = recalibrate(metrics_list)
+        return {
+            "plans": [asdict(p) for p in plans],
+            "should_retrain": should_retrain(plans),
+            "tiers_evaluated": len(metrics_list),
+        }
 
     # tier promo
     def tier_promo_classify(
         self, evidence, tier_1=1, tier_2=3, tier_3=5, tier_4=10, confidence_threshold=0.7
     ):
-        classify, *_ = _load_tier_promo()
-        return classify(
-            evidence=evidence,
-            tier_1=tier_1,
-            tier_2=tier_2,
-            tier_3=tier_3,
-            tier_4=tier_4,
-            confidence_threshold=confidence_threshold,
+        # Audit fix: drive classify via the real record_evidence pipeline
+        # (no module-level `classify` exists).
+        (
+            _compute,
+            record_evidence,
+            _classify_from_evidence,
+            Evidence,
+            PromotionConfig,
+            PromotionState,
+            _Boundary,
+            state_to_dict,
+        ) = _load_tier_promo()
+        if not isinstance(evidence, list):
+            raise ValueError("evidence must be a list of evidence dicts")
+        config = PromotionConfig(
+            tier_1_threshold=int(tier_1),
+            tier_2_threshold=int(tier_2),
+            tier_3_threshold=int(tier_3),
+            tier_4_threshold=int(tier_4),
+            confidence_threshold=float(confidence_threshold),
         )
+        ev_objs = []
+        for e in evidence:
+            if isinstance(e, Evidence):
+                ev_objs.append(e)
+            elif isinstance(e, dict):
+                ev_objs.append(
+                    Evidence(
+                        event_type=str(e.get("event_type", "")),
+                        timestamp=float(e.get("timestamp", 0.0)),
+                        weight=float(e.get("weight", 1.0)),
+                    )
+                )
+            else:
+                raise ValueError("each evidence entry must be a dict")
+        state = PromotionState()
+        for ev in ev_objs:
+            state = record_evidence(state, ev, config)
+        out = state_to_dict(state)
+        out["evidence_used"] = len(ev_objs)
+        out["config"] = {
+            "tier_1_threshold": config.tier_1_threshold,
+            "tier_2_threshold": config.tier_2_threshold,
+            "tier_3_threshold": config.tier_3_threshold,
+            "tier_4_threshold": config.tier_4_threshold,
+            "confidence_threshold": config.confidence_threshold,
+        }
+        return out
 
-    def tier_promo_compute(self, count, confidence=0.5):
-        all_fns = _load_tier_promo()
-        if len(all_fns) <= 1:
-            raise RuntimeError(f"tier_promo module expected 2+ functions, got {len(all_fns)}")
-        return all_fns[1](count=count, confidence=confidence)
+    def tier_promo_compute(self, count, confidence=0.5, current_tier=None):
+        # Audit fix: real entry point is compute_tier(evidence_count,
+        # confidence, config) — no module-level `compute` exists.
+        compute_tier, *_ = _load_tier_promo()
+        from ..capability.tier_promo import PromotionConfig, PromotionLevel
+
+        config = PromotionConfig()
+        cur = PromotionLevel[str(current_tier)] if current_tier else None
+        tier = compute_tier(
+            evidence_count=int(count), confidence=float(confidence), config=config, current_tier=cur
+        )
+        return {
+            "tier": tier.name,
+            "tier_value": tier.value,
+            "evidence_count": int(count),
+            "confidence": float(confidence),
+            "suppressed": float(confidence) < config.confidence_threshold,
+        }
 
     def tier_promo_can_spawn(self, parent_id, allowed_children, child_id):
-        all_fns = _load_tier_promo()
-        if len(all_fns) <= 2:
-            raise RuntimeError(f"tier_promo module expected 3+ functions, got {len(all_fns)}")
-        return all_fns[2](parent_id=parent_id, allowed_children=allowed_children, child_id=child_id)
+        # Audit fix: can_spawn is a method on SubAgentBoundary, not a
+        # module-level function.
+        *_, SubAgentBoundary, _state_to_dict = _load_tier_promo()
+        boundary = SubAgentBoundary(
+            parent_id=str(parent_id), allowed_children=[str(c) for c in (allowed_children or [])]
+        )
+        return {
+            "allowed": boundary.can_spawn(str(child_id)),
+            "parent_id": boundary.parent_id,
+            "child_id": str(child_id),
+            "allowed_children": list(boundary.allowed_children),
+        }
 
     def tier_promo_cohabitation(self, parent_a, children_a, parent_b, children_b):
-        all_fns = _load_tier_promo()
-        if len(all_fns) <= 3:
-            raise RuntimeError(f"tier_promo module expected 4+ functions, got {len(all_fns)}")
-        return all_fns[3](
-            parent_a=parent_a, children_a=children_a, parent_b=parent_b, children_b=children_b
+        # Audit fix: cohabitation_check is a method on SubAgentBoundary.
+        # Real semantics: boundaries are compatible iff both parents are the
+        # same parent (cross-parent cohabitation is rejected by design).
+        *_, SubAgentBoundary, _state_to_dict = _load_tier_promo()
+        boundary_a = SubAgentBoundary(
+            parent_id=str(parent_a), allowed_children=[str(c) for c in (children_a or [])]
         )
+        compatible = boundary_a.cohabitation_check(str(parent_b))
+        return {
+            "compatible": compatible,
+            "parent_a": str(parent_a),
+            "parent_b": str(parent_b),
+            "children_a": [str(c) for c in (children_a or [])],
+            "children_b": [str(c) for c in (children_b or [])],
+            "reason": "same parent namespace" if compatible else "cross-parent isolation enforced",
+        }
 
     # provider health
     def provider_health_aggregate(self, providers, prefer_tier=None):
@@ -485,25 +687,55 @@ class QuotaService(ServiceBase):
 
     # consumption intel
     def consumption_intel(self, context, endpoints):
-        analyze = _load_consumption_intel()
-        return analyze(context=context, endpoints=endpoints)
+        # Audit fix: call the real select_endpoint pipeline (no `analyze` exists).
+        select_endpoint, RequestContext, EndpointSpec = _load_consumption_intel()
+        ctx = (
+            context
+            if isinstance(context, RequestContext)
+            else RequestContext.from_dict(context or {})
+        )
+        specs = []
+        for ep in endpoints or []:
+            if isinstance(ep, EndpointSpec):
+                specs.append(ep)
+            elif isinstance(ep, dict):
+                specs.append(
+                    EndpointSpec(
+                        endpoint_id=str(ep.get("endpoint_id") or ep.get("id") or ""),
+                        model_id=str(ep.get("model_id") or ep.get("model") or ep.get("endpoint_id") or ""),
+                        cost_per_1k_input=float(ep.get("cost_per_1k_input", 0.0)),
+                        cost_per_1k_output=float(ep.get("cost_per_1k_output", 0.0)),
+                        avg_latency_ms=float(ep.get("avg_latency_ms", 0.0)),
+                        capabilities=list(ep.get("capabilities", [])),
+                        tier=ep.get("tier", "standard"),
+                        enabled=bool(ep.get("enabled", True)),
+                        consecutive_failures=int(ep.get("consecutive_failures", 0)),
+                    )
+                )
+        decision = select_endpoint(ctx, specs)
+        return decision.to_dict()
 
     # should rebalance
     def should_rebalance(self, stats, config=None):
+        # Audit fix: call the real consensus.should_rebalance(stats, config)
+        # (the previous inline reimplementation ignored `config` entirely).
+        should_rebalance = _load_consensus()
         from ..capability.consensus import TierStat
 
-        stats_objs = {k: TierStat(**v) if isinstance(v, dict) else v for k, v in stats.items()}
-        # Inline implementation since we can't easily pass config through _load_consensus
-        total = len(stats_objs)
-        if total == 0:
-            return {"should_rebalance": False}
-        high = sum(1 for s in stats_objs.values() if s.success_count / max(s.total_calls, 1) > 0.95)
-        low = sum(1 for s in stats_objs.values() if s.success_count / max(s.total_calls, 1) < 0.5)
+        if not isinstance(stats, dict):
+            raise ValueError("stats must be a dict of tier -> TierStat dict")
+        stats_objs = {}
+        for k, v in stats.items():
+            if isinstance(v, TierStat):
+                stats_objs[k] = v
+            elif isinstance(v, dict):
+                valid = {f: v[f] for f in TierStat.__dataclass_fields__ if f in v}
+                stats_objs[k] = TierStat(**valid)
+            else:
+                raise ValueError(f"stats[{k}] must be a dict")
         return {
-            "should_rebalance": high >= 1 and low >= 1,
-            "high_count": high,
-            "low_count": low,
-            "total": total,
+            "should_rebalance": should_rebalance(stats_objs, config or {}),
+            "tiers_evaluated": len(stats_objs),
         }
 
     # cost estimate

@@ -29,14 +29,31 @@ def _load_moa_engine():
 
 
 def _load_cross_iter():
+    # Audit fix: cross_iter_synth exports convergence_mode / best_of_each_mode /
+    # recommended_adoption_mode / run_step5 (+ snapshot helpers). The old loader
+    # imported analyze_convergence/best_of_each/adoption_rate/step5_review which
+    # do not exist.
     from ..capability.cross_iter_synth import (
-        adoption_rate,
-        analyze_convergence,
-        best_of_each,
-        step5_review,
+        Step5Mode,
+        best_of_each_mode,
+        convergence_mode,
+        recommended_adoption_mode,
+        result_to_dict,
+        run_step5,
+        snapshot_from_dict,
+        step5_result_to_dict,
     )
 
-    return analyze_convergence, best_of_each, adoption_rate, step5_review
+    return (
+        convergence_mode,
+        best_of_each_mode,
+        recommended_adoption_mode,
+        run_step5,
+        Step5Mode,
+        snapshot_from_dict,
+        result_to_dict,
+        step5_result_to_dict,
+    )
 
 
 class MoAService(ServiceBase):
@@ -62,9 +79,13 @@ class MoAService(ServiceBase):
         )
         self._methods["cross_iter"] = ServiceMethod(
             name="cross_iter",
-            description="跨迭代分析: convergence / best_of_each / adoption / step5",
+            description=(
+                "跨迭代合成: convergence / best_of_each / adoption (需 ≥2 个快照) / step5 "
+                "(step5_mode: sintesis_central|self_improve|skip)"
+            ),
             func=self.cross_iter,
             input_required=["iters", "action"],
+            input_optional=["step5_mode"],
         )
         self._methods["validate_config"] = ServiceMethod(
             name="validate_config",
@@ -130,17 +151,42 @@ class MoAService(ServiceBase):
             return result
         return {"result": str(result)}
 
-    def cross_iter(self, iters, action):
-        analyze_convergence, best_of_each, adoption_rate, step5_review = _load_cross_iter()
+    def cross_iter(self, iters, action, step5_mode="skip"):
+        # Audit fix: drive the real cross_iter_synth API.
+        (
+            convergence_mode,
+            best_of_each_mode,
+            recommended_adoption_mode,
+            run_step5,
+            Step5Mode,
+            snapshot_from_dict,
+            result_to_dict,
+            step5_result_to_dict,
+        ) = _load_cross_iter()
+        if not isinstance(iters, list) or not iters:
+            raise ValueError("iters must be a non-empty list of iteration snapshot dicts")
+        snaps = []
+        for it in iters:
+            if isinstance(it, dict):
+                snaps.append(snapshot_from_dict(it))
+            else:
+                raise ValueError("each iter must be a dict {iter_idx, proposals, ...}")
         if action == "convergence":
-            return analyze_convergence(iters)
+            return result_to_dict(convergence_mode(snaps))
         if action == "best_of_each":
-            return best_of_each(iters)
+            return result_to_dict(best_of_each_mode(snaps))
         if action == "adoption":
-            return adoption_rate(iters)
+            if len(snaps) < 2:
+                raise ValueError("adoption requires at least 2 iteration snapshots (prev + curr)")
+            return result_to_dict(recommended_adoption_mode(curr=snaps[-1], prev=snaps[-2]))
         if action in ("step5", "review"):
-            mode = iters[0].get("step5_mode", "skip") if iters else "skip"
-            return step5_review(iters, mode=mode)
+            mode_value = step5_mode or (iters[0].get("step5_mode", "skip") if iters else "skip")
+            try:
+                mode = Step5Mode(mode_value)
+            except ValueError as e:
+                valid = [m.value for m in Step5Mode]
+                raise ValueError(f"unknown step5_mode: {mode_value!r}, expected one of {valid}") from e
+            return step5_result_to_dict(run_step5(snaps, mode))
         raise ValueError(
             f"unknown action: {action}, expected one of convergence/best_of_each/adoption/step5"
         )

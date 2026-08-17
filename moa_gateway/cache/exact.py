@@ -24,7 +24,11 @@ class ExactMatchCache(CacheBackend):
 
     @staticmethod
     def compute_key(messages: list, model: str, **kwargs) -> str:
-        """Compute deterministic cache key from request parameters."""
+        """Compute deterministic cache key from request parameters.
+
+        Includes MoA strategy/preset so a request for strategy=single does NOT
+        return a cached result from a prior strategy=parallel call (the two
+        produce semantically different responses)."""
         payload = json.dumps(
             {
                 "messages": messages,
@@ -32,6 +36,8 @@ class ExactMatchCache(CacheBackend):
                 "temperature": kwargs.get("temperature", 1.0),
                 "max_tokens": kwargs.get("max_tokens"),
                 "top_p": kwargs.get("top_p", 1.0),
+                "strategy": kwargs.get("strategy"),
+                "preset": kwargs.get("preset"),
             },
             sort_keys=True,
             ensure_ascii=False,

@@ -118,6 +118,12 @@ async def reset_breaker(eid: str, admin: dict[str, Any] = Depends(require_admin)
     return {"ok": True}
 
 
+@router.get("/api/failover")
+async def get_failover_status(admin: dict[str, Any] = Depends(require_admin)):
+    pool = get_model_pool()
+    return pool._failover.get_status()
+
+
 # ========== API Keys Management ==========
 @router.get("/api/api-keys")
 async def list_api_keys(admin: dict[str, Any] = Depends(require_admin)):
@@ -320,7 +326,7 @@ async def list_roles(admin: dict[str, Any] = Depends(require_admin)):
 @router.get("/api/admin/audit-log")
 async def get_audit_log(
     limit: int = 100,
-    request: Request = None,
+    request: Request = None,  # type: ignore[assignment]
     admin: dict[str, Any] = Depends(require_admin),
 ):
     """Retrieve recent audit log entries from the log file."""

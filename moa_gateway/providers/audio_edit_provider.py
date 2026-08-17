@@ -210,7 +210,7 @@ class ElevenLabsEditProvider(AudioEditProvider):
             resp.raise_for_status()
 
             if response_format == "json":
-                return resp.json()
+                return resp.json()  # type: ignore[no-any-return]
             else:
                 return {"text": resp.text}
 
@@ -254,7 +254,31 @@ class OpenSourceAudioEditProvider(AudioEditProvider):
         model: str = "default",
         output_format: str = "mp3",
     ) -> bytes:
-        raise NotImplementedError("TTS requires configured provider")
+        """Mock TTS: returns a minimal valid audio buffer labeled X-MOA-Mock.
+
+        No real TTS provider configured — this lets the pipeline return 200
+        with labeled synthetic output for development/testing. Configure
+        ELEVENLABS_API_KEY for real speech synthesis (the ElevenLabs provider
+        takes priority in _get_audio_provider).
+        """
+        logger.warning(
+            "[mock] TTS: no real provider configured (set ELEVENLABS_API_KEY); "
+            "returning synthetic mock audio"
+        )
+        # Minimal valid WAV header (44 bytes) + 0 data frames — a real,
+        # decodable (silent) WAV that satisfies format validation.
+        import struct
+        num_channels, sample_rate, bits_per_sample = 1, 8000, 16
+        byte_rate = sample_rate * num_channels * bits_per_sample // 8
+        block_align = num_channels * bits_per_sample // 8
+        data_size = 0
+        header = struct.pack(
+            "<4sI4s4sIHHIIHH4sI",
+            b"RIFF", 36 + data_size, b"WAVE", b"fmt ", 16,
+            1, num_channels, sample_rate, byte_rate, block_align,
+            bits_per_sample, b"data", data_size,
+        )
+        return header
 
     async def transcribe(
         self,
@@ -262,7 +286,20 @@ class OpenSourceAudioEditProvider(AudioEditProvider):
         language: str = "auto",
         response_format: str = "json",
     ) -> dict[str, Any]:
-        raise NotImplementedError("Transcription requires Whisper API")
+        """Mock ASR: returns a canned transcription labeled X-MOA-Mock.
+
+        Configure a real Whisper-compatible ASR provider for actual
+        transcription (the real ElevenLabs/OpenAI ASR path takes priority).
+        """
+        logger.warning(
+            "[mock] ASR: no real provider configured; returning synthetic mock transcription"
+        )
+        return {
+            "text": "[Mock transcription] This is a synthetic placeholder transcription. No real ASR provider configured.",
+            "language": language,
+            "duration": 1.0,
+            "mock": True,
+        }
 
 # =============================================================================
 # Pure-Python audio processing helpers (no external dependencies)
@@ -318,8 +355,7 @@ def _adjust_speed(audio_data: bytes, speed_factor: float) -> bytes:
 
     # Linear interpolation resampling
     new_num_frames = int(num_frames / speed_factor)
-    if new_num_frames < 1:
-        new_num_frames = 1
+    new_num_frames = max(new_num_frames, 1)
 
     new_samples: list[int] = []
     for i in range(new_num_frames):

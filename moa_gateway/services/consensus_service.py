@@ -1,18 +1,23 @@
-"""ConsensusService — wraps consensus, convergent_detector, conflict_arbiter, multi_mode_synth, moaflow, ensemble_vote.
+"""ConsensusService — wraps consensus, convergent_detector, conflict_arbiter, multi_mode_synth, moaflow, section_viability.
 
 Exposes:
   - vote_ensemble(votes, method)
   - should_rebalance(stats, config)
   - detect_convergent(proposals, min_support, viability_scores)
   - arbitrate_conflicts(options, criteria)
-  - synthesize_multi_mode(mode, proposals, ref_text)
+  - synthesize_multi_mode(mode, proposals, ...)
   - check_group_think(session_id, members, rounds, warn_threshold, block_threshold)
   - evaluate_section_viability(text, proposal_idx)
 """
 
 from __future__ import annotations
 
+import logging
+from dataclasses import asdict
+
 from .base import ServiceBase, ServiceMethod
+
+logger = logging.getLogger(__name__)
 
 
 def _load_consensus():
@@ -22,21 +27,34 @@ def _load_consensus():
 
 
 def _load_convergent():
-    from ..capability.convergent_detector import convergent_summary, extract_ideas
+    from ..capability.convergent_detector import (
+        ConflictPair,
+        arbitrate_conflicts,
+        convergent_summary,
+        extract_ideas,
+    )
 
-    return convergent_summary, extract_ideas
+    return convergent_summary, extract_ideas, arbitrate_conflicts, ConflictPair
 
 
 def _load_conflict():
-    from ..capability.conflict_arbiter import arbitrate_conflicts
+    # Audit fix: conflict_arbiter exposes arbitrate(options, total_proposals)
+    # over ConflictOption objects (there is no arbitrate_conflicts there).
+    from ..capability.conflict_arbiter import (
+        ConflictOption,
+        arbitrate,
+        verdict_to_dict,
+    )
 
-    return arbitrate_conflicts
+    return arbitrate, ConflictOption, verdict_to_dict
 
 
 def _load_multi_mode():
-    from ..capability.multi_mode_synth import synthesize
+    # Audit fix: multi_mode_synth exposes run_synthesis(mode, proposals, **kw)
+    # (no `synthesize`).
+    from ..capability.multi_mode_synth import Proposal, SynthesisMode, run_synthesis
 
-    return synthesize
+    return run_synthesis, SynthesisMode, Proposal
 
 
 def _load_moaflow():
@@ -46,9 +64,17 @@ def _load_moaflow():
 
 
 def _load_section_viability():
-    from ..capability.section_viability import evaluate_sections
+    # Audit fix: the real entry point is validate_proposal (no evaluate_sections).
+    from ..capability.section_viability import validate_proposal
 
-    return evaluate_sections
+    return validate_proposal
+
+
+def _synth_result_to_dict(result) -> dict:
+    d = asdict(result)
+    if hasattr(d.get("mode"), "value"):
+        d["mode"] = d["mode"].value
+    return d
 
 
 class ConsensusService(ServiceBase):
@@ -72,24 +98,31 @@ class ConsensusService(ServiceBase):
         )
         self._methods["detect_convergent"] = ServiceMethod(
             name="detect_convergent",
-            description="检测跨提案 convergent 想法",
+            description="检测跨提案 convergent 想法 (+ conflicts; viability_scores 非空时附仲裁)",
             func=self.detect_convergent,
             input_required=["proposals"],
             input_optional=["min_support", "viability_scores"],
         )
         self._methods["arbitrate_conflicts"] = ServiceMethod(
             name="arbitrate_conflicts",
-            description="多提案冲突仲裁",
+            description=(
+                "冲突仲裁: options 为 ConflictPair dicts {option_a, option_b} 时走 convergent_detector "
+                "(criteria 作 viability_scores); 为 ConflictOption dicts 时走 conflict_arbiter.arbitrate "
+                "(criteria.total_proposals 作总提案数)"
+            ),
             func=self.arbitrate_conflicts,
             input_required=["options"],
             input_optional=["criteria"],
         )
         self._methods["synthesize_multi_mode"] = ServiceMethod(
             name="synthesize_multi_mode",
-            description="多模式综合(classification / comparison / planning)",
+            description=(
+                "多模式综合 run_synthesis: classification / integrated_synthesis / final_selection / "
+                "cross_iteration; 可选 scores / target_chars / prev_proposals"
+            ),
             func=self.synthesize_multi_mode,
             input_required=["mode", "proposals"],
-            input_optional=["ref_text"],
+            input_optional=["scores", "target_chars", "prev_proposals"],
         )
         self._methods["check_group_think"] = ServiceMethod(
             name="check_group_think",
@@ -100,7 +133,7 @@ class ConsensusService(ServiceBase):
         )
         self._methods["evaluate_section_viability"] = ServiceMethod(
             name="evaluate_section_viability",
-            description="评估文本章节的可行性",
+            description="评估提案文本各章节可行性 (validate_proposal → ProposalReport + AP score)",
             func=self.evaluate_section_viability,
             input_required=["text", "proposal_idx"],
         )
@@ -125,7 +158,7 @@ class ConsensusService(ServiceBase):
         return {"should_rebalance": should_rebalance(stats_objs, config or {})}
 
     def detect_convergent(self, proposals, min_support=3, viability_scores=None):
-        convergent_summary, extract_ideas = _load_convergent()
+        convergent_summary, extract_ideas, cd_arbitrate, ConflictPair = _load_convergent()
         from ..capability.convergent_detector import Idea, Proposal
 
         # Convert dict/string proposals to Proposal objects
@@ -154,19 +187,30 @@ class ConsensusService(ServiceBase):
             else:
                 prop_objs.append(p)
         summary = convergent_summary(prop_objs, min_support=min_support)
-        if viability_scores:
-            if "conflicts" in summary:
-                summary["arbitrations"] = [
-                    {
-                        "option_a": c.option_a,
-                        "option_b": c.option_b,
-                        "winner": w,
-                        "confidence": conf,
-                    }
-                    for c, w, conf in self.arbitrate_conflicts(
-                        summary["conflicts"], viability_scores
+        if viability_scores and summary.get("conflicts"):
+            # Audit fix: summary["conflicts"] carries dicts (ConflictPair.to_dict);
+            # rebuild ConflictPair objects for the real arbitrate_conflicts API.
+            pairs = []
+            for c in summary["conflicts"]:
+                pairs.append(
+                    ConflictPair(
+                        option_a=c.get("option_a", ""),
+                        option_b=c.get("option_b", ""),
+                        supporting_a=list(c.get("supporting_a", [])),
+                        supporting_b=list(c.get("supporting_b", [])),
                     )
-                ]
+                )
+            # viability_scores keys arrive as strings over JSON — normalize to int
+            vs = {int(k): float(v) for k, v in viability_scores.items()}
+            summary["arbitrations"] = [
+                {
+                    "option_a": pair.option_a,
+                    "option_b": pair.option_b,
+                    "winner": winner,
+                    "confidence": conf,
+                }
+                for pair, winner, conf in cd_arbitrate(pairs, vs)
+            ]
         if hasattr(summary, "to_dict"):
             return summary.to_dict()
         return summary
@@ -174,12 +218,82 @@ class ConsensusService(ServiceBase):
     def arbitrate_conflicts(self, options, criteria=None):
         if not options:
             raise ValueError("options must be non-empty")
-        arbitrate_conflicts = _load_conflict()
-        return arbitrate_conflicts(options, criteria=criteria or {})
+        arbitrate, ConflictOption, verdict_to_dict = _load_conflict()
+        _, _, cd_arbitrate, ConflictPair = _load_convergent()
+        criteria = criteria or {}
+        first = options[0]
+        if isinstance(first, dict) and ("option_a" in first or "option_b" in first):
+            # ConflictPair shape → convergent_detector.arbitrate_conflicts
+            pairs = []
+            for c in options:
+                pairs.append(
+                    ConflictPair(
+                        option_a=str(c.get("option_a", "")),
+                        option_b=str(c.get("option_b", "")),
+                        supporting_a=list(c.get("supporting_a", [])),
+                        supporting_b=list(c.get("supporting_b", [])),
+                    )
+                )
+            vs = {int(k): float(v) for k, v in (criteria or {}).items()}
+            return [
+                {
+                    "option_a": pair.option_a,
+                    "option_b": pair.option_b,
+                    "winner": winner,
+                    "confidence": conf,
+                }
+                for pair, winner, conf in cd_arbitrate(pairs, vs)
+            ]
+        # ConflictOption shape → conflict_arbiter.arbitrate
+        opt_objs = []
+        for o in options:
+            if isinstance(o, ConflictOption):
+                opt_objs.append(o)
+            elif isinstance(o, dict):
+                valid = {k: v for k, v in o.items() if k in ConflictOption.__dataclass_fields__}
+                opt_objs.append(ConflictOption(**valid))
+            else:
+                raise ValueError("each option must be a dict")
+        verdict = arbitrate(opt_objs, total_proposals=int(criteria.get("total_proposals", 0)))
+        return verdict_to_dict(verdict)
 
-    def synthesize_multi_mode(self, mode, proposals, ref_text=None):
-        synthesize = _load_multi_mode()
-        return synthesize(mode=mode, proposals=proposals, ref_text=ref_text or "")
+    def synthesize_multi_mode(self, mode, proposals, scores=None, target_chars=None, prev_proposals=None):
+        # Audit fix: drive run_synthesis(mode, proposals, **kwargs).
+        run_synthesis, SynthesisMode, Proposal = _load_multi_mode()
+        try:
+            mode_enum = SynthesisMode(str(mode))
+        except ValueError as e:
+            valid = [m.value for m in SynthesisMode]
+            raise ValueError(f"unknown mode: {mode!r}, expected one of {valid}") from e
+
+        def _to_proposals(items):
+            out = []
+            for idx, p in enumerate(items or []):
+                if isinstance(p, Proposal):
+                    out.append(p)
+                elif isinstance(p, str):
+                    out.append(Proposal(proposal_idx=idx, author=f"prop_{idx}", text=p))
+                elif isinstance(p, dict):
+                    valid = {k: v for k, v in p.items() if k in Proposal.__dataclass_fields__}
+                    if "proposal_idx" not in valid:
+                        valid["proposal_idx"] = idx
+                    if "author" not in valid:
+                        valid["author"] = f"prop_{idx}"
+                    out.append(Proposal(**valid))
+                else:
+                    raise ValueError("each proposal must be str or dict")
+            return out
+
+        prop_objs = _to_proposals(proposals)
+        kwargs = {}
+        if scores:
+            kwargs["scores"] = {int(k): float(v) for k, v in scores.items()}
+        if target_chars is not None:
+            kwargs["target_chars"] = int(target_chars)
+        if prev_proposals is not None:
+            kwargs["prev_proposals"] = _to_proposals(prev_proposals)
+        result = run_synthesis(mode_enum, prop_objs, **kwargs)
+        return _synth_result_to_dict(result)
 
     def check_group_think(
         self, session_id, members, rounds=None, warn_threshold=0.4, block_threshold=0.7
@@ -187,7 +301,7 @@ class ConsensusService(ServiceBase):
         MemberResponse, group_think_verdict = _load_moaflow()
         # 容错: string / dict / MemberResponse 三种类型都接
         m_objs = []
-        for idx, m in enumerate(members):
+        for _idx, m in enumerate(members):
             if isinstance(m, str):
                 m_objs.append(MemberResponse(member_id=m, content=""))
             elif isinstance(m, dict):
@@ -213,5 +327,7 @@ class ConsensusService(ServiceBase):
         return v
 
     def evaluate_section_viability(self, text, proposal_idx):
-        evaluate_sections = _load_section_viability()
-        return evaluate_sections(text, proposal_idx=proposal_idx)
+        # Audit fix: real entry point is validate_proposal(text, proposal_idx).
+        validate_proposal = _load_section_viability()
+        report = validate_proposal(str(text), proposal_idx=int(proposal_idx))
+        return asdict(report)

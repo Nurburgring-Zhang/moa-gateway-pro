@@ -64,11 +64,45 @@ class ProbeEngine:
             return self._model_pool.endpoints.get(endpoint_id)
         return None
 
+    def _skip_mock_enabled(self) -> bool:
+        """Whether mock-backed endpoints should be skipped from real probing (D3)."""
+        try:
+            from ..config import get_settings
+
+            return bool(get_settings().health.skip_mock_endpoints)
+        except Exception:
+            return True
+
+    def _is_mock_endpoint(self, endpoint: Any) -> bool:
+        """Best-effort detection of mock-backed endpoints (no real API key)."""
+        pool = self._model_pool
+        if pool is not None and hasattr(pool, "_ep_is_mock"):
+            try:
+                return bool(pool._ep_is_mock(endpoint))
+            except Exception:
+                pass
+        from ..providers import NO_AUTH_PROVIDERS, is_mock_key
+
+        cfg = getattr(endpoint, "config", endpoint)
+        key = getattr(cfg, "api_key_runtime", "") or getattr(cfg, "api_key", "") or ""
+        provider = getattr(cfg, "provider", "") or ""
+        return is_mock_key(key) and provider not in NO_AUTH_PROVIDERS
+
     async def probe_endpoint(self, endpoint_id: str) -> bool:
         """Probe a single endpoint. Returns True if healthy."""
         endpoint = self._get_endpoint(endpoint_id)
         if not endpoint:
             return False
+
+        # D3: mock-backed endpoints have no real upstream — never hit the
+        # network for them; keep them out of the purge path without injecting
+        # fake latency samples (B2 review L1).
+        if self._skip_mock_enabled() and self._is_mock_endpoint(endpoint):
+            health = self._health_checker.get_health(endpoint_id)
+            health.consecutive_failures = 0
+            health.unavailable_since = None
+            logger.debug("Skipping probe for mock-backed endpoint %s", endpoint_id)
+            return True
 
         # Extract config attributes (ModelEndpoint has .config with attributes)
         cfg = getattr(endpoint, "config", endpoint)

@@ -13,37 +13,57 @@ export default function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
 
   useEffect(() => {
     loadWorkflows();
   }, []);
 
   async function loadWorkflows() {
+    setError(null);
     try {
       const data = await api.getWorkflows();
-      setWorkflows(data as unknown as Workflow[]);
-    } catch {
-      setWorkflows([
-        { id: '1', name: '模型健康检查', description: '每5分钟检查所有Provider连通性', status: 'active', last_run: '2024-08-01T10:30:00Z', next_run: '2024-08-01T10:35:00Z', steps: 3 },
-        { id: '2', name: '自动扩缩容', description: '根据负载自动调整Provider权重', status: 'active', last_run: '2024-08-01T10:00:00Z', next_run: '2024-08-01T11:00:00Z', steps: 5 },
-        { id: '3', name: '日志归档', description: '每日凌晨归档过期日志到对象存储', status: 'active', last_run: '2024-08-01T00:00:00Z', next_run: '2024-08-02T00:00:00Z', steps: 4 },
-        { id: '4', name: '配额重置', description: '每月1号重置所有API Key配额', status: 'paused', last_run: '2024-07-01T00:00:00Z', next_run: '2024-09-01T00:00:00Z', steps: 2 },
-        { id: '5', name: '模型性能基准测试', description: '每周运行一次性能对比测试', status: 'active', last_run: '2024-07-28T02:00:00Z', next_run: '2024-08-04T02:00:00Z', steps: 7 },
-        { id: '6', name: '安全审计扫描', description: '检查异常访问模式和潜在攻击', status: 'error', last_run: '2024-08-01T06:00:00Z', next_run: '2024-08-01T12:00:00Z', steps: 6 },
-      ]);
+      // Backend returns real DAG templates {name, description, version}.
+      setWorkflows((data || []) as unknown as Workflow[]);
+    } catch (e) {
+      // Honest failure — no fabricated workflow list (audit F6).
+      setWorkflows([]);
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
   }
 
-  async function handleTrigger(id: string) {
-    setTriggering(id);
+  async function handleTrigger(name: string) {
+    setTriggering(name);
+    setError(null);
+    setNotice(null);
     try {
-      await api.triggerWorkflow(id);
-    } catch {
-      // Demo mode
+      const res = (await api.triggerWorkflow(name)) as {
+        result?: { success?: boolean; error?: unknown };
+      } | null;
+      // Audit fix (P2): only an explicit success:true counts as success.
+      // The old `!== false` check reported success even when the backend
+      // returned no success field at all.
+      if (res?.result?.success === true) {
+        setNotice({ ok: true, text: `工作流 "${name}" 已真实执行完成` });
+      } else {
+        const result = res?.result;
+        const detail =
+          result && result.error != null
+            ? String(result.error)
+            : JSON.stringify(res ?? null).slice(0, 200);
+        setNotice({
+          ok: false,
+          text: `工作流 "${name}" 已触发，但执行结果异常：${detail}`,
+        });
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTriggering(null);
     }
-    setTimeout(() => setTriggering(null), 2000);
   }
 
   if (loading) {
@@ -54,8 +74,23 @@ export default function WorkflowsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-gray-900">工作流管理</h1>
-        <p className="text-sm text-gray-500">{workflows.filter((w) => w.status === 'active').length} 个运行中</p>
+        <p className="text-sm text-gray-500">{workflows.length} 个工作流模板</p>
       </div>
+
+      {error && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>
+      )}
+      {notice && (
+        <div
+          className={`rounded-md border p-3 text-sm ${
+            notice.ok
+              ? 'border-green-200 bg-green-50 text-green-700'
+              : 'border-yellow-300 bg-yellow-50 text-yellow-800'
+          }`}
+        >
+          {notice.text}
+        </div>
+      )}
 
       <Card className="p-0 overflow-hidden">
         <Table>
@@ -63,37 +98,24 @@ export default function WorkflowsPage() {
             <TableRow>
               <TableHead>名称</TableHead>
               <TableHead>描述</TableHead>
-              <TableHead>状态</TableHead>
-              <TableHead>步骤数</TableHead>
-              <TableHead>上次运行</TableHead>
-              <TableHead>下次运行</TableHead>
+              <TableHead>版本</TableHead>
               <TableHead>操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {workflows.map((wf) => (
-              <TableRow key={wf.id}>
+              <TableRow key={wf.name}>
                 <TableCell className="font-medium">{wf.name}</TableCell>
                 <TableCell className="text-sm text-gray-500 max-w-xs truncate">{wf.description}</TableCell>
-                <TableCell>
-                  <Badge variant={
-                    wf.status === 'active' ? 'success' :
-                    wf.status === 'paused' ? 'warning' : 'error'
-                  }>
-                    {wf.status}
-                  </Badge>
-                </TableCell>
-                <TableCell>{wf.steps}</TableCell>
-                <TableCell className="text-xs text-gray-500">{formatDate(wf.last_run)}</TableCell>
-                <TableCell className="text-xs text-gray-500">{formatDate(wf.next_run)}</TableCell>
+                <TableCell><Badge variant="info">{String((wf as unknown as { version?: string }).version ?? '-')}</Badge></TableCell>
                 <TableCell>
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={() => handleTrigger(wf.id)}
-                    disabled={triggering === wf.id}
+                    onClick={() => handleTrigger(wf.name)}
+                    disabled={triggering === wf.name}
                   >
-                    {triggering === wf.id ? '执行中...' : '触发'}
+                    {triggering === wf.name ? '执行中...' : '触发'}
                   </Button>
                 </TableCell>
               </TableRow>

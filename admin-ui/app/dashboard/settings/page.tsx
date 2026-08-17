@@ -8,29 +8,34 @@ import { Input } from '@/components/ui/input';
 import { Toggle } from '@/components/ui/toggle';
 import type { SystemSettings } from '@/types';
 
-const DEFAULT_SETTINGS: SystemSettings = {
-  cache: { enabled: true, ttl_seconds: 300, max_size_mb: 512, backend: 'redis' },
-  database: { url: 'postgresql://localhost:5432/moa_gateway', pool_size: 20, max_overflow: 10 },
-  mcp: { enabled: true, server_url: 'http://localhost:8920', timeout_seconds: 30 },
-  rate_limit: { enabled: true, requests_per_minute: 1000, burst_size: 50 },
+// Neutral initial state — real values come from the backend. No fabricated
+// defaults (audit F6/F20): if the backend is unreachable we show an error.
+const EMPTY_SETTINGS: SystemSettings = {
+  cache: { enabled: false, ttl_seconds: 0, max_size_mb: 0, backend: '' },
+  database: { url: '', pool_size: 0, max_overflow: 0 },
+  mcp: { enabled: false, server_url: '', timeout_seconds: 0 },
+  rate_limit: { enabled: false, requests_per_minute: 0, burst_size: 0 },
 };
 
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<SystemSettings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<SystemSettings>(EMPTY_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [restartNote, setRestartNote] = useState<string[]>([]);
 
   useEffect(() => {
     loadSettings();
   }, []);
 
   async function loadSettings() {
+    setError(null);
     try {
       const data = await api.getSettings();
       if (data) setSettings(data as unknown as SystemSettings);
-    } catch {
-      // Use defaults
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -38,14 +43,19 @@ export default function SettingsPage() {
 
   async function handleSave() {
     setSaving(true);
+    setError(null);
+    setRestartNote([]);
     try {
-      await api.updateSettings(settings as unknown as Record<string, unknown>);
-    } catch {
-      // Demo
+      const res = (await api.updateSettings(settings as unknown as Record<string, unknown>)) as
+        | { restart_required?: string[] }
+        | null;
+      setSaved(true);
+      if (res?.restart_required?.length) setRestartNote(res.restart_required);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     }
     setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
   }
 
   if (loading) {
@@ -63,6 +73,17 @@ export default function SettingsPage() {
           </Button>
         </div>
       </div>
+
+      {error && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+      {restartNote.length > 0 && (
+        <div className="rounded-md border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800">
+          以下更改需要重启网关后生效:{restartNote.join(', ')}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Cache Settings */}

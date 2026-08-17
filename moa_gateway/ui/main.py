@@ -59,8 +59,8 @@ def main(page: ft.Page):
             state["palette"] = DARK
         p = state["palette"]
         page.theme_mode = ft.ThemeMode.DARK if p is DARK else ft.ThemeMode.LIGHT
-        page.theme = make_dark_theme(p) if p is DARK else make_flet_theme(p, page.theme_mode)
-        page.bgcolor = p.bg
+        page.theme = make_dark_theme(p) if p is DARK else make_flet_theme(p, page.theme_mode)  # type: ignore[arg-type]
+        page.bgcolor = p.bg  # type: ignore[attr-defined]
         # 重建内容以应用主题
         rebuild_ui()
         # 同步状态栏主题选择器
@@ -202,13 +202,13 @@ def main(page: ft.Page):
         for k, btn in nav_buttons.items():
             p = state["palette"]
             if k == key:
-                btn.content.controls[0].color = p.accent
-                btn.content.controls[1].color = p.accent
+                btn.content.controls[0].color = p.accent  # type: ignore[attr-defined]
+                btn.content.controls[1].color = p.accent  # type: ignore[attr-defined]
                 btn.content.controls[1].weight = ft.FontWeight.BOLD
-                btn.bgcolor = p.accent_dim
+                btn.bgcolor = p.accent_dim  # type: ignore[attr-defined]
             else:
-                btn.content.controls[0].color = p.text_sec
-                btn.content.controls[1].color = p.text_sec
+                btn.content.controls[0].color = p.text_sec  # type: ignore[attr-defined]
+                btn.content.controls[1].color = p.text_sec  # type: ignore[attr-defined]
                 btn.content.controls[1].weight = ft.FontWeight.W_500
                 btn.bgcolor = None
         page.update()

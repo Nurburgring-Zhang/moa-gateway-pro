@@ -50,14 +50,14 @@ class EndpointHealth:
     def success_rate(self) -> float:
         if not self._results:
             return 1.0
-        return sum(self._results) / len(self._results)
+        return sum(self._results) / len(self._results)  # type: ignore[no-any-return]
 
     @property
     def latency_p50(self) -> float:
         if not self._latencies:
             return 0.0
         sorted_l = sorted(self._latencies)
-        return sorted_l[len(sorted_l) // 2]
+        return sorted_l[len(sorted_l) // 2]  # type: ignore[no-any-return]
 
     @property
     def latency_p95(self) -> float:
@@ -65,7 +65,7 @@ class EndpointHealth:
             return 0.0
         sorted_l = sorted(self._latencies)
         idx = int(len(sorted_l) * 0.95)
-        return sorted_l[min(idx, len(sorted_l) - 1)]
+        return sorted_l[min(idx, len(sorted_l) - 1)]  # type: ignore[no-any-return]
 
     @property
     def days_unavailable(self) -> int:

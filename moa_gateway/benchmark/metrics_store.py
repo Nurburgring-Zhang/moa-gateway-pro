@@ -76,7 +76,7 @@ class MetricsStore:
         try:
             data = json.loads(self._metrics_path.read_text(encoding="utf-8"))
             logger.info("Loaded metrics for %d endpoints from %s", len(data), self._metrics_path)
-            return data
+            return data  # type: ignore[no-any-return]
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("Failed to load metrics from %s: %s", self._metrics_path, e)
             return {}
@@ -121,7 +121,7 @@ class MetricsStore:
                 len(data),
                 self._capabilities_path,
             )
-            return data
+            return data  # type: ignore[no-any-return]
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("Failed to load capabilities from %s: %s", self._capabilities_path, e)
             return {}

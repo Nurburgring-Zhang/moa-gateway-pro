@@ -49,7 +49,7 @@ class GoalTier(str, Enum):
 # ============ 启发式常量 ============
 
 # 停用词 (用于关键词提取)
-STOPWORDS: set[str] = frozenset(
+STOPWORDS: set[str] = frozenset(  # type: ignore[assignment]
     {
         "the",
         "a",

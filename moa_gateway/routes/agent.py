@@ -41,12 +41,20 @@ async def agent_dispatch(
     """
     from ..services.dispatcher import get_dispatcher
 
+    from ..services.base import dispatch_ctx
+
     service_name = body.get("service", "")
     method_name = body.get("method", "")
     payload = body.get("payload") or {}
     if not service_name or not method_name:
         raise HTTPException(422, "service and method are required")
-    result = await get_dispatcher().dispatch(service_name, method_name, payload)
+    # Thread the caller's role to services for authorization decisions
+    # (e.g. capability dispatcher admin-gated endpoints, audit F9).
+    token = dispatch_ctx.set({"role": key_info.get("role", "readonly")})
+    try:
+        result = await get_dispatcher().dispatch(service_name, method_name, payload)
+    finally:
+        dispatch_ctx.reset(token)
     result.raise_if_failed()
     return result.to_dict()
 
@@ -140,17 +148,20 @@ async def agent_workflow_run(
 def _make_llm_call():
     """Build an llm_call callback bound to the model pool.
 
-    The callback signature is: async (messages: list[dict], **params) -> str
-    It picks the first available endpoint and returns the response content.
+    The callback signature is:
+        async (messages: list[dict], **params) -> LlmOutcome
+    It picks the first available endpoint and returns the response content
+    together with real usage reported by the provider (D7).
     """
+    from ..agent_loop.base import LlmOutcome, LlmUsage
     from ..model_pool import get_model_pool
 
     pool = get_model_pool()
 
-    async def llm_call(messages: list[dict], **params) -> str:
+    async def llm_call(messages: list[dict], **params) -> LlmOutcome:
         endpoints = list(pool.endpoints.keys()) if pool.endpoints else []
         if not endpoints:
-            return "(no model endpoints configured)"
+            return LlmOutcome(content="(no model endpoints configured)")
         ep_id = params.get("endpoint_id", endpoints[0])
         resp = await pool.call(
             endpoint_id=ep_id,
@@ -158,7 +169,14 @@ def _make_llm_call():
             temperature=params.get("temperature", 0.7),
             max_tokens=params.get("max_tokens", 4096),
         )
-        return resp.content
+        return LlmOutcome(
+            content=resp.content,
+            usage=LlmUsage(
+                prompt_tokens=resp.prompt_tokens,
+                completion_tokens=resp.completion_tokens,
+                cost=resp.cost or 0.0,
+            ),
+        )
 
     return llm_call
 
@@ -185,6 +203,7 @@ async def agent_run_loop(
     loop_name = body.get("loop_name", "react")
     max_iter = int(body.get("max_iterations", 10))
     requested_tools = body.get("tools") or []
+    endpoint_id = body.get("endpoint_id")
 
     if not isinstance(messages, list) or not messages:
         raise HTTPException(422, "messages (non-empty list) is required")
@@ -197,21 +216,67 @@ async def agent_run_loop(
 
     t0 = _t.perf_counter()
 
-    llm_call = _make_llm_call()
+    # v3.1.1 audit P0 fix: dangerous tools (code execution / filesystem /
+    # outbound URL probing) are admin/operator-only. AGENTS.md rule 8 —
+    # never expose RCE-capable primitives to API-key users.
+    DANGEROUS_TOOLS = frozenset(
+        {"code_execute", "file_read", "file_write", "file_list", "api_verify"}
+    )
+    caller_role = key_info.get("role") or "readonly"
+    privileged = caller_role in ("admin", "operator")
+
+    if requested_tools:
+        if not isinstance(requested_tools, list) or not all(
+            isinstance(t, str) for t in requested_tools
+        ):
+            raise HTTPException(422, "tools must be a list of tool names")
+        denied = sorted(t for t in requested_tools if t in DANGEROUS_TOOLS and not privileged)
+        if denied:
+            raise HTTPException(
+                403,
+                f"tools {denied} require admin/operator role (caller role={caller_role})",
+            )
+        tools_to_register = list(requested_tools)
+    else:
+        tools_to_register = (
+            list(BUILTIN_TOOLS.keys())
+            if privileged
+            else [t for t in BUILTIN_TOOLS if t not in DANGEROUS_TOOLS]
+        )
+
+    base_llm_call = _make_llm_call()
+    if endpoint_id:
+        from ..model_pool import get_model_pool
+
+        if endpoint_id not in get_model_pool().endpoints:
+            raise HTTPException(404, f"endpoint '{endpoint_id}' not found")
+
+        async def llm_call(messages: list[dict], **params):
+            return await base_llm_call(messages, endpoint_id=endpoint_id, **params)
+    else:
+        llm_call = base_llm_call
+
     harness = AgentHarness(llm_call=llm_call)
 
-    tools_to_register = requested_tools if requested_tools else list(BUILTIN_TOOLS.keys())
     for tool_name in tools_to_register:
         entry = BUILTIN_TOOLS.get(tool_name)
         if entry:
             handler, desc = entry
-            harness.register_tool(tool_name, handler, desc)
+            harness.register_tool(tool_name, handler, desc)  # type: ignore[arg-type]
 
-    result = await harness.run(
-        messages=messages,
-        loop_name=loop_name,
-        max_iterations=max_iter,
-    )
+    from ..observability.tracer import get_tracer
+
+    with get_tracer().start_span(
+        "agent.run_loop", {"agent.loop": loop_name, "agent.max_iterations": max_iter}
+    ) as span:
+        result = await harness.run(
+            messages=messages,
+            loop_name=loop_name,
+            max_iterations=max_iter,
+        )
+        span.set_attribute("agent.success", result.success)
+        span.set_attribute("agent.iterations", result.iterations)
+        span.set_attribute("agent.total_tokens", result.total_tokens)
 
     return {
         "success": result.success,

@@ -6,6 +6,7 @@ import asyncio
 import os
 import sys
 import time
+
 import httpx
 
 BASE = "http://127.0.0.1:8088"
@@ -46,7 +47,7 @@ async def bench_async(path, total, concurrency, body=None, headers=None, label="
     results = []
     latencies = []
     error_count = 0
-    error_lock = asyncio.Lock()
+    _error_lock = asyncio.Lock()
 
     async with httpx.AsyncClient(timeout=60, limits=httpx.Limits(max_connections=concurrency + 20, max_keepalive_connections=concurrency + 20)) as c:
         async def one_req(_i):
@@ -61,7 +62,7 @@ async def bench_async(path, total, concurrency, body=None, headers=None, label="
                     lat = (time.time() - t) * 1000
                     latencies.append(lat)
                     results.append(r.status_code)
-                except Exception as e:
+                except Exception:
                     error_count += 1
                     results.append(-1)
 
@@ -87,7 +88,7 @@ def bench_sync(path, total, body=None, headers=None, label=""):
     error_count = 0
     with httpx.Client(timeout=30) as c:
         t0 = time.time()
-        for i in range(total):
+        for _i in range(total):
             t = time.time()
             try:
                 if body:

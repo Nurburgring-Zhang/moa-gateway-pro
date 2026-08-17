@@ -6,6 +6,7 @@ Automatically:
 - Tracks active connections
 - Injects trace headers into responses
 - Correlates logs with traces
+- Tracks in-flight requests for graceful shutdown
 """
 
 from __future__ import annotations
@@ -16,8 +17,9 @@ import uuid
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
+from ..ha import graceful
 from .metrics import (
     active_connections,
     llm_request_duration_seconds,
@@ -50,6 +52,17 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
     """Middleware that instruments every HTTP request with tracing and metrics."""
 
     async def dispatch(self, request: Request, call_next) -> Response:
+        # Reject new requests during graceful shutdown (health probes still pass)
+        if graceful.is_shutting_down and not request.url.path.startswith("/health"):
+            return JSONResponse(
+                {"error": "Server is shutting down", "retry_after": 5},
+                status_code=503,
+                headers={"Retry-After": "5"},
+            )
+
+        # Track in-flight requests for graceful shutdown drain
+        graceful.increment_requests()
+
         trace_id = _extract_trace_id(request)
         span_id = uuid.uuid4().hex[:16]
 
@@ -70,6 +83,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
             name=f"{request.method} {request.url.path}",
             trace_id=trace_id,
             parent_span_id=None,
+            span_id=span_id,  # recorded span must match the advertised X-Span-ID
         )
         span.set_attribute("http.method", request.method)
         span.set_attribute("http.url", str(request.url))
@@ -102,7 +116,7 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
             response.headers["X-Span-ID"] = span_id
             response.headers["X-Request-Duration-Ms"] = f"{duration * 1000:.1f}"
 
-            return response
+            return response  # type: ignore[no-any-return]
 
         except Exception as exc:
             duration = time.time() - start_time
@@ -124,4 +138,5 @@ class ObservabilityMiddleware(BaseHTTPMiddleware):
 
         finally:
             active_connections.dec()
+            graceful.decrement_requests()
             clear_trace_context()

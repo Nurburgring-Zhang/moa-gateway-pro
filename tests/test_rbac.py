@@ -18,13 +18,10 @@ Tests:
 from __future__ import annotations
 
 import json
-import tempfile
-import time
-from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
+from moa_gateway.audit import AuditEvent, log_audit, setup_audit_logging
 from moa_gateway.rbac import (
     ROLE_PERMISSIONS,
     Permission,
@@ -33,8 +30,6 @@ from moa_gateway.rbac import (
     get_user_permissions,
     has_permission,
 )
-from moa_gateway.audit import AuditEvent, log_audit, setup_audit_logging
-
 
 # ========== RBAC Permission Matrix Tests ==========
 
@@ -217,8 +212,9 @@ class TestAuditLogging:
 
         content = log_file.read_text(encoding="utf-8").strip()
         assert content  # Non-empty
-        parsed = json.loads(content)
-        assert parsed["action"] == "test_action"
+        # JSONL: may contain an audit_signing_init marker line + event lines
+        records = [json.loads(line) for line in content.splitlines() if line.strip()]
+        parsed = next(r for r in records if r.get("action") == "test_action")
         assert parsed["actor"]["id"] == "test_user"
 
         # Cleanup

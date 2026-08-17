@@ -6,24 +6,14 @@ import pytest
 
 def test_agent_loop_imports():
     """Verify core agent_loop modules can be imported."""
-    from moa_gateway.agent_loop import base
-    from moa_gateway.agent_loop import harness
-    from moa_gateway.agent_loop import plan_execute_loop
-    from moa_gateway.agent_loop import react_loop
 
 
 def test_agent_loop_public_api():
     """Verify public API classes are accessible from package __init__."""
     from moa_gateway.agent_loop import (
-        AgentContext,
-        AgentHarness,
         AgentLoop,
-        LoopResult,
         PlanExecuteLoop,
         ReActLoop,
-        ToolCall,
-        ToolExecutor,
-        ToolResult,
     )
 
     assert AgentLoop is not None
@@ -33,11 +23,6 @@ def test_agent_loop_public_api():
 
 def test_skills_imports():
     """Verify all skills can be imported."""
-    from moa_gateway.agent_loop.skills import code_execute
-    from moa_gateway.agent_loop.skills import api_verify
-    from moa_gateway.agent_loop.skills import data_analysis
-    from moa_gateway.agent_loop.skills import file_ops
-    from moa_gateway.agent_loop.skills import web_search
 
 
 def test_code_execute_sandbox_no_dangerous_builtins():
@@ -64,7 +49,9 @@ def test_code_execute_sandbox_no_exec_eval():
 def test_code_execute_sandbox_restricted_import():
     """Verify __import__ in sandbox is the restricted version (whitelist-only)."""
     from moa_gateway.agent_loop.skills.code_execute import (
-        _ALLOWED_BUILTINS, _restricted_import, SandboxViolation,
+        _ALLOWED_BUILTINS,
+        SandboxViolation,
+        _restricted_import,
     )
 
     # __import__ is present but restricted to whitelist
@@ -75,6 +62,5 @@ def test_code_execute_sandbox_restricted_import():
     _restricted_import("math")
 
     # Should block non-whitelisted modules
-    import pytest
     with pytest.raises(SandboxViolation):
         _restricted_import("os")

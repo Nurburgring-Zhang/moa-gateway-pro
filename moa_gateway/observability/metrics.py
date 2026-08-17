@@ -36,6 +36,9 @@ except ImportError:
         def inc(self, n=1):
             pass
 
+        def dec(self, n=1):
+            pass
+
         def observe(self, v):
             pass
 
@@ -45,13 +48,13 @@ except ImportError:
         def info(self, d):
             pass
 
-    Counter = Histogram = Gauge = Info = lambda *a, **kw: _Dummy()
+    Counter = Histogram = Gauge = Info = lambda *a, **kw: _Dummy()  # type: ignore[assignment, misc]
 
-    def generate_latest(x):
+    def generate_latest(x):  # type: ignore[misc]
         return b""
 
     CONTENT_TYPE_LATEST = "text/plain; version=0.0.4"
-    REGISTRY = None
+    REGISTRY = None  # type: ignore[assignment]
 
 
 # ============ Service Info ============
@@ -219,7 +222,12 @@ def record_llm_request(
     cost_usd: float = 0.0,
     org_id: str = "default",
 ):
-    """Record a complete LLM request with all metrics."""
+    """Record a provider-level LLM call with all business metrics (D4).
+
+    Wired from ModelPool.call(); one record per provider attempt.
+    Legacy route-level counters (moa_chat_*) are recorded separately by
+    routes/chat.py via record_chat() to avoid double counting.
+    """
     status_label = "success" if status == "success" else "error"
     llm_request_duration_seconds.labels(
         model=model, provider=provider, status=status_label
@@ -235,11 +243,6 @@ def record_llm_request(
 
     if cost_usd > 0:
         llm_cost_dollars.labels(model=model, org_id=org_id).inc(cost_usd)
-
-    # Legacy compat
-    sl = "2xx" if status_label == "success" else "5xx"
-    chat_requests_total.labels(model=model, status=sl).inc()
-    chat_latency_seconds.labels(model=model).observe(duration_s)
 
 
 def record_cache_access(layer: str, hit: bool):

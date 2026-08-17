@@ -8,7 +8,7 @@
   - list_free_models     : List auto-discovered free model endpoints
   - apply_prompt_template: Load and render prompt templates
   - apply_param_template : Get recommended params for task type
-  - run_agent_loop       : Start agent loop (requires LLM callback)
+  - run_agent_loop       : Run ReAct/Plan-Execute agent loop with real LLM calls
   - search_web           : Web search via agent skill
 """
 
@@ -159,7 +159,11 @@ def register_builtin_tools(registry: ToolRegistry) -> None:
     registry.register(
         tool=ToolDefinition(
             name="run_agent_loop",
-            description="Start an agent loop (react/plan_execute). Requires LLM callback.",
+            description=(
+                "Run an agent loop (react/plan_execute) with real LLM calls and "
+                "tool execution. Returns the final answer, iterations, tool calls "
+                "and token/cost usage."
+            ),
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -178,7 +182,16 @@ def register_builtin_tools(registry: ToolRegistry) -> None:
                         "description": "Maximum iterations.",
                         "default": 10,
                     },
+                    "tools": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Tool names to enable (e.g. web_search, file_read). "
+                            "Defaults to all built-in tools."
+                        ),
+                    },
                 },
+                "required": ["messages"],
             },
         ),
         handler=_handle_run_agent_loop,
@@ -389,32 +402,97 @@ async def _handle_apply_param_template(args: dict) -> dict:
         return {"task_type": task_type, "params": {}, "error": str(e)}
 
 
+def _build_llm_call():
+    """Build a real llm_call callback bound to the model pool (audit F8 fix).
+
+    Mirrors routes.agent._make_llm_call so the MCP tool drives genuine model
+    inference instead of returning a status stub. Kept local to avoid an
+    import cycle (routes.mcp imports this module).
+    """
+    from ..agent_loop.base import LlmOutcome, LlmUsage
+    from ..model_pool import get_model_pool
+
+    pool = get_model_pool()
+
+    async def llm_call(messages: list[dict], **params) -> LlmOutcome:
+        endpoints = list(pool.endpoints.keys()) if pool.endpoints else []
+        if not endpoints:
+            return LlmOutcome(content="(no model endpoints configured)")
+        ep_id = params.get("endpoint_id", endpoints[0])
+        resp = await pool.call(
+            endpoint_id=ep_id,
+            messages=messages,
+            temperature=params.get("temperature", 0.7),
+            max_tokens=params.get("max_tokens", 4096),
+        )
+        return LlmOutcome(
+            content=resp.content,
+            usage=LlmUsage(
+                prompt_tokens=resp.prompt_tokens,
+                completion_tokens=resp.completion_tokens,
+                cost=resp.cost or 0.0,
+            ),
+        )
+
+    return llm_call
+
+
 async def _handle_run_agent_loop(args: dict) -> dict:
-    """Start an agent loop (requires LLM callback)."""
+    """Actually run an agent loop (ReAct / Plan-Execute) with real LLM calls.
+
+    Audit F8 fix: previously this always returned a status stub because no
+    llm_call was injected. Now it builds a real callback bound to the model
+    pool, registers requested tools, and executes the loop.
+    """
     messages = args.get("messages", [])
     loop_name = args.get("loop_name", "react")
-    max_iterations = args.get("max_iterations", 10)
-    try:
-        from ..agent_loop.harness import AgentHarness
+    max_iterations = int(args.get("max_iterations", 10))
+    requested_tools = args.get("tools", []) or []
 
-        # AgentHarness requires an llm_call callback to register loops.
-        # Without one, loops are not registered, so we return a status.
-        harness = AgentHarness()
-        available_loops = harness.list_loops()
-        if available_loops:
-            return {
-                "status": "ready",
-                "loop_name": loop_name,
-                "max_iterations": max_iterations,
-                "message_count": len(messages),
-                "available_loops": available_loops,
-            }
+    if not isinstance(messages, list) or not messages:
         return {
-            "status": "agent_loop_requires_llm_callback",
-            "loop_name": loop_name,
-            "max_iterations": max_iterations,
-            "message_count": len(messages),
-            "available_loops": [],
+            "status": "error",
+            "error": "messages (non-empty list) is required",
+        }
+    if loop_name not in ("react", "plan_execute"):
+        return {
+            "status": "error",
+            "error": "loop_name must be 'react' or 'plan_execute'",
+        }
+
+    try:
+        import time as _t
+
+        from ..agent_loop.harness import AgentHarness
+        from ..agent_loop.skills import BUILTIN_TOOLS
+
+        harness = AgentHarness(llm_call=_build_llm_call())
+
+        tools_to_register = requested_tools if requested_tools else list(BUILTIN_TOOLS.keys())
+        for tool_name in tools_to_register:
+            entry = BUILTIN_TOOLS.get(tool_name)
+            if entry:
+                handler, desc = entry
+                harness.register_tool(tool_name, handler, desc)  # type: ignore[arg-type]
+
+        t0 = _t.perf_counter()
+        result = await harness.run(
+            messages=messages,
+            loop_name=loop_name,
+            max_iterations=max_iterations,
+        )
+        return {
+            "status": "completed",
+            "success": result.success,
+            "final_response": result.final_response,
+            "iterations": result.iterations,
+            "total_tokens": result.total_tokens,
+            "total_cost": round(result.total_cost, 6),
+            "tool_calls": [
+                {"name": tc.name, "arguments": tc.arguments} for tc in result.tool_calls
+            ],
+            "error": result.error,
+            "latency_ms": round((_t.perf_counter() - t0) * 1000, 2),
         }
     except Exception as e:
         logger.warning("run_agent_loop failed: %s", e)

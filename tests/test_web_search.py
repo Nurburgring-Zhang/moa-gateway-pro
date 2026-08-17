@@ -1,6 +1,7 @@
 ﻿"""Tests for web_search skill with Tavily/DuckDuckGo/Mock fallback."""
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
 
 
 @pytest.mark.anyio
@@ -48,8 +49,11 @@ async def test_web_search_fallback_to_duckduckgo():
 
 
 @pytest.mark.anyio
-async def test_web_search_fallback_to_mock():
-    """Tavily and DuckDuckGo both fail -> fallback to mock."""
+async def test_web_search_no_backend_reports_unavailable():
+    """Tavily AND DuckDuckGo both fail -> honest 'unavailable' (audit F11).
+
+    No fabricated results may be produced; the tool must say so explicitly.
+    """
     with patch.dict("os.environ", {}, clear=True):
         with patch("moa_gateway.agent_loop.skills.web_search._search_duckduckgo") as mock_ddg:
             mock_ddg.side_effect = Exception("DDG unavailable")
@@ -57,30 +61,35 @@ async def test_web_search_fallback_to_mock():
             from moa_gateway.agent_loop.skills.web_search import web_search
             result = await web_search("test query")
 
-            assert "via mock" in result
-            assert "simulated search result" in result.lower()
+            assert "unavailable" in result.lower()
+            assert "example.com" not in result  # no fabricated URLs
+            assert "no results were fabricated" in result.lower()
 
 
 @pytest.mark.anyio
 async def test_web_search_respects_max_results():
-    """Verify max_results parameter is correctly applied."""
+    """Verify max_results is applied on a REAL backend result set."""
     with patch.dict("os.environ", {}, clear=True):
         with patch("moa_gateway.agent_loop.skills.web_search._search_duckduckgo") as mock_ddg:
-            mock_ddg.side_effect = Exception("unavailable")
+            mock_ddg.return_value = [
+                {"title": f"R{i}", "url": f"https://r{i}.com", "snippet": f"s{i}"}
+                for i in range(5)
+            ]
 
             from moa_gateway.agent_loop.skills.web_search import web_search
             result = await web_search("test", max_results=2)
 
-            # In mock mode there should be exactly 2 results
             assert result.count("URL:") == 2
 
 
 @pytest.mark.anyio
 async def test_web_search_output_format():
-    """Verify output format consistency."""
+    """Verify output format consistency on a REAL backend result set."""
     with patch.dict("os.environ", {}, clear=True):
         with patch("moa_gateway.agent_loop.skills.web_search._search_duckduckgo") as mock_ddg:
-            mock_ddg.side_effect = Exception("unavailable")
+            mock_ddg.return_value = [
+                {"title": "Async Python", "url": "https://docs.python.org", "snippet": "guide"}
+            ]
 
             from moa_gateway.agent_loop.skills.web_search import web_search
             result = await web_search("python async")

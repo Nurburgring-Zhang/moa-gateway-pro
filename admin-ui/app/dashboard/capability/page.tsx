@@ -23,35 +23,65 @@ const CAPABILITIES: Capability[] = [
 ];
 
 export default function CapabilityPage() {
+  // Static display metadata (names/descriptions are UI copy). The `enabled`
+  // state is ALWAYS sourced from the backend — never fabricated (audit F6).
   const [capabilities, setCapabilities] = useState<Capability[]>(CAPABILITIES);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadCapabilities();
   }, []);
 
   async function loadCapabilities() {
+    setError(null);
     try {
       const data = await api.getCapabilities();
-      if (Array.isArray(data) && data.length > 0) {
-        setCapabilities(data as unknown as Capability[]);
+      if (Array.isArray(data)) {
+        const byName = new Map(data.map((c) => [String(c.name), c]));
+        // Overlay real enabled-state onto the display metadata.
+        const merged = CAPABILITIES.map((c) => {
+          const live = byName.get(c.name);
+          return live ? { ...c, enabled: Boolean(live.enabled) } : { ...c, enabled: false };
+        });
+        // Append backend capabilities not in the static display list.
+        const known = new Set(CAPABILITIES.map((c) => c.name));
+        for (const c of data) {
+          const name = String(c.name);
+          if (!known.has(name)) {
+            merged.push({
+              name,
+              display_name: name,
+              enabled: Boolean(c.enabled),
+              provider: '',
+              description: '',
+              config: {},
+            });
+          }
+        }
+        setCapabilities(merged);
       }
-    } catch {
-      // Use defaults
+    } catch (e) {
+      // Audit fix: on failure do NOT show the hardcoded initial toggles —
+      // clear to an empty list so no fabricated enabled-state is presented.
+      setCapabilities([]);
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
   }
 
   async function handleToggle(name: string) {
-    setCapabilities(capabilities.map((c) =>
-      c.name === name ? { ...c, enabled: !c.enabled } : c
-    ));
+    const cap = capabilities.find((c) => c.name === name);
+    if (!cap) return;
+    const next = !cap.enabled;
+    // Optimistic update, reverted on real failure.
+    setCapabilities((prev) => prev.map((c) => (c.name === name ? { ...c, enabled: next } : c)));
     try {
-      const cap = capabilities.find((c) => c.name === name);
-      if (cap) await api.updateCapability(name, { enabled: !cap.enabled });
-    } catch {
-      // Revert
+      await api.updateCapability(name, { enabled: next });
+    } catch (e) {
+      setCapabilities((prev) => prev.map((c) => (c.name === name ? { ...c, enabled: !next } : c)));
+      setError(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -65,6 +95,12 @@ export default function CapabilityPage() {
         <h1 className="text-2xl font-bold text-gray-900">多模态能力管理</h1>
         <Badge variant="info">{capabilities.filter((c) => c.enabled).length} / {capabilities.length} 已启用</Badge>
       </div>
+
+      {error && (
+        <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {capabilities.map((cap) => (
@@ -80,9 +116,6 @@ export default function CapabilityPage() {
                   {cap.enabled ? '已启用' : '已禁用'}
                 </Badge>
                 <span className="text-xs text-gray-400">{cap.provider}</span>
-              </div>
-              <div className="mt-3">
-                <Button variant="ghost" size="sm" className="w-full">配置</Button>
               </div>
             </CardContent>
           </Card>

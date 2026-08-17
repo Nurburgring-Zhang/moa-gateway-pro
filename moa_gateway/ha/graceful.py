@@ -18,6 +18,9 @@ class GracefulShutdown:
         self._shutting_down = False
         self._active_requests = 0
         self._shutdown_event: asyncio.Event | None = None
+        # Hold strong refs to shutdown tasks so the event loop doesn't GC them
+        # before they finish (asyncio.create_task with no ref = silent cancel).
+        self._shutdown_tasks: set = set()
 
     @property
     def is_shutting_down(self) -> bool:
@@ -34,8 +37,9 @@ class GracefulShutdown:
         self._active_requests += 1
 
     def decrement_requests(self) -> None:
-        """Track a completed request."""
-        self._active_requests -= 1
+        """Track a completed request (never go negative)."""
+        if self._active_requests > 0:
+            self._active_requests -= 1
 
     async def shutdown(self) -> None:
         """Initiate graceful shutdown — drain active requests with timeout."""
@@ -60,7 +64,11 @@ class GracefulShutdown:
         """Register OS signal handlers for graceful shutdown."""
         for sig in (signal.SIGTERM, signal.SIGINT):
             try:
-                loop.add_signal_handler(sig, lambda: asyncio.create_task(self.shutdown()))
+                def _handler(s=sig):
+                    task = loop.create_task(self.shutdown())
+                    self._shutdown_tasks.add(task)
+                    task.add_done_callback(self._shutdown_tasks.discard)
+                loop.add_signal_handler(sig, _handler)
             except NotImplementedError:
                 # Windows does not support add_signal_handler
                 signal.signal(sig, lambda s, f: None)

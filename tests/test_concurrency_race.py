@@ -10,10 +10,10 @@ Tests:
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from unittest.mock import patch
 
 
 @pytest.fixture

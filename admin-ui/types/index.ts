@@ -34,7 +34,7 @@ export interface ApiKey {
   quota: number;
   used: number;
   created_at: string;
-  last_used: string;
+  last_used: string | null;
   status: 'active' | 'revoked';
 }
 

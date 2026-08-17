@@ -19,6 +19,11 @@ class MusicGenerationProvider(ABC):
         self.api_key = api_key
         self.timeout = timeout
 
+    def _check_api_key(self) -> None:
+        """Guard: raise if API key is not configured."""
+        if not self.api_key:
+            raise RuntimeError(f"API key not configured for {self.__class__.__name__}")
+
     @abstractmethod
     async def create_music_task(self, prompt: str, duration: int = 30) -> str:
         """Create a music generation task, return task_id."""
@@ -34,6 +39,7 @@ class MiniMaxMusicProvider(MusicGenerationProvider):
     """MiniMax music generation provider."""
 
     async def create_music_task(self, prompt: str, duration: int = 30) -> str:
+        self._check_api_key()
         url = f"{self.api_base}/music_generation"
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"}
         payload: dict[str, Any] = {"model": "music-01", "prompt": prompt, "duration": duration}
@@ -45,9 +51,10 @@ class MiniMaxMusicProvider(MusicGenerationProvider):
         task_id = data.get("data", {}).get("task_id", "") or data.get("task_id", "")
         if not task_id:
             raise RuntimeError(f"MiniMax music: no task_id: {data}")
-        return task_id
+        return task_id  # type: ignore[no-any-return]
 
     async def query_music_task(self, task_id: str) -> dict[str, Any]:
+        self._check_api_key()
         url = f"{self.api_base}/music_generation/{task_id}"
         headers = {"Authorization": f"Bearer {self.api_key}"}
         async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -69,6 +76,7 @@ class TiangongMusicProvider(MusicGenerationProvider):
     """Tiangong SkyMusic generation provider."""
 
     async def create_music_task(self, prompt: str, duration: int = 30) -> str:
+        self._check_api_key()
         url = f"{self.api_base}/music/generate"
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {self.api_key}"}
         payload: dict[str, Any] = {"prompt": prompt, "duration": duration, "model": "skymusic-v1"}
@@ -80,9 +88,10 @@ class TiangongMusicProvider(MusicGenerationProvider):
         task_id = data.get("task_id", "") or data.get("data", {}).get("task_id", "")
         if not task_id:
             raise RuntimeError(f"Tiangong music: no task_id: {data}")
-        return task_id
+        return task_id  # type: ignore[no-any-return]
 
     async def query_music_task(self, task_id: str) -> dict[str, Any]:
+        self._check_api_key()
         url = f"{self.api_base}/music/generate/{task_id}"
         headers = {"Authorization": f"Bearer {self.api_key}"}
         async with httpx.AsyncClient(timeout=self.timeout) as client:

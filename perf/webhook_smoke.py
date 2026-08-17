@@ -11,10 +11,9 @@ import http.server
 import json
 import threading
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 import uuid
-from pathlib import Path
 
 WEBHOOK_PORT = 19999
 RECEIVED = []
@@ -172,7 +171,7 @@ def main():
         )
         print(f"  POST {test_url}: status={s}")
         if s in (200, 201, 202, 204, 405):
-            print(f"  webhook.site 接收成功")
+            print("  webhook.site 接收成功")
         else:
             print(f"  webhook.site 状态 {s}, 但 HTTP 到达了真服务")
     except Exception as e:

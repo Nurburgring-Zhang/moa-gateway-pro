@@ -54,7 +54,7 @@ ADOPTION_RATIO: float = 1.05
 WORD_RE = re.compile(r"[a-zA-Z][a-zA-Z\-]+|[\u4e00-\u9fff]")
 
 # 简单停用词
-STOPWORDS: set[str] = frozenset(
+STOPWORDS: set[str] = frozenset(  # type: ignore[assignment]
     {
         "the",
         "a",

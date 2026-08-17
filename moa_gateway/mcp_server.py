@@ -76,7 +76,7 @@ async def _ensure_token() -> str:
             print(
                 f"[mcp-server] auto-login OK, token len={len(token)}", file=sys.stderr, flush=True
             )
-        return token
+        return token  # type: ignore[no-any-return]
     except Exception as e:
         print(f"[mcp-server] auto-login failed: {e}", file=sys.stderr, flush=True)
         return ""
@@ -282,7 +282,7 @@ async def tool_endpoint_list(args: dict[str, Any]) -> dict[str, Any]:
     },
 )
 async def tool_endpoint_upsert(args: dict[str, Any]) -> dict[str, Any]:
-    out = await _http_post("/api/endpoints", args)
+    _out = await _http_post("/api/endpoints", args)
     return {
         "content": [{"type": "text", "text": f"endpoint {args['endpoint_id']} upserted"}],
         "endpoint_id": args["endpoint_id"],
@@ -566,7 +566,7 @@ async def run_stdio() -> None:
 # ========== SSE transport(通过 FastAPI /v1/mcp/sse) ==========
 async def process_sse_request(req: dict[str, Any]) -> dict[str, Any]:
     """被 server.py 的 /v1/mcp/sse 端点调用"""
-    return await handle_request(req)
+    return await handle_request(req)  # type: ignore[no-any-return]
 
 
 # ========== 入口 ==========

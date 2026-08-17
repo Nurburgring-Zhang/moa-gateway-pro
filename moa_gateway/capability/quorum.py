@@ -91,13 +91,13 @@ def check_quorum(
     reached_at: float | None = None
     if reached and responded_list:
         # 按 responded_at 升序排序, 取第 required 个的时间戳 (1-indexed → required-1)
-        sorted_by_time = sorted(responded_list, key=lambda p: p.responded_at)
+        sorted_by_time = sorted(responded_list, key=lambda p: p.responded_at)  # type: ignore[arg-type, return-value]
         idx = max(0, min(config.required - 1, len(sorted_by_time) - 1))
         reached_at = sorted_by_time[idx].responded_at
 
     first_response: float | None = None
     if responded_list:
-        first_response = min(p.responded_at for p in responded_list)
+        first_response = min(p.responded_at for p in responded_list)  # type: ignore[type-var]
 
     # within_grace 计算
     if not reached or at is None or first_response is None:

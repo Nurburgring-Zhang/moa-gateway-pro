@@ -462,7 +462,7 @@ class ChatREPL:
         self.history.append({"role": "user", "content": message})
 
         # Create USER_INPUT block
-        user_block_id = self._blocks.add_block(
+        _user_block_id = self._blocks.add_block(
             ChatBlock(
                 id=str(uuid4()),
                 type=BlockType.USER_INPUT,

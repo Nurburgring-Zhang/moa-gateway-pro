@@ -41,6 +41,8 @@ class CohereProvider(Provider):
         super().__init__(api_base, api_key, timeout)
 
     async def chat(self, req: ChatRequest) -> ChatResponse:
+        if not self.api_key:
+            raise ProviderError("API key not configured for Cohere", status=503)
         url = f"{self.api_base}/chat"
 
         payload: dict[str, Any] = {
@@ -141,6 +143,8 @@ class CohereProvider(Provider):
 
     async def chat_stream(self, req: ChatRequest) -> AsyncIterator[str]:
         """Cohere v2 SSE streaming."""
+        if not self.api_key:
+            raise ProviderError("API key not configured for Cohere", status=503)
         url = f"{self.api_base}/chat"
         payload: dict[str, Any] = {
             "model": req.model,
