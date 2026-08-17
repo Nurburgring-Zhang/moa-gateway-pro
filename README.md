@@ -1,7 +1,7 @@
 # MoA Gateway Pro
 
-> **v3.1.1** — 商业级/工业级多模型协作API网关（十轮全量审计修复版）
-> 141个API端点 · 236个测试用例 · Go高性能代理 · PostgreSQL双后端 · MCP网关 · SOC2合规
+> **v3.1.1** — 商业级/工业级多模型协作API网关（十轮全量审计修复版，P0/P1 清零）
+> 243个API端点 · 1071个测试用例 · Go高性能代理 · PostgreSQL双后端 · MCP网关 · SOC2合规
 
 工业级 AI 网关:路由、MoA 协作、共识、质量评估、配额、可观测性、知识库、安全防护、MCP协议、语义缓存、高可用 —— 一个 FastAPI 进程 + Go代理层搞定。
 
@@ -30,6 +30,28 @@ client = OpenAI(base_url="http://127.0.0.1:8088/v1", api_key="mgw-...")
 resp = client.chat.completions.create(model="auto", messages=[{"role":"user","content":"hi"}])
 ```
 
+## v3.1: 十轮全量审计（P0/P1 清零）
+
+v3.1.0/v3.1.1 连续执行十轮全量审计:243 端点扫描、6 路并行代码深审、本地真实 LLM 链路注入、浏览器 E2E、chaos 故障注入、双AI对抗复审。全部确认缺陷已修复并活体复验。
+
+| 项目 | 结果 |
+|------|------|
+| **单元测试** | 1071 passed, 0 failed（v3.1.0 为 593，新增 478 例审计回归） |
+| **活体探针** | 一轮 41/41 + 二轮 4/4（沙箱/SSRF/越权/mock标注/配额/GDPR/真实链路） |
+| **前端** | `next build` 通过，tsc 0 错；E2E 硬刷新会话保持 6/6 |
+| **对抗复审** | 一轮 19 项全部证实；二轮新发现 2 P1 + 4 P2 全部修复 |
+
+关键修复:
+
+- **P0 Agent 沙箱逃逸 RCE** — 三层加固:AST 封禁全 dunder 访问与含 dunder 字符串字面量、导入白名单移除 `operator`/`string`、运行时 `_ModuleProxy` 拦截动态 dunder；危险工具仅 admin/operator 可用
+- **SSRF 统一强化** — DNS 全解析、编码 IP、IPv4-mapped IPv6、fail-closed；显式拉黑 IANA 全部特殊段含 RFC 6598 CGNAT 100.64.0.0/10（云元数据地址所在段）
+- **GDPR 被遗忘权真实生效** — 真删用户、按 key_id 匿名化日志、加盐 HMAC-SHA256 不可彩虹表还原
+- **D6 显式 mock 政策闭环** — 无真实 key 时合成结果必带 `X-MOA-Mock` 头 + `mock:true` 字段；缓存命中重放仍带标注；MoA 全失败显式 502 不冒充成功
+- **服务层死方法清零** — 60+ 处 ImportError/签名错配全部改走真实实现
+- **请求模型类型化** — 85 个请求模型 `extra=forbid`（未知字段 422）
+
+完整清单见 [RELEASE_NOTES_v3.1.1.md](RELEASE_NOTES_v3.1.1.md)、[RELEASE_NOTES_v3.1.0.md](RELEASE_NOTES_v3.1.0.md) 与 [CHANGELOG.md](CHANGELOG.md)。
+
 ## v2.0 核心升级
 
 | 维度 | v1.8.1 | v2.0 | 提升 |
@@ -49,22 +71,35 @@ resp = client.chat.completions.create(model="auto", messages=[{"role":"user","co
 
 ### 多模型协作 (MoA)
 - **3-layer / N-layer MoA** — 多模型并行提议 + 旗舰模型聚合
-- **6 种执行策略** — `parallel` / `compose` / `judge` / `chain` / `pipeline` / `single`
-- **7 个内置预设** — `fast` / `balanced` / `quality` / `moa-balanced` / `moa-quality` / `chinese_battalion` / `pipeline`
+- **10+ 执行策略** — `parallel` / `compose` / `judge` / `chain` / `pipeline` / `layered` / `single_proposer` / `ranker` / `single`
+- **13 个内置预设** — `fast` / `balanced` / `quality` / `chinese_battalion` / `tri_model_review` / `pipeline` ...
 - **多模型投票** — `vote_ensemble` / `should_rebalance` / `detect_convergent` / `arbitrate_conflicts`
+- **全链路 provider 追踪** — 每个参考/聚合结果带真实 provider 标识与 mock 标注
+
+### Agent 与 Workflow (v3.x)
+- **Agent Loop** — ReAct / Plan-Execute 双循环，真实 LLM 调用与工具执行
+- **沙箱隔离** — AST 静态净化 + 独立子进程执行 + 模块代理，防逃逸 RCE
+- **Runs/TaskBoard** — 异步 run 持久化、超时与并发防重、任务 CRUD 与指派
+- **Workflow 引擎** — YAML DAG 工作流，步骤间真实数据流转，内部回调自动鉴权
+- **9 个 MCP 工具** — `moa_list_models` / `moa_check_quota` / `moa_route_preview` / `discover_free_models` / `list_free_models` / `apply_prompt_template` / `apply_param_template` / `run_agent_loop` / `search_web`
+
+### 多模态与模型生态 (v3.x)
+- **22 个开箱模型端点** — DeepSeek / GLM / Kimi / Qwen / 豆包 / GPT / Claude / Mistral 等
+- **多模态生成** — 图像 / 视频 / 音频 / 3D 任务提交与轮询
+- **免费模型发现** — 30+ 平台 Discovery 引擎，每日刷新、自动注册
+- **显式 mock 标注** — 无 key 时合成结果处处标注，配置真实 key 后自动切换
 
 ### MCP网关 (v2.0新增)
 - **MCP Server** — JSON-RPC 2.0协议,工具注册/发现/调用
-- **MCP Client** — 连接外部MCP Server发现工具
+- **MCP Client** — 连接外部MCP Server真实发现工具（stdio 诚实标注 unsupported）
 - **工具级RBAC** — admin/operator/user/readonly按角色过滤工具
 - **Tool Guardrails** — Pre/Post调用防护(危险模式检测)
-- **3个内置工具** — `moa_list_models` / `moa_check_quota` / `moa_route_preview`
 
 ### 语义缓存 (v2.0新增)
 - **L1 精确匹配** — MD5 hash,LRU淘汰,10K条目
-- **L2 语义缓存** — N-gram向量 + 余弦相似度 ≥0.95
+- **L2 语义缓存** — N-gram向量 + 余弦相似度 ≥0.95，按 model/strategy/preset scope 隔离
 - **L3 Redis分布式** — 多实例共享,优雅降级
-- **防护** — 空值缓存(防穿透) + TTL随机偏移(防雪崩)
+- **防护** — 空值缓存(防穿透) + TTL随机偏移(防雪崩) + mock 信封重放
 
 ### RBAC权限体系 (v2.0新增)
 - **4级角色** — admin / operator / user / readonly
@@ -75,7 +110,7 @@ resp = client.chat.completions.create(model="auto", messages=[{"role":"user","co
 ### SOC2合规 (v2.0新增)
 - **AES-256-GCM加密** — 字段级静态数据加密
 - **PII检测** — 9种模式(email/手机/信用卡/SSN/身份证/IP/API Key/JWT)
-- **GDPR** — 数据删除(被遗忘权) + 数据导出
+- **GDPR** — 被遗忘权真删 + 加盐 HMAC 匿名化 + 数据导出
 - **密钥轮换** — 双密钥过渡期,90天自动提醒
 - **安全基线检查** — 10项配置检查(jwt_secret/encryption/debug/cors/tls...)
 - **数据保留策略** — 自动清理过期数据
@@ -97,8 +132,8 @@ resp = client.chat.completions.create(model="auto", messages=[{"role":"user","co
 - **Prometheus指标** — 请求数/延迟/状态码
 
 ### OpenTelemetry可观测性 (v2.0新增)
-- **分布式追踪** — 每请求trace_id + span链
-- **14+ Prometheus指标** — LLM延迟/Token用量/成本/缓存命中/熔断器/限流
+- **分布式追踪** — 每请求trace_id + span链，model_pool/workflow/moa/assistant 子 span 全接线
+- **14+ Prometheus指标** — LLM延迟/Token用量/成本/缓存命中/熔断器/限流，真实调用点记账
 - **结构化日志** — JSON格式,trace_id关联
 - **Grafana Dashboard** — 12面板JSON模板
 - **告警规则** — 10条Prometheus告警(高延迟/高错误率/Provider不可用)
@@ -107,60 +142,58 @@ resp = client.chat.completions.create(model="auto", messages=[{"role":"user","co
 - **智能路由** — 按查询复杂度自动分配 fast / balanced / quality
 - **Elo 排名** — `rank_elo` 自动评估模型质量
 - **L0 质量门** — `gate_l0` 拦截低质响应
+- **自愈调度** — `self_heal` 按健康状态 promote/demote 端点
 
 ### 工具集成
-- **76 个 capability passthrough** — `secret_scan` / `fuzzy_dedup` / `anthropic_compat` ...
-- **MCP 协议** — JSON-RPC 2.0 Server/Client
+- **77 个 capability 端点** — `secret_scan` / `fuzzy_dedup` / `anthropic_compat` / `rerank` / `embedding` ...
+- **admin-ui** — Next.js 14 管理控制台（登录/仪表盘/模型/能力/配额管理）
 - **WebUI** — 静态文件托管,内置管理控制台
 
-## 架构 (v2.0)
+## 架构 (v3.1)
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│              Go Proxy Layer (proxy/)                         │
+│              Go Proxy Layer (proxy/, 10个Go文件)             │
 │  JWT快速验证 · SSE流转发 · 令牌桶限流 · Prometheus指标       │
 └──────────────────┬───────────────────────────────────────────┘
                    │
 ┌──────────────────▼───────────────────────────────────────────┐
-│              FastAPI 141 routes (server.py 287行)            │
+│          FastAPI 243 API routes (server.py 738行)            │
 │  /v1/chat/completions  /v1/moa/*  /v1/mcp/*  /v1/agent/*    │
-│  + /v1/capability/* (76) + /api/admin/* + /api/auth/*       │
+│  + /v1/capability/* (77) + /api/admin/* + /api/auth/*       │
 └──────────────────┬───────────────────────────────────────────┘
                    │
 ┌──────────────────▼───────────────────────────────────────────┐
-│  routes/ (12模块) · rbac.py · audit.py · _helpers.py        │
+│  routes/ (26模块) · rbac.py · audit.py · _helpers.py        │
 │  health · metrics · mcp · chat · moa · auth · admin ·       │
-│  capability · models · agent · webui · compliance           │
+│  capability · models · agent · workflow · webui · compliance│
 └──────────────────┬───────────────────────────────────────────┘
                    │
 ┌──────────────────▼───────────────────────────────────────────┐
 │  mcp/ · cache/ · observability/ · compliance/ · ha/         │
-│  MCP Server/Client · 三层缓存 · OTel三支柱 · SOC2 · 熔断器  │
+│  agent_loop/ (沙箱) · capability/ (72模块) · services/      │
 └──────────────────┬───────────────────────────────────────────┘
                    │
 ┌──────────────────▼───────────────────────────────────────────┐
 │  database.py (SQLite/PostgreSQL双后端) · storage.py         │
-│  连接池 · Alembic迁移 · 16模型端点 · async health check     │
+│  连接池 · Alembic迁移 · 22模型端点 · async health check     │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 ## 测试
 
 ```powershell
-# 236个测试用例 (100%通过)
+# 1071个测试用例 (100%通过)
 .venv\Scripts\python -m pytest tests/ -v --tb=short
 
-# 测试覆盖:
-# test_core_endpoints.py  27个 — 核心API端点集成
-# test_security_fixes.py  11个 — 安全修复验证
-# test_rbac.py            22个 — RBAC权限矩阵
-# test_mcp.py             31个 — MCP协议
-# test_cache.py           25个 — 三层缓存
-# test_observability.py   27个 — OTel可观测性
-# test_compliance.py      33个 — SOC2合规
-# test_ha.py              35个 — 高可用架构
-# test_boundary.py        14个 — 边界条件
-# test_quality_fixes.py   11个 — 代码质量
+# 覆盖分组(节选):
+# test_core_endpoints.py      — 核心API端点集成
+# test_security_fixes.py      — 安全修复验证
+# test_sandbox_escape.py      — Agent沙箱逃逸对抗(v3.1.1新增)
+# test_v311_fixes.py          — v3.1.1 P0/P1修复回归(新增)
+# test_v311_round2.py         — 对抗复审二轮修复回归(新增)
+# test_service_methods_real.py— 服务层真实接线验证(新增)
+# test_rbac.py / test_mcp.py / test_cache.py / test_compliance.py / test_ha.py ...
 
 # 性能基准
 .venv\Scripts\python -m benchmarks.run_benchmark --concurrency 10 --duration 10
@@ -182,11 +215,11 @@ resp = client.chat.completions.create(model="auto", messages=[{"role":"user","co
 ### Docker (单实例)
 
 ```bash
-docker build -t moa-gateway-pro:v2.0 .
+docker build -t moa-gateway-pro:v3.1.1 .
 docker run -p 8088:8088 \
   -e MOA_ADMIN_PASSWORD=YourPassword \
   -e MOA_JWT_SECRET=your-secret-key-minimum-32-characters-long! \
-  moa-gateway-pro:v2.0
+  moa-gateway-pro:v3.1.1
 ```
 
 ### Docker Compose HA (生产级)
@@ -233,13 +266,17 @@ alembic upgrade head  # 首次迁移
 
 ## 配置
 
-`config.yaml` (默认) + 环境变量 override:
+`config.yaml` (默认) + 环境变量 override。config.yaml 不携带任何密钥,全部走环境变量:
 
 ### 核心配置
 - `MOA_ADMIN_PASSWORD` — WebUI admin 密码
 - `MOA_JWT_SECRET` — JWT签名密钥(≥32字符)
+- `MOA_GATEWAY_KEY` — 网关 API Key
 - `MOA_DATA_DIR` — SQLite / log 目录
 - `MOA_LOG_LEVEL` — DEBUG / INFO / WARNING / ERROR
+
+### 模型 Provider Keys
+- `DEEPSEEK_API_KEY` / `ZHIPU_API_KEY` / `MOONSHOT_API_KEY` / `QWEN_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `MISTRAL_API_KEY` ... — 按 config.yaml 中各模型 `api_key_env` 配置;未配置的 provider 自动降级为显式标注的 MockProvider
 
 ### 数据库
 - `DATABASE_URL` — PostgreSQL连接URL(不设则用SQLite)
@@ -258,53 +295,68 @@ alembic upgrade head  # 首次迁移
 
 | 类别 | 数量 | 示例 |
 |---|---|---|
-| OpenAI 兼容 | 2 | `/v1/chat/completions`, `/v1/models` |
-| 原生 MoA | 13 | `/v1/moa/execute`, `/v1/moa/eval`, `/v1/moa/presets` ... |
-| MCP网关 | 6 | `/v1/mcp`, `/v1/mcp/tools`, `/v1/mcp/servers` |
-| 路由/配额 | 2 | `/v1/route/preview`, `/v1/quota` |
-| Agent/Workflow | 6 | `/v1/agent/list`, `/v1/agent/dispatch` ... |
-| Capability | 15 | `/v1/capability/secret-scan`, `/v1/capability/ensemble-vote` ... |
-| Admin/Auth | 19 | `/api/auth/login`, `/api/admin/users`, `/api/admin/roles` ... |
-| 合规 | 10 | `/api/admin/compliance/baseline`, `/api/admin/compliance/gdpr/*` |
-| 健康/指标 | 7 | `/health`, `/health/live`, `/health/ready`, `/metrics` |
-| WebUI | 1 | `/` (静态文件) |
-| **合计** | **141** | |
+| Capability | 77 | `/v1/capability/secret-scan`, `/v1/capability/rerank` ... |
+| v1 其他(对话/模型/路由/配额/多模态/3D/发现) | 65 | `/v1/chat/completions`, `/v1/models`, `/v1/route/preview` ... |
+| Admin | 34 | `/api/admin/users`, `/api/admin/stats`, `/api/admin/compliance/*` ... |
+| API 其他(审计/基准/优化/可观测) | 15 | `/api/audit/*`, `/api/benchmark/*` ... |
+| 原生 MoA | 12 | `/v1/moa/execute`, `/v1/moa/eval`, `/v1/moa/presets` ... |
+| MCP网关 | 12 | `/v1/mcp`, `/v1/mcp/tools`, `/v1/mcp/servers` ... |
+| Agent | 12 | `/v1/agent/list`, `/v1/agent/dispatch`, `/v1/agent/tasks` ... |
+| Workflow | 5 | `/v1/workflow/run`, `/v1/workflow/register` ... |
+| 健康/指标 | 4 | `/health`, `/health/live`, `/health/ready`, `/metrics` |
+| Auth | 3 | `/api/auth/login`, `/api/auth/logout` ... |
+| WebUI/静态 | 4 | `/` (静态文件) |
+| **API 合计** | **243** | (另有 /docs /redoc /openapi.json) |
 
 ## 项目结构
 
 ```
 moa-gateway-pro/
-├── proxy/              # Go高性能代理层(13个文件)
+├── proxy/              # Go高性能代理层(10个Go文件)
+├── admin-ui/           # Next.js 14 管理控制台
 ├── moa_gateway/
-│   ├── server.py       # FastAPI入口(287行)
-│   ├── routes/         # 12个路由模块
-│   ├── mcp/            # MCP协议(7个模块)
+│   ├── server.py       # FastAPI入口(738行)
+│   ├── routes/         # 26个路由模块
+│   ├── capability/     # 72个能力模块
+│   ├── agent_loop/     # Agent循环 + 沙箱隔离执行
+│   ├── services/       # 10个服务层(routing/quota/quality/moa/...)
+│   ├── mcp/            # MCP协议(8个模块)
 │   ├── cache/          # 三层语义缓存(7个模块)
-│   ├── observability/  # OpenTelemetry(8个模块)
+│   ├── observability/  # OpenTelemetry(9个模块)
 │   ├── compliance/     # SOC2合规(8个模块)
 │   ├── ha/             # 高可用(5个模块)
+│   ├── workflows/      # YAML工作流 + 内置工作流
+│   ├── providers/      # Provider适配(OpenAI兼容/Anthropic/Mock)
 │   ├── rbac.py         # RBAC权限(4角色/15权限)
 │   ├── audit.py        # 审计日志(PII脱敏)
 │   ├── database.py     # SQLite/PostgreSQL双引擎
-│   └── ...             # 其他核心模块
-├── tests/              # 236个测试用例
+│   └── ...
+├── tests/              # 1071个测试用例
 ├── benchmarks/         # 压测框架
-├── deploy/
-│   ├── ha/             # Docker HA + K8s Helm
-│   ├── monitoring/     # Grafana + Prometheus告警
-│   └── database/       # PostgreSQL部署
-└── 参考/analysis/      # 11个架构分析文档
+├── perf/               # E2E/chaos/压测脚本
+├── scripts/            # 打包/审计探针/冒烟脚本
+└── deploy/
+    ├── ha/             # Docker HA + K8s Helm
+    ├── monitoring/     # Grafana + Prometheus告警
+    └── database/       # PostgreSQL部署
 ```
 
 ## 依赖
 
-- Python 3.11+
+- Python 3.10+（实测 3.11）
 - FastAPI / Pydantic v2 / Uvicorn
 - SQLite (开发) / PostgreSQL (生产)
 - Redis (可选,分布式缓存)
 - Go 1.22+ (可选,高性能代理)
 - bcrypt / jose (JWT) / cryptography (AES-256)
 - opentelemetry-sdk / prometheus-client
+
+## 诚实性政策（零虚假）
+
+- 无真实 provider key 时，多模态/搜索/重排等能力返回**显式标注**的合成结果（`X-MOA-Mock: true` 头 / `mock:true` 字段 / `[Mock]` 前缀），绝不冒充真实模型输出;配置真实 key 后优先真实 provider。
+- 缓存命中重放保留 mock 标注;MoA 参考模型全失败返回显式 502 + 逐模型失败证据，不静默降级。
+- 外部 MCP stdio 传输在本部署形态诚实返回 unsupported。
+- 发布包与仓库经密钥扫描:零真实密钥,config.yaml 全部留空走环境变量。
 
 ## License
 
@@ -314,7 +366,10 @@ MIT
 
 | Version | Date | 关键特性 |
 |---|---|---|
-| **v2.0** | 2026-08-03 | 商业级升级: Go代理 + PostgreSQL + RBAC + MCP + 语义缓存 + OTel + SOC2 + HA |
+| **v3.1.1** | 2026-08-16 | 十轮全量审计修复: P0沙箱RCE封堵 + SSRF/GDPR/mock标注闭环; 1071测试全绿 |
+| v3.1.0 | 2026-08-14 | 十轮全量测试 + 双AI对抗评审: 29+21项缺陷修复, 全链路真实化 |
+| v2.1.0 | 2026-08-06 | Wave B1–B5 全链路真实化: HMAC签名链/Mock显式化/Agent计量/Tracer接线 |
+| v2.0 | 2026-08-03 | 商业级升级: Go代理 + PostgreSQL + RBAC + MCP + 语义缓存 + OTel + SOC2 + HA |
 | v1.8.1 | 2026-07-19 | Pydantic Field 描述 + 端点签名清理 |
 | v1.8.0 | 2026-07-18 | 83 端点 Pydantic 化 + 90 OpenAPI schemas |
 | v1.7.5 | 2026-07-18 | Final release + 7193 RPS |
