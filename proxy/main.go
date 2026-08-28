@@ -5,8 +5,10 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -47,7 +49,25 @@ func main() {
 		srv.Shutdown(ctx)
 	}()
 
-	log.Printf("MoA Gateway Proxy starting on %s -> %s", cfg.ListenAddr, cfg.BackendAddr)
+	// redactURL strips any userinfo (user:pass@host) before logging —
+	// backend URLs may embed credentials.
+	redactURL := func(raw string) string {
+		if u, err := url.Parse(raw); err == nil && u.User != nil {
+			u.User = url.User("REDACTED")
+			return u.String()
+		}
+		return raw
+	}
+	if len(cfg.BackendURLs) > 0 {
+		redacted := make([]string, 0, len(cfg.BackendURLs))
+		for _, b := range cfg.BackendURLs {
+			redacted = append(redacted, redactURL(b))
+		}
+		log.Printf("MoA Gateway Proxy starting on %s -> %d backends (round-robin): %s",
+			cfg.ListenAddr, len(cfg.BackendURLs), strings.Join(redacted, ", "))
+	} else {
+		log.Printf("MoA Gateway Proxy starting on %s -> %s", cfg.ListenAddr, redactURL(cfg.BackendAddr))
+	}
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		log.Fatalf("Server error: %v", err)
 	}

@@ -64,13 +64,18 @@ class CLIErrorKind(str, Enum):
 
 
 class ChannelResult(NamedTuple):
-    """单次通道执行结果"""
+    """单次通道执行结果
+
+    ``mock=True`` 标记该输出为本地合成/模拟结果而非真实 LLM/CLI/API 调用
+    (v3.2.1 诚实性政策: 所有合成结果必须显式标注)。
+    """
 
     channel: ChannelType
     success: bool
     output: str
     latency_ms: int
     error: str | None = None
+    mock: bool = False
 
 
 class ChannelError(RuntimeError):
@@ -90,6 +95,7 @@ class ChannelError(RuntimeError):
                     "output": r.output,
                     "latency_ms": r.latency_ms,
                     "error": r.error,
+                    "mock": bool(r.mock),
                 }
                 for r in self.attempts
             ],
@@ -172,6 +178,7 @@ class Channel(ABC):
         success: bool = True,
         latency_ms: int = 0,
         error: str | None = None,
+        mock: bool = False,
     ) -> ChannelResult:
         return ChannelResult(
             channel=self.channel_type,
@@ -179,6 +186,7 @@ class Channel(ABC):
             output=output,
             latency_ms=latency_ms,
             error=error,
+            mock=mock,
         )
 
     def __repr__(self) -> str:
@@ -221,7 +229,8 @@ class SubagentChannel(Channel):
                 )
             text = _smart_subagent_answer(query)
             latency = int((time.perf_counter() - start) * 1000)
-            return self._make_result(text, success=True, latency_ms=latency)
+            # v3.2.1 诚实性: 本地启发式合成结果, 显式标注 mock (不再仅靠 [subagent] 前缀)
+            return self._make_result(text, success=True, latency_ms=latency, mock=True)
         except Exception as exc:  # 兜底
             latency = int((time.perf_counter() - start) * 1000)
             return self._make_result(
@@ -279,7 +288,9 @@ class CLIChannel(Channel):
                     latency_ms=latency,
                     error=f"empty:{CLIErrorKind.EMPTY.value}",
                 )
-            return self._make_result(output, success=True, latency_ms=latency)
+            # v3.2.1 诚实性: 当前 CLI 通道为模拟实现 (未调用真实 CLI 子进程),
+            # 成功输出必须标注 mock。
+            return self._make_result(output, success=True, latency_ms=latency, mock=True)
         except Exception as exc:
             latency = int((time.perf_counter() - start) * 1000)
             kind = self.fail_kind or classify_error(exc)
@@ -342,7 +353,8 @@ class APIChannel(Channel):
                 raise PermissionError(f"missing api key env={self.api_key_env}")
             text = f"[api] final answer ({len(query or '')} chars): {(query or '')[:80]}"
             latency = int((time.perf_counter() - start) * 1000)
-            return self._make_result(text, success=True, latency_ms=latency)
+            # v3.2.1 诚实性: 当前 API 通道为模拟实现 (未调用真实 SDK), 标注 mock
+            return self._make_result(text, success=True, latency_ms=latency, mock=True)
         except Exception as exc:
             latency = int((time.perf_counter() - start) * 1000)
             kind = self.fail_kind or classify_error(exc)
@@ -428,6 +440,8 @@ class ChannelChain:
                     "result": result,
                     "fallback_path": path,
                     "attempts": attempts,
+                    # v3.2.1 诚实性: 合成结果在链级聚合标注, 供编排器/路由透传
+                    "mock": bool(result.mock),
                 }
             last_error = result.error
 

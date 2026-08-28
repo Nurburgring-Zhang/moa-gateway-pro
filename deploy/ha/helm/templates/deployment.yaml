@@ -41,6 +41,11 @@ spec:
                 secretKeyRef:
                   name: {{ include "moa-gateway-pro.fullname" . }}-secrets
                   key: database-url
+            - name: MOA_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "moa-gateway-pro.fullname" . }}-secrets
+                  key: admin-password
           livenessProbe:
             httpGet:
               path: {{ .Values.probes.liveness.path }}
@@ -70,8 +75,17 @@ spec:
             runAsUser: 1000
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
+          volumeMounts:
+            # v3.2.1 fix: the app writes runtime state (SQLite fallback DB,
+            # logs, reports) under /app/data — with readOnlyRootFilesystem a
+            # writable emptyDir is mandatory or the container crash-loops.
+            - name: data
+              mountPath: /app/data
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: data
+          emptyDir: {}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

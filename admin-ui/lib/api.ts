@@ -181,6 +181,40 @@ class ApiClient {
   updateSettings(data: Record<string, unknown>) {
     return this.request('/api/admin/settings', { method: 'PUT', body: JSON.stringify(data) });
   }
+
+  // Orchestrator (自主编排引擎)
+  runOrchestration(task: string, input: Record<string, unknown> = {}) {
+    return this.request<Record<string, unknown>>('/v1/orchestrator/run', {
+      method: 'POST',
+      body: JSON.stringify({ task, input }),
+    });
+  }
+
+  planOrchestration(task: string, input: Record<string, unknown> = {}) {
+    return this.request<Record<string, unknown>>('/v1/orchestrator/plan', {
+      method: 'POST',
+      body: JSON.stringify({ task, input }),
+    });
+  }
+
+  getOrchestratorCapabilities() {
+    return this.request<Record<string, unknown>>('/v1/orchestrator/capabilities');
+  }
+
+  getOrchestratorSkills() {
+    return this.request<Record<string, unknown>>('/v1/orchestrator/skills');
+  }
+
+  getOrchestratorScores() {
+    return this.request<Record<string, unknown>>('/v1/orchestrator/scores');
+  }
+
+  developSkill(spec: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>('/v1/orchestrator/skills', {
+      method: 'POST',
+      body: JSON.stringify(spec),
+    });
+  }
 }
 
 export const api = new ApiClient();

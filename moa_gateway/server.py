@@ -497,7 +497,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="MoA Gateway Pro",
-        version="3.1.1",
+        version="3.2.1",
         description="工业级多模型协作网关 — 一份 OpenAI Key 接入所有大模型",
         lifespan=lifespan,
     )
@@ -678,6 +678,7 @@ def create_app() -> FastAPI:
         models_router,
         observability_router,
         optimizer_router,
+        orchestrator_router,
         tasks_router,
         threed_router,
         video_router,
@@ -704,6 +705,7 @@ def create_app() -> FastAPI:
     app.include_router(observability_router)
     app.include_router(benchmark_router)
     app.include_router(optimizer_router)
+    app.include_router(orchestrator_router)
     app.include_router(vision_router)
     app.include_router(audio_router)
     app.include_router(image_edit_router)

@@ -60,14 +60,17 @@ async def _search_duckduckgo(query: str, max_results: int) -> list[dict[str, Any
 async def web_search(query: str, max_results: int = 5) -> str:
     """Search the web and return formatted results.
 
-    Degradation chain: Tavily -> DuckDuckGo -> Mock.
+    Degradation chain: Tavily -> DuckDuckGo -> honest failure. When both
+    real backends are unavailable the function returns an explicit
+    "unavailable" message and fabricates nothing (audit F11 policy).
 
     Args:
         query: The search query string.
         max_results: Maximum number of results to return.
 
     Returns:
-        A formatted string of search results.
+        A formatted string of search results, or an explicit
+        unavailability message when no backend is reachable.
     """
     logger.info("web_search: query=%r max_results=%d", query, max_results)
 

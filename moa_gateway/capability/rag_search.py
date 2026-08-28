@@ -272,6 +272,9 @@ def _cache_put(query_hash: str, results: list[dict[str, Any]]) -> None:
         with _db_lock:
             conn = _get_conn()
             try:
+                # INSERT OR REPLACE here is intentional: this module owns a
+                # dedicated raw sqlite3 connection (see _get_conn) and is not
+                # routed through the dual SQLite/PostgreSQL backend.
                 conn.execute(
                     "INSERT OR REPLACE INTO rag_cache "
                     "(query_hash, results_json, created_at) VALUES (?, ?, ?)",

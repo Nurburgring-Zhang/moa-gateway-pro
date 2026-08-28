@@ -8,10 +8,15 @@ because only literal IP strings were checked. Encoded IP forms
 also bypassed the ``ipaddress.ip_address`` parse and were treated as
 ordinary domain names.
 
-This module is now the single source of truth. It resolves every hostname
-via ``socket.getaddrinfo`` (which normalizes decimal/hex/octal IP forms as
-well) and rejects the URL if ANY resolved address is loopback, private,
-link-local, reserved, multicast or unspecified.
+This module is now the single source of truth. Before any DNS lookup it
+canonicalizes numeric IP literals with inet_aton semantics (decimal / hex /
+octal, 1-4 dot-separated parts) so the check is platform independent —
+glibc's ``getaddrinfo`` normalizes those forms, but the Windows resolver
+does not, and a resolver that answers for arbitrary hostnames would
+otherwise turn an encoded loopback literal into a "resolvable domain".
+It then resolves every remaining hostname via ``socket.getaddrinfo`` and
+rejects the URL if ANY resolved address is loopback, private, link-local,
+reserved, multicast or unspecified.
 """
 from __future__ import annotations
 
@@ -69,6 +74,11 @@ _BLOCKED_NETWORKS = tuple(
         "fe80::/10",          # link-local
         "fec0::/10",          # deprecated site-local
         "ff00::/8",           # multicast
+        # v3.2.1 (red-team): IPv6 transition mechanisms can embed IPv4
+        # addresses the explicit list above never sees.
+        "2002::/16",          # 6to4 — [2002:7f00:1::] embeds 127.0.0.1
+        "2001:0::/32",        # Teredo
+        "192.88.99.0/24",     # 6to4 relay anycast
     )
 )
 
@@ -99,6 +109,66 @@ def _ip_is_dangerous(ip_str: str) -> bool:
     )
 
 
+def _canonicalize_numeric_host(host: str) -> ipaddress.IPv4Address | None:
+    """Canonicalize a numeric host with inet_aton semantics.
+
+    Accepts decimal/hex/octal parts, 1-4 dot-separated parts, e.g.
+    ``2130706433``, ``0x7f000001``, ``0177.0.0.1``, ``127.1``, ``0x7f.0.0.1``.
+
+    Returns the canonical IPv4Address, ``None`` when the host is not a
+    numeric literal (a regular DNS name — including bare hex words like
+    ``deadbeef``, which inet_aton also treats as a name), and raises
+    ``ValueError`` when the host *is* numeric-looking but malformed or
+    overflows a 32-bit address (caller must fail closed).
+    """
+    if not host or not host[0].isdigit() and host[0] not in ("." ,):
+        return None
+
+    parts = host.split(".")
+    if any(p == "" for p in parts):
+        raise ValueError(f"empty component in numeric host: {host}")
+
+    # Parse each component: 0x-prefixed hex, leading-0 octal, else decimal.
+    # A component containing non-[0-9] characters (other than a 0x prefix's
+    # hex digits) means this is not a numeric host at all.
+    values: list[int] = []
+    for p in parts:
+        if p.startswith("0x") or p.startswith("0X"):
+            try:
+                values.append(int(p, 16))
+            except ValueError:
+                raise ValueError(f"bad hex component: {p}") from None
+            continue
+        if not p.isdigit():
+            return None
+        if len(p) > 1 and p[0] == "0":
+            values.append(int(p, 8))
+        else:
+            values.append(int(p, 10))
+
+    n = len(values)
+    if n == 1:
+        total = values[0]
+        if total > 0xFFFFFFFF:
+            raise ValueError(f"numeric host overflows 32 bits: {host}")
+    elif n == 2:
+        if values[1] > 0xFFFFFF:
+            raise ValueError(f"numeric host overflows 24-bit final part: {host}")
+        total = (values[0] << 24) | values[1]
+    elif n == 3:
+        if values[2] > 0xFFFF:
+            raise ValueError(f"numeric host overflows 16-bit final part: {host}")
+        total = (values[0] << 24) | (values[1] << 16) | values[2]
+    elif n == 4:
+        if any(v > 0xFF for v in values):
+            raise ValueError(f"octet out of range in {host}")
+        total = (values[0] << 24) | (values[1] << 16) | (values[2] << 8) | values[3]
+    else:
+        raise ValueError(f"too many components in numeric host: {host}")
+
+    return ipaddress.IPv4Address(total)
+
+
 def is_safe_external_url(
     url: str,
     *,
@@ -110,9 +180,10 @@ def is_safe_external_url(
     1. scheme is http/https;
     2. hostname present and not a known-internal name;
     3. explicit env override for trusted internal deployments;
-    4. DNS resolution — EVERY returned address must be public. This also
-       normalizes encoded IP literals (decimal / hex / octal), closing the
-       v3.1.0 bypass class.
+    4. numeric IP literals — canonicalized with inet_aton semantics
+       (decimal / hex / octal, 1-4 parts) and checked directly, with no
+       DNS round-trip; malformed numeric hosts fail closed;
+    5. DNS resolution — EVERY returned address must be public.
     """
     try:
         parsed = urlparse(url)
@@ -127,11 +198,28 @@ def is_safe_external_url(
         return False, "no hostname in URL"
 
     host_l = host.lower()
+    # strip one trailing dot (absolute FQDN form) so "metadata.google.internal."
+    # still hits the blocklists (v3.2.1 red-team finding)
+    if host_l.endswith("."):
+        host_l = host_l.rstrip(".")
     if host_l in _BLOCKED_HOSTS or any(host_l.endswith(s) for s in _BLOCKED_SUFFIXES):
         return False, f"blocked internal hostname: {host}"
 
     # Explicit operator override for trusted internal deployments.
     if os.environ.get(allow_internal_env) == "1":
+        return True, ""
+
+    # Platform-independent IP-literal check before any DNS interaction.
+    # glibc normalizes encoded literals, the Windows resolver does not —
+    # and a resolver that wildcard-answers every name would otherwise turn
+    # an encoded loopback literal into a "resolvable public domain".
+    try:
+        literal = _canonicalize_numeric_host(host_l)
+    except ValueError as e:
+        return False, f"malformed numeric host: {host} ({e})"
+    if literal is not None:
+        if _ip_is_dangerous(str(literal)):
+            return False, f"blocked address literal: {host} ({literal})"
         return True, ""
 
     # Resolve and check every address the name maps to.

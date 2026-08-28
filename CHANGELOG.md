@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.1] — 2026-08-29 — 独立加固审计版（Production Hardening）
+
+三路独立深审（安全+诚实性 / 架构 / 部署工程）→ 用户决策边界（生产加固线、仅文档警示不改默认行为、装 Go 不装 Docker）→ 分步加固。全量测试 **1170 passed, 0 failed**（Windows/Py3.11 实测，含 81 项新加固回归）；Go 代理 0 错误编译 + 16 个测试函数全绿 + 真实 uvicorn 活体 smoke；CI 新增 Go 构建/测试 job。详见 RELEASE_NOTES_v3.2.1.md 与 docs/SECURITY-HARDENING-GUIDE.md。
+
+### 安全
+- SSRF: 编码 IP 字面量（十进制/十六进制/八进制/1-4段）在 DNS 之前平台无关归一化判定，畸形 fail-closed；追加 6to4/Teredo 过渡段与 trailing-dot FQDN 封堵（红队复审）
+- orchestrator: 非特权调用者不可执行任何沙箱技能（planner 过滤+filtered_privileged_skills 披露 + executor 纵深防御 + MCP 按真实角色 check_access）；DANGEROUS_TOOLS/BUILTIN_TOOL_NAMES 单源化
+- skill_factory: load_persisted 重放语法+安全静态校验（功能校验由每次调用的运行时沙箱承担，不在事件循环跑子进程）；builtin 名保护 + 参数名标识符校验（红队 P1: 参数名注入绕过 sanitize_code）+ 重名去重；测试不再污染 data/
+- Go 代理: 修复 extractClientIP 未定义（无法编译）；`Bearer mgw-` 网关 key 转发后端鉴权（此前被当 JWT 误拒）；边缘丢弃伪造 X-Forwarded-For；启动日志脱敏 userinfo
+- login_attempts upsert 方言感知（PG 上原 `INSERT OR REPLACE` 语法错误）
+- 依赖: sqlalchemy≥2.0.36（公告修复）、移除零导入 aiohttp、pyproject 补齐 5 个未声明运行时依赖、pip-audit 真拦截、CI 改用 requirements.txt
+
+### 诚实性
+- channels（Subagent/CLI/API）合成输出全链路 `mock` 标注（结果级/链级/orchestrator 透传）
+- chat 失败路径记录 5xx 指标（此前仅成功记账，错误率告警永不触发）
+- web_search docstring 与实现对齐（诚实失败，不伪造）
+- license 矛盾统一（pyproject Apache-2.0 → MIT，与 LICENSE 一致）
+
+### 部署
+- Dockerfile.backend: 移除 COPY data/（新克隆必失败+密钥烘焙）；workers 4→1
+- HA compose: 删伪 postgres-replica/Swarm replicas；Redis 直连 master；Prometheus 挂载与 rule_files 修复；Grafana 真实 provisioning；删除重复告警文件
+- Helm: 补 Secret 模板；readOnlyRootFilesystem + emptyDir；MOA_ADMIN_PASSWORD 注入；版本 1.8.1→3.2.1
+- 新增 docs/SECURITY-HARDENING-GUIDE.md（W1-W6 生产警示与缓解配置）
+
 ## [3.1.1] — 2026-08-16 — 十轮全量审计修复（P0/P1 清零）
 
 对 v3.1.0 执行十轮全量审计（243 端点扫描、6 路并行深审、本地真实 LLM 链路注入、

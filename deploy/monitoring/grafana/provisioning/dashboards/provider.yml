@@ -1,0 +1,13 @@
+# Grafana dashboard provider (v3.2.1) — required for provisioned dashboards
+apiVersion: 1
+
+providers:
+  - name: 'moa-gateway-pro'
+    orgId: 1
+    folder: 'MoA Gateway Pro'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

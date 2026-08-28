@@ -149,8 +149,18 @@ class TestSSRFGuard:
         assert not _is_safe_external_url("http://10.0.0.1/x")
         assert not _is_safe_external_url("http://192.168.1.1/x")
         assert not _is_safe_external_url("ftp://example.com/x")  # bad scheme
+        # Hermetic resolver stub: the "normal public domain passes" assertion
+        # must not depend on the machine's live DNS (poisoned/wildcard
+        # resolvers legitimately trip the guard). Guard logic stays real.
+        import socket as _socket
+
+        def _public_only(host, port, *a, **kw):
+            return [
+                (_socket.AddressFamily.AF_INET, _socket.SocketKind.SOCK_STREAM, 6, "", ("93.184.216.34", 443))
+            ]
+
+        monkeypatch.setattr(_socket, "getaddrinfo", _public_only)
         assert _is_safe_external_url("https://api.openai.com/v1")
-        assert _is_safe_external_url("http://93.184.216.34/x")  # public IP
 
 
 # ====================================================================

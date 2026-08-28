@@ -31,6 +31,21 @@ BUILTIN_TOOLS = {
     "api_verify": (api_verify, "Verify API endpoint response (status, fields, assertions)"),
 }
 
+# v3.2.1 hardening: single source of truth for admin/operator-only tools
+# (RCE-capable primitives: code execution / filesystem / outbound probing).
+# Enforced by routes/agent.py AND the orchestrator (planner filter +
+# executor defense-in-depth) so no entry point re-exposes them to
+# API-key/readonly users.
+DANGEROUS_TOOLS = frozenset(
+    {"code_execute", "file_read", "file_write", "file_list", "api_verify"}
+)
+
+# Pristine builtin names, frozen at import time — BEFORE any hot-deployed
+# custom skill can be registered into the (mutable) BUILTIN_TOOLS dict.
+# Name-collision guards must check this, not the live dict, or a skill
+# registered earlier in the process would "collide with itself".
+BUILTIN_TOOL_NAMES = frozenset(BUILTIN_TOOLS)
+
 
 def register_all(harness) -> None:
     """Register all built-in skills onto an AgentHarness or ToolExecutor."""

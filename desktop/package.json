@@ -1,0 +1,55 @@
+{
+  "name": "moa-gateway-desktop",
+  "version": "3.2.1",
+  "description": "MoA Gateway Pro — Windows desktop app (Electron). Launches the local MoA gateway and opens the orchestration UI.",
+  "main": "main.js",
+  "author": "MoA Gateway Pro",
+  "license": "Apache-2.0",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win",
+    "dist:dir": "electron-builder --win --dir"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.moagateway.desktop",
+    "productName": "MoA Gateway Pro",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../",
+        "to": "gateway",
+        "filter": [
+          "moa_gateway/**/*",
+          "config.yaml",
+          "requirements.txt",
+          "start.py"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  }
+}

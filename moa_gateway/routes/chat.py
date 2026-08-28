@@ -231,10 +231,20 @@ async def chat_completions(
             )
         except ProviderError as e:
             metrics.error("chat_failed")
+            # v3.2.1 honesty: failures are recorded too, so the chat
+            # error-rate alert reflects reality (previously success-only).
+            try:
+                _prom_record_chat(model_id, e.status or 502, (time.time() - t0))
+            except Exception as pe:
+                logger.warning("Prometheus recording failed: %s", pe)
             logger.warning("chat failed (provider): %s", e)
             raise HTTPException(e.status or 502, f"model call failed: {e}") from e
         except Exception as e:
             metrics.error("chat_failed")
+            try:
+                _prom_record_chat(model_id, 502, (time.time() - t0))
+            except Exception as pe:
+                logger.warning("Prometheus recording failed: %s", pe)
             logger.exception("chat failed: %s", e)
             raise HTTPException(502, f"model call failed: {e}") from e
 

@@ -219,9 +219,10 @@ async def agent_run_loop(
     # v3.1.1 audit P0 fix: dangerous tools (code execution / filesystem /
     # outbound URL probing) are admin/operator-only. AGENTS.md rule 8 —
     # never expose RCE-capable primitives to API-key users.
-    DANGEROUS_TOOLS = frozenset(
-        {"code_execute", "file_read", "file_write", "file_list", "api_verify"}
-    )
+    # v3.2.1: imported from skills/__init__ (single source of truth, shared
+    # with the orchestrator's planner/executor enforcement).
+    from ..agent_loop.skills import DANGEROUS_TOOLS
+
     caller_role = key_info.get("role") or "readonly"
     privileged = caller_role in ("admin", "operator")
 

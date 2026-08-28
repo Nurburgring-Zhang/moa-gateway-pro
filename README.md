@@ -1,7 +1,7 @@
 # MoA Gateway Pro
 
-> **v3.1.1** — 商业级/工业级多模型协作API网关（十轮全量审计修复版，P0/P1 清零）
-> 243个API端点 · 1071个测试用例 · Go高性能代理 · PostgreSQL双后端 · MCP网关 · SOC2合规
+> **v3.2.1** — 独立加固审计版（三路深审 + 生产加固 + 红蓝对抗复审）
+> 243个API端点 · **1170个测试实测全绿** · Go高性能代理（16个Go测试函数全绿 + CI Go job + 真实后端活体smoke） · PostgreSQL双后端 · MCP网关 · 自主编排引擎
 
 工业级 AI 网关:路由、MoA 协作、共识、质量评估、配额、可观测性、知识库、安全防护、MCP协议、语义缓存、高可用 —— 一个 FastAPI 进程 + Go代理层搞定。
 
@@ -30,13 +30,29 @@ client = OpenAI(base_url="http://127.0.0.1:8088/v1", api_key="mgw-...")
 resp = client.chat.completions.create(model="auto", messages=[{"role":"user","content":"hi"}])
 ```
 
+## v3.2.1: 独立加固审计（真实漏洞修复, 非合规润色）
+
+在三路独立深审（安全+诚实性 / 架构 / 部署工程）基础上, 按"生产加固线 / 行为变更仅文档警示 / 装 Go 不装 Docker"的决策边界完成加固。合并 v3.2.0 自主编排引擎（orchestrator 8 模块, 能力注册表经执行验证）。关键修复:
+
+- **SSRF 编码 IP 平台无关修复** — Windows 解析器不归一化十进制/十六进制 IP, 污染 DNS 下 `http://2130706433/` 可被放行（项目自带测试在本机实测失败复现）。现于 DNS 之前以 inet_aton 语义归一化判定, 畸形 fail-closed; 6to4/Teredo 过渡段与 trailing-dot FQDN 一并封堵; 47 项确定性回归测试
+- **orchestrator 授权一致性** — readonly key 此前可经"技能名提及"路径触达 code_execute 等危险技能; 现 planner 过滤（计划内诚实披露 filtered_privileged_skills, 含自定义技能）+ executor 纵深防御 + MCP 按真实角色检查, 与 agent 信任模型对齐; 18 项回归
+- **skill 热部署重校验** — load_persisted 重放语法+安全静态校验（功能校验由每次调用的运行时沙箱承担）, builtin 名保护 + 参数名标识符校验 + 重名去重
+- **Go 代理实锤缺陷修复** — extractClientIP 未定义（仓库此前无法编译）; OpenAI 风格 `Bearer mgw-` 网关 key 被当 JWT 误拒（活体 smoke 发现, 数据面曾全断）; 伪造 X-Forwarded-For 边缘丢弃; BACKEND_URLS 多后端轮询（env 未设行为不变）; 新增 16 个 Go 测试函数 + CI Go job（此前 0）
+- **诚实性** — channels 三通道（Subagent/CLI/API）合成输出全链路 mock 标注; chat 失败路径 5xx 真实记账（错误率告警现可触发）; web_search docstring 与实现对齐
+- **部署产物可部署化** — Dockerfile.backend 移除 COPY data/ + workers=1; HA compose 删伪副本/修 Prometheus 挂载/Grafana 真实 provisioning; Helm 补 Secret 模板 + emptyDir（此前必然部署失败）; sqlalchemy>=2.0.36; pip-audit 真拦截
+- **生产警示（W1-W6）** — /metrics/docs 暴露、配额覆盖现状、RBAC 现状、admin JWT 兼 key、SSRF TOCTOU 残余窗口、错误信封并存 → [docs/SECURITY-HARDENING-GUIDE.md](docs/SECURITY-HARDENING-GUIDE.md)
+
+完整清单见 [RELEASE_NOTES_v3.2.1.md](RELEASE_NOTES_v3.2.1.md) 与 [CHANGELOG.md](CHANGELOG.md)。
+
+## v3.2: 自主编排引擎 + 43 能力注册表（合并自 v3.2.0, 含 v3.2.1 授权加固）
+
 ## v3.1: 十轮全量审计（P0/P1 清零）
 
 v3.1.0/v3.1.1 连续执行十轮全量审计:243 端点扫描、6 路并行代码深审、本地真实 LLM 链路注入、浏览器 E2E、chaos 故障注入、双AI对抗复审。全部确认缺陷已修复并活体复验。
 
 | 项目 | 结果 |
 |------|------|
-| **单元测试** | 1071 passed, 0 failed（v3.1.0 为 593，新增 478 例审计回归） |
+| **单元测试** | 1071 passed, 0 failed（v3.1 历史基线；当前版本实测 1170，见上文 v3.2.1） |
 | **活体探针** | 一轮 41/41 + 二轮 4/4（沙箱/SSRF/越权/mock标注/配额/GDPR/真实链路） |
 | **前端** | `next build` 通过，tsc 0 错；E2E 硬刷新会话保持 6/6 |
 | **对抗复审** | 一轮 19 项全部证实；二轮新发现 2 P1 + 4 P2 全部修复 |
@@ -183,7 +199,7 @@ v3.1.0/v3.1.1 连续执行十轮全量审计:243 端点扫描、6 路并行代�
 ## 测试
 
 ```powershell
-# 1071个测试用例 (100%通过)
+# 1170个测试用例 (v3.2.1 实测全绿)
 .venv\Scripts\python -m pytest tests/ -v --tb=short
 
 # 覆盖分组(节选):
@@ -331,7 +347,7 @@ moa-gateway-pro/
 │   ├── audit.py        # 审计日志(PII脱敏)
 │   ├── database.py     # SQLite/PostgreSQL双引擎
 │   └── ...
-├── tests/              # 1071个测试用例
+├── tests/              # 1170个测试用例
 ├── benchmarks/         # 压测框架
 ├── perf/               # E2E/chaos/压测脚本
 ├── scripts/            # 打包/审计探针/冒烟脚本
@@ -366,7 +382,8 @@ MIT
 
 | Version | Date | 关键特性 |
 |---|---|---|
-| **v3.1.1** | 2026-08-16 | 十轮全量审计修复: P0沙箱RCE封堵 + SSRF/GDPR/mock标注闭环; 1071测试全绿 |
+| **v3.2.1** | 2026-08-29 | 独立加固审计+红蓝对抗复审: SSRF平台无关修复 + orchestrator授权一致性 + skill参数名注入封堵 + Go代理修复/测试/CI + 部署产物可部署化; 1170测试全绿 |
+| v3.1.1 | 2026-08-16 | 十轮全量审计修复: P0沙箱RCE封堵 + SSRF/GDPR/mock标注闭环; 1071测试全绿（历史基线） |
 | v3.1.0 | 2026-08-14 | 十轮全量测试 + 双AI对抗评审: 29+21项缺陷修复, 全链路真实化 |
 | v2.1.0 | 2026-08-06 | Wave B1–B5 全链路真实化: HMAC签名链/Mock显式化/Agent计量/Tracer接线 |
 | v2.0 | 2026-08-03 | 商业级升级: Go代理 + PostgreSQL + RBAC + MCP + 语义缓存 + OTel + SOC2 + HA |

@@ -2,6 +2,16 @@ version: '3.8'
 
 # MoA Gateway Pro — High Availability Deployment
 # Targets: 99.99% SLA (<4.3 min downtime/month)
+#
+# v3.2.1 deployment-honesty notes:
+# - The Python app holds process-global state (model pool, rate limiter,
+#   in-memory caches): each backend must run --workers 1 (enforced in
+#   Dockerfile.backend). Horizontal scale = more containers, not workers.
+# - The app connects to Redis directly (no Sentinel client support);
+#   the app URL therefore points at redis-master. The sentinel quorum
+#   below provides failover for the Redis master itself.
+# - Read-replica PostgreSQL support is NOT implemented in app code;
+#   the fake replica service was removed rather than pretend.
 
 services:
   # ====== Go Reverse Proxy (L7 Load Balancer) ======
@@ -19,12 +29,12 @@ services:
         condition: service_healthy
       moa-backend-2:
         condition: service_healthy
-    deploy:
-      replicas: 2
-      restart_policy:
-        condition: on-failure
-        max_attempts: 5
-        delay: 5s
+    # (v3.2.1: removed `deploy.replicas: 2` — it is Swarm-only and silently
+    # ignored by docker compose. Use `docker compose up --scale` instead.)
+    restart_policy:
+      condition: on-failure
+      max_attempts: 5
+      delay: 5s
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
       interval: 10s
@@ -39,8 +49,9 @@ services:
       dockerfile: deploy/ha/Dockerfile.backend
     environment: &backend_env
       DATABASE_URL: postgresql+psycopg2://moa:${DB_PASSWORD}@postgres-primary:5432/moa_gateway
-      DATABASE_REPLICA_URL: postgresql+psycopg2://moa:${DB_PASSWORD}@postgres-replica:5432/moa_gateway
-      REDIS_URL: redis://redis-sentinel:26379/0
+      # v3.2.1: app code has no read-replica support -> DATABASE_REPLICA_URL removed
+      # v3.2.1: app has no Redis Sentinel client -> connect to master directly
+      REDIS_URL: redis://redis-master:6379/0
       MOA_JWT_SECRET: ${MOA_JWT_SECRET}
       MOA_ADMIN_PASSWORD: ${MOA_ADMIN_PASSWORD}
       MOA_INSTANCE_ID: backend-1
@@ -127,24 +138,6 @@ services:
       restart_policy:
         condition: on-failure
 
-  # ====== PostgreSQL Replica (read-only) ======
-  postgres-replica:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: moa_gateway
-      POSTGRES_USER: moa
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-    volumes:
-      - pg_replica_data:/var/lib/postgresql/data
-    depends_on:
-      postgres-primary:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U moa -d moa_gateway"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   # ====== Redis Sentinel ======
   redis-master:
     image: redis:7-alpine
@@ -196,7 +189,11 @@ services:
   prometheus:
     image: prom/prometheus:v2.50.0
     volumes:
-      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      # v3.2.1 fix: config lives at deploy/prometheus.yml (monitoring/ never had one)
+      - ../prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      # v3.2.1 fix: rule_files references alerts.yml — it must be mounted or
+      # Prometheus aborts on startup with a missing rule file.
+      - ../alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus_data:/prometheus
     ports:
       - "9090:9090"
@@ -211,14 +208,17 @@ services:
     ports:
       - "3000:3000"
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?set GRAFANA_PASSWORD in .env}
     volumes:
-      - ../monitoring/grafana_dashboard.json:/etc/grafana/provisioning/dashboards/moa.json
+      # v3.2.1 fix: real provisioning — a dashboard provider + datasource
+      # YAML are required for the dashboard to actually appear.
+      - ../monitoring/grafana/provisioning/dashboards/provider.yml:/etc/grafana/provisioning/dashboards/provider.yml:ro
+      - ../monitoring/grafana/provisioning/datasources/prometheus.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - ../monitoring/grafana_dashboard.json:/var/lib/grafana/dashboards/moa.json:ro
       - grafana_data:/var/lib/grafana
 
 volumes:
   pg_primary_data:
-  pg_replica_data:
   redis_master_data:
   prometheus_data:
   grafana_data:

@@ -54,10 +54,20 @@ async def login(req: LoginRequest, client_ip: str = Depends(get_client_ip)):
                 (client_ip,),
             )
         else:
-            c.execute(
-                "INSERT OR REPLACE INTO login_attempts (ip, count, window_start) VALUES (?, 1, ?)",
-                (client_ip, now),
-            )
+            # v3.2.1 fix: INSERT OR REPLACE is SQLite-only syntax and raised a
+            # syntax error on PostgreSQL (dual-backend gap). Dialect-aware
+            # upsert, mirroring storage.py's own pattern (ip is the PK).
+            if storage._engine.is_sqlite:
+                c.execute(
+                    "INSERT OR REPLACE INTO login_attempts (ip, count, window_start) VALUES (?, 1, ?)",
+                    (client_ip, now),
+                )
+            else:
+                c.execute(
+                    "INSERT INTO login_attempts (ip, count, window_start) VALUES (?, 1, ?) "
+                    "ON CONFLICT(ip) DO UPDATE SET count = 1, window_start = ?",
+                    (client_ip, now, now),
+                )
     from ..storage import async_bcrypt_verify
 
     with storage.conn() as c:

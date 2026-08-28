@@ -22,6 +22,7 @@ from .moa import router as moa_router
 from .models import router as models_router
 from .observability import router as observability_router
 from .optimizer import router as optimizer_router
+from .orchestrator import router as orchestrator_router
 from .tasks import router as tasks_router
 from .threed import router as threed_router
 from .video import router as video_router
@@ -48,6 +49,7 @@ __all__ = [
     "observability_router",
     "benchmark_router",
     "optimizer_router",
+    "orchestrator_router",
     "vision_router",
     "audio_router",
     "image_edit_router",
