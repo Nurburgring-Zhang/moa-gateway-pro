@@ -1,0 +1,19 @@
+# v3.2.1: pin line endings — the strict encoding tests (test_b1_fixes) and
+# the shipped archives must be LF on every platform. git archive applies
+# autocrlf smudge on the packing machine; this attribute removes that
+# platform dependence for the repository itself.
+* text=auto eol=lf
+# binary assets (never touch)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.sqlite3 binary
+*.exe binary
+*.whl binary
+*.gz binary
+*.zip binary
