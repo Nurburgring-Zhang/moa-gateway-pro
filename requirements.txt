@@ -40,7 +40,7 @@ redis>=5.0.0
 
 # Web search providers (可选,按需启用)
 tavily-python>=0.5.0
-duckduckgo-search>=6.0.0
+duckduckgo-search>=8.1.1
 
 # Audio editing (可选)
 elevenlabs>=1.0.0
