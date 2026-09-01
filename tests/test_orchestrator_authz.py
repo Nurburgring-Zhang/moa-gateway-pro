@@ -22,9 +22,14 @@ _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-os.environ.setdefault("MOA_ADMIN_PASSWORD", "Audit#2026StrongPwd!")
-os.environ.setdefault("MOA_GATEWAY_KEY", "gw-test-key-audit-20260814")
-os.environ.setdefault("MOA_JWT_SECRET", "audit-jwt-secret-0123456789abcdef0123456789abcdef")
+@pytest.fixture(autouse=True)
+def _orch_env(monkeypatch):
+    """Test-only env (auto-restored): module-level os.environ writes leaked to
+    every later test in the same process (loopback 401s in test_cli_registry /
+    test_tool_hub) — R7 finding."""
+    monkeypatch.setenv("MOA_ADMIN_PASSWORD", "Audit#2026StrongPwd!")
+    monkeypatch.setenv("MOA_GATEWAY_KEY", "gw-test-key-audit-20260814")
+    monkeypatch.setenv("MOA_JWT_SECRET", "audit-jwt-secret-0123456789abcdef0123456789abcdef")
 
 
 def _analyzer():
@@ -157,9 +162,10 @@ class TestExecutorDefenseInDepth:
 
     def test_non_privileged_loop_has_no_dangerous_tools(self):
         from moa_gateway.agent_loop.harness import AgentHarness
-        from moa_gateway.agent_loop.skills import DANGEROUS_TOOLS, BUILTIN_TOOLS
+        from moa_gateway.agent_loop.skills import BUILTIN_TOOLS
         from moa_gateway.orchestrator.executor import Executor
         from moa_gateway.orchestrator.registry import get_registry
+        from moa_gateway.orchestrator.skill_factory import DANGEROUS_TOOLS
 
         captured: dict = {}
 

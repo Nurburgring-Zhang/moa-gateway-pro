@@ -82,5 +82,16 @@ class GracefulShutdown:
         }
 
 
+    def reset(self) -> None:
+        """Reset shutdown state (test isolation / operational recovery).
+
+        After a drained shutdown the singleton would otherwise keep every
+        subsequent request returning 503 "Server is shutting down" — this
+        clears the flag so a fresh app instance serves normally.
+        """
+        self._shutting_down = False
+        self._active_requests = 0
+
+
 # Global singleton
 graceful = GracefulShutdown()

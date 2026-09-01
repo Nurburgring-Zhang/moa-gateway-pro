@@ -5,29 +5,215 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.2.1] — 2026-08-29 — 独立加固审计版（Production Hardening）
+## [Unreleased]
 
-三路独立深审（安全+诚实性 / 架构 / 部署工程）→ 用户决策边界（生产加固线、仅文档警示不改默认行为、装 Go 不装 Docker）→ 分步加固。全量测试 **1170 passed, 0 failed**（Windows/Py3.11 实测，含 81 项新加固回归）；Go 代理 0 错误编译 + 16 个测试函数全绿 + 真实 uvicorn 活体 smoke；CI 新增 Go 构建/测试 job。详见 RELEASE_NOTES_v3.2.1.md 与 docs/SECURITY-HARDENING-GUIDE.md。
+## [4.2.0] — 2026-08-30 — 自主编排引擎回移植 + 盲审安全加固
 
-### 安全
-- SSRF: 编码 IP 字面量（十进制/十六进制/八进制/1-4段）在 DNS 之前平台无关归一化判定，畸形 fail-closed；追加 6to4/Teredo 过渡段与 trailing-dot FQDN 封堵（红队复审）
-- orchestrator: 非特权调用者不可执行任何沙箱技能（planner 过滤+filtered_privileged_skills 披露 + executor 纵深防御 + MCP 按真实角色 check_access）；DANGEROUS_TOOLS/BUILTIN_TOOL_NAMES 单源化
-- skill_factory: load_persisted 重放语法+安全静态校验（功能校验由每次调用的运行时沙箱承担，不在事件循环跑子进程）；builtin 名保护 + 参数名标识符校验（红队 P1: 参数名注入绕过 sanitize_code）+ 重名去重；测试不再污染 data/
-- Go 代理: 修复 extractClientIP 未定义（无法编译）；`Bearer mgw-` 网关 key 转发后端鉴权（此前被当 JWT 误拒）；边缘丢弃伪造 X-Forwarded-For；启动日志脱敏 userinfo
-- login_attempts upsert 方言感知（PG 上原 `INSERT OR REPLACE` 语法错误）
-- 依赖: sqlalchemy≥2.0.36（公告修复）、移除零导入 aiohttp、pyproject 补齐 5 个未声明运行时依赖、pip-audit 真拦截、CI 改用 requirements.txt
+> 主线：从 GitHub v3.2.1（Nurburgring-Zhang/moa-gateway-pro）回移植自主编排
+> 引擎，收敛 v4.1.0 双盲审核的全部 MEDIUM 发现。
 
-### 诚实性
-- channels（Subagent/CLI/API）合成输出全链路 `mock` 标注（结果级/链级/orchestrator 透传）
-- chat 失败路径记录 5xx 指标（此前仅成功记账，错误率告警永不触发）
-- web_search docstring 与实现对齐（诚实失败，不伪造）
-- license 矛盾统一（pyproject Apache-2.0 → MIT，与 LICENSE 一致）
+### 新增 — GitHub 主线回移植
+- **M13 自主编排引擎** `moa_gateway/orchestrator/`（O1–O6，1898 行 + 42 测试）：
+  能力注册表（真实枚举 agent loop / workflow / MCP / channels / dispatch 全部能力）、
+  任务分析器、能力组合 DAG 规划器、编排执行器（非特权 loop 永不注册危险工具的
+  纵深防御）、结果强化器（能力评分持久化）、Skill 工厂（技能热部署 + 名称碰撞/
+  危险导入/语法校验三重闸）；HTTP：`/v1/orchestrator/*`；诚实政策与全局
+  X-MOA-Mock 标注体系同构（无 key 时显式标注 mock，绝不假执行）
+- v4.1 缺口适配：`DANGEROUS_TOOLS`/`BUILTIN_TOOL_NAMES` 名称碰撞守卫自
+  v3.2.1 移植进 skill_factory/executor（import 时冻结，防热部署自碰撞）
 
-### 部署
-- Dockerfile.backend: 移除 COPY data/（新克隆必失败+密钥烘焙）；workers 4→1
-- HA compose: 删伪 postgres-replica/Swarm replicas；Redis 直连 master；Prometheus 挂载与 rule_files 修复；Grafana 真实 provisioning；删除重复告警文件
-- Helm: 补 Secret 模板；readOnlyRootFilesystem + emptyDir；MOA_ADMIN_PASSWORD 注入；版本 1.8.1→3.2.1
-- 新增 docs/SECURITY-HARDENING-GUIDE.md（W1-W6 生产警示与缓解配置）
+### 加固 — v4.1.0 双盲审核发现（甲乙双 APPROVE_WITH_FINDINGS）
+- **F-1（甲）**：`subagent_routing/runner.py` 落地真实 ModelPool 执行器，
+  lifespan 按 `function_call` 开关注册——`invoke_lite_subagent` 从永久
+  dry-run 变为真实执行
+- **M-2（乙）**：Telegram / 飞书 / Discord webhook 验签密钥未配置时改
+  **fail-closed**（未认证输入不再驱动 chat 管道，与钉钉/企微对齐），
+  新增 3 例 fail-closed 回归守卫
+
+### 版本
+- moa-gateway-pro 4.2.0（wheel/sdist 同步构建）；desktop 4.2.0；mobile 1.2.0（versionCode 3）
+
+## [4.1.0] — 2026-08-26 — 三项目能力集成（OmniRoute / OpenClacky / MemoraX Code）
+
+> 版本主线：把三个 MIT 开源项目的生产级能力移植进网关，全部真实实现、
+> 全部测试覆盖、全部能力开关可关、全部默认不改变既有流量。
+> 许可归属见 THIRD_PARTY_NOTICES.md。
+
+### 新增 — OmniRoute 集成（https://github.com/diegosouzapw/OmniRoute，MIT）
+- **M1 路由策略引擎** `moa_gateway/routing_strategies/`：20 个策略真实落地
+  （priority / weighted / round-robin / context-relay / fill-first / p2c /
+  random / least-used / cost-optimized / reset-aware / reset-window / headroom /
+  strict-random / auto（12 因子加权）/ lkgp / context-optimized /
+  cache-optimized / fusion / pipeline / quota-share），统一
+  candidate+context→排序/回退链接口；TelemetryStore 滚动遥测（延迟/错误率/成本）；
+  `routing_fusion` 桥接注册进既有 MoA 策略注册表；
+  HTTP：GET /v1/routing/strategies、POST /v1/routing/resolve（dry-run 排序）、
+  GET /v1/routing/telemetry
+- **M2 配额调度器** `moa_gateway/quota_scheduler/`：QuotaValue 遥测模型
+  （来源优先级 provider_api > response_headers > configured > estimated）、
+  响应头解析、quota_snapshots 持久化、自适应监控（60s→接近耗尽 15s，
+  warn 0.80 / exhaust 0.95）、can_afford 闸门（fail-open 可配）、
+  DRR + P2C 配额共享选择器；lifespan 接入自适应轮询循环；
+  HTTP：GET /v1/quota(/status|/snapshots)、POST /v1/quota/check、POST /v1/quota/refresh
+- **M3 堆叠压缩** `moa_gateway/compression/`：RTK（56 个 CLI/工具输出过滤器库）+
+  Caveman（英文规则集 context/dedup/filler/structural/ultra）两级串联，
+  模式 off/lite/standard/aggressive/ultra/rtk/stacked，保真度闸门（低于阈值回退原文）、
+  cache_control 标记保留、hard_budget_chars 上限、按模式累计统计；
+  HTTP：POST /v1/compression/compress、GET /v1/compression/modes、GET /v1/compression/stats
+  （apply_to_chat 默认 false：绝不默认改动聊天流量）
+- **M4 免费层目录** `moa_gateway/free_tiers/`：OmniRoute 456 条免费模型目录
+  完整移植（转换脚本自 TS 源生成，条目数逐条核对），poolKey 池去重、regime 分类、
+  provider/regime/名称过滤查询；HTTP：GET /v1/free-tiers、GET /v1/free-tiers/{key}
+- **M5 A2A 协议** `moa_gateway/a2a/`：/.well-known/agent.json 运行时真实卡片 +
+  POST /v1/a2a 完整 JSON-RPC 2.0（五类错误码/批量/notification）、
+  5 个真实技能（chat-completion / model-list / health / routing-advice /
+  cache-insight，全部内调网关真实管道）、任务状态机持久化 + TTL + 属主隔离、
+  出站凭据消毒
+
+### 新增 — OpenClacky 集成（https://github.com/clacky-ai/openclacky，MIT）
+- **M6 Token 效率引擎** `moa_gateway/efficiency/`：双 ephemeral cache_control
+  标记（末尾 2 条消息）、不可变 system prompt + system_injected 侧信道、
+  Insert-then-Compress（真实抽取式压缩 + chunk 归档）、266s 空闲压缩调度器
+  （<5min 缓存 TTL；150K tokens / 200 条阈值 → 10K 目标、保留最近 20 条）、
+  缓存命中率指标；HTTP：POST /v1/efficiency/prepare、POST /v1/efficiency/compress-session、
+  GET /v1/efficiency/metrics
+- **M7 技能中心** `moa_gateway/skillhub/`：SKILL.md 加载器（YAML frontmatter）、
+  内置技能包 + 扩展目录 + 用户目录、模糊搜索、invoke_skill 元工具（真实走
+  ModelPool 管道）、自然语言建技能（LLM 路径 + 确定性回退，产出真实可用文件）、
+  自进化钩子（使用统计 + 改进建议持久化）；HTTP 完整 CRUD：
+  GET/POST /v1/skills、GET/PUT/DELETE /v1/skills/{name}、
+  POST /v1/skills/search、POST /v1/skills/{name}/invoke、
+  GET /v1/skills/{name}/stats、GET /v1/skills/evolution/suggestions
+- **M8 IM 渠道层** `moa_gateway/channels/`：适配器抽象 + 诚实状态机
+  （unconfigured/configured/running），Telegram / 飞书 / 钉钉 / 企业微信 /
+  Discord 五平台真实协议实现（httpx，凭据走 MOA_* 环境变量，含平台验签）、
+  会话路由持久化、UIController 写回（入站→真实 ModelPool→出站，file:// 噪声过滤）；
+  HTTP：GET /v1/channels、GET /v1/channels/bindings、POST /v1/channels/{name}/send、
+  POST /v1/channels/{name}/webhook
+- **M9 轻量子代理路由** `moa_gateway/subagent_routing/`：fork 前缀检测、
+  lite 模型映射注册 API、forbidden_tools 过滤、摘要折叠 + 成本合并；
+  invoke_lite_subagent 工具已注册进 /v1/agent legacy 工具面
+  （function_call 能力开关守卫）；HTTP：GET /v1/subagent/config、POST /v1/subagent/route
+
+### 新增 — MemoraX Code 集成（https://github.com/memorax-ai/memorax-code，MIT）
+- **M10 跨会话记忆层** `moa_gateway/memory/`：5 类记忆
+  （core/episodic/semantic/procedural/unclassified）、作用域模型
+  effective_user_id=f(base_user, repo_key)、三端点 hook 协议（turn-start /
+  writeback / skill-reminder，fail-closed 键白名单）、混合召回
+  （top_k=6、dense+sparse、min_semantic_similarity、4000 字符上下文预算、
+  `<memories>` XML 渲染）、写回管道（turn 关联→PII 脱敏（邮箱/手机/身份证/
+  银行卡 Luhn/API key/信用卡）→缓冲 8 轮/600s/128K→8K 分块 5% 重叠 group_id→
+  幂等入库）；已接线 assistant runs（retrieval_enabled / writeback_enabled
+  双开关，默认全关，记忆钩子永不破坏 run 路径）；
+  HTTP：POST /v1/memory/turn-start|writeback|skill-reminder、
+  GET /v1/memory/recall、GET /v1/memory/items、DELETE /v1/memory/items/{item_id}
+- **M11 工作区记忆** `moa_gateway/workspace_memory/`：.moa_memory 目录结构、
+  facet 脚本机制（真实子进程执行产出 markdown）、adaptive 更新策略（真实 diff）、
+  supervisor 锁；HTTP：GET /v1/workspace-memory/status、POST /v1/workspace-memory/update
+
+### 新增 — 管理面与交付物
+- **M12 admin-ui**：routing / quota / compression / free-tiers / memory /
+  skills / channels 七个管理页面（完整 CRUD + 配置 + 演练面板），
+  next build 通过
+- 能力开关新增 9 项（routing_strategies / quota_scheduler /
+  stacked_compression / free_tiers / a2a / token_efficiency / skillhub /
+  channels / memory），关闭即对应端点 503，状态持久化
+- 配置：config.py 新增 9 个 pydantic 配置类，config.yaml 同步；
+  compression.default_mode 修引号（YAML 1.1 裸 off→布尔 false 问题）
+- 桌面端 4.1.0、移动端 1.1.0（versionCode 2）；交付 APK + Windows NSIS/便携版
+
+### 验证
+- v4.0.0 基线 1435 测试零回归 + 新增测试（最终数字见 DELIVERY_REPORT_v4.1.md）
+- 诚实扫描（stub/mock/fake/placeholder/TODO/FIXME）全部新模块零命中
+- 装配冒烟：273 个端点路径，31 个 v4.1 新路由全部注册，routing_fusion 自动注册
+
+## [4.0.0] — 2026-08-21 — 十一轮审计 P 项清零 + 交付物固化
+
+### 修复 — 多模态接线缺陷（写了没接线 / 空 key 硬编码）
+- **P0 图像生成空 key**：`routes/vision.py` `/v1/images/generations` 原先硬编码
+  `api_key=""` 调 `build_multimodal_provider`，配了真 key 也永远走 MockImageProvider。
+  现按 platform 从 env 读真实凭据（ZHIPU_API_KEY→cogview/zhipu、OPENAI_API_KEY→openai、
+  WANX_API_KEY/DASHSCOPE_API_KEY→wanx，含 *_API_BASE 覆盖；占位 key 按 is_mock_key
+  视为未配置），`auto` 优先选有 key 的平台；无 key 才按 `settings.mock.mode`
+  走 explicit（200+X-MOA-Mock）/ disabled（503）既有分支
+- **音乐生成接线**：`music_generation_provider.py`（MiniMax/天工）原无路由。
+  新增 `routes/music.py`：`POST /v1/audio/music`（异步任务）+
+  `GET /v1/audio/music/tasks/{task_id}`，读 MINIMAX_API_KEY/TIANGONG_API_KEY，
+  require_api_key + 任务属主校验 + mock 策略（新增 MockMusicProvider，
+  mock 查询仅认本网关创建的任务，任意 id 404）；请求/响应模型进
+  `req_models.py`（extra=forbid）；能力开关新增 `music`
+- **专用 ASR/TTS 接线**：`routes/audio.py` `/v1/audio/transcriptions` 与
+  `/v1/audio/speech` 新增 provider 参数（auto/openai/dashscope/iflytek），
+  auto 按可用 key 优先级选（WHISPER/OPENAI → IFLYTEK → 专用 DASHSCOPE_ASR/TTS key），
+  无专用 key 时保留 ElevenLabs/开源标注 mock 旧路径；显式 provider 无 key 时
+  按 mock.mode explicit（标注 mock 200）/ disabled（503）。ElevenLabs 编辑/克隆路径不变
+- **Kling 视频生成接线**：`video_generation_provider.py` KlingVideoProvider 原无调用方。
+  `routes/video.py` 新增 `POST /v1/video/generations`（platform=auto/kling/runway）+
+  `GET /v1/video/generations/tasks/{task_id}`，kling 读 KLING_API_KEY，与既有
+  runway 路径并存；Kling 任务状态归一化为 processing/completed/failed
+- `.env.example` 补全上述全部 env（KLING/RUNWAY/TRIPO3D/MESHY/SD/MINIMAX/TIANGONG/
+  WHISPER/DASHSCOPE(_ASR/_TTS)/IFLYTEK 及 *_API_BASE），逐项注明对应能力端点
+- 测试 `tests/test_multimodal_wiring.py`：42 例（路由注册/OpenAPI 可见性、
+  有 key→真实 provider（无 X-MOA-Mock）、无 key×explicit→200+X-MOA-Mock、
+  无 key×disabled→503、mock 任务 404、状态归一化、占位 key 视为未配置）
+
+### 新增 — 多 AI 同框对话（Dialogue Rooms）
+- 新模块 `moa_gateway/dialogue/`：多个 AI 参与者在同一对话房间内围绕主题实时发言，
+  所有发言均为 `model_pool.call` 真实 LLM 调用（无真实 key 时按 `settings.mock.mode`
+  走 MockProvider 并显式标注 `mock=true`，延续 D6 显式 mock 政策）
+- 三种编排模式：
+  - `round_robin` 轮流发言：每轮每个参与者按序调用，上下文=完整共享历史（含其他 AI 发言，标注发言者）
+  - `parallel_think` 并行思考：`asyncio.gather` 所有参与者并行调用，全部返回后汇总进历史（每条独立可见）
+  - `free_talk` 自由讨论：主持人 LLM 每轮输出 JSON `{speaker, reason}` 决定下一位发言者，
+    连续 3 轮无进展或同一发言者连续独白自动收敛
+- 每轮 `max_rounds` 上限 + 单参与者超时；调用失败记录真实失败证据（status=error/timeout），绝不伪造内容
+- `dialogue/storage.py`：rooms/messages 持久化（DatabaseEngine 工厂，SQLite WAL），重启可恢复，按房间分页查历史
+- 路由 `routes/dialogue.py`（全部 `require_api_key` + POST 端点 per-key 限流）：
+  `POST/GET /v1/dialogue/rooms`、`GET/DELETE /v1/dialogue/rooms/{id}`、
+  `POST /v1/dialogue/rooms/{id}/messages`（用户发言触发一轮多 AI 响应）、
+  `GET /v1/dialogue/rooms/{id}/stream`（SSE 逐参与者推送，provider 支持流式时逐 token delta）
+- 事件流格式：`{room_id, round, speaker, delta/final, status, mock}`，带环形缓冲支持 SSE 回放
+- 请求模型进 `req_models.py`（`extra=forbid`）；`server.py` 注册 `dialogue_router`
+- 测试 `tests/test_dialogue.py`：46 例（三模式行为、房间 CRUD、持久化恢复、失败/超时证据、
+  max_rounds、事件格式、鉴权、SSE 回放、端到端 2 参与者真实产出）
+
+### 安全 P0 — SSRF 编码 IP 归一化改为平台无关（v3.1.1 遗留绕过）
+- `utils/url_validator.py`：编码 IP 字面量的识别与归一化不再委托 `socket.getaddrinfo`
+  （其解释平台相关：Windows 把 `http://2130706433/` 解析到公网地址导致放行）。
+  现在在 DNS 解析之前用自实现的 inet_aton 语义归一化：纯十进制整数（2130706433）、
+  十六进制（0x7f000001、0x7f.0x0.0x0.0x1）、八进制（0177.0.0.1）、混合点分短式
+  （127.0.1、0x7f.1）、全部 IPv6 文本形式（::1、::ffff:127.0.0.1、::ffff:7f00:1、
+  压缩/展开式），归一化后直接走 `_ip_is_dangerous` 判定
+- 补堵 IPv4-compatible IPv6（::/96）：Python ipaddress 标志位视其为公网，
+  实际可达内嵌 IPv4（::7f00:1 即 127.0.0.1），整段拉黑
+- 补堵前导零八/十进制双解歧义（010.010.010.010、02130706433）：任一种解读
+  落入危险段即拦截，两种解读均为公网才放行（如 01.1.1.1）
+- 归一化失败且非合法域名形式 → fail-closed 拦截（如 127.0.0.256、1.2.3.4.5）；
+  合法普通域名行为不变，仍走 DNS 全解析检查
+- `tests/test_v311_fixes.py`：TestSSRFValidator 新增 19 个编码变体拦截用例 +
+  6 个公网放行反例（8.8.8.8、example.com 等），既有用例期望不变
+
+### 修复 — 收尾审计新发现（P7–P10 清零过程中的真实缺陷）
+- **CLI 入口路由 bug**：`python -m moa_gateway --port 8088` 原会把 `--port`
+  当子命令透传给 `cli.main`，报 `invalid choice: '--port'`。`__main__.py` 改为
+  先判别首参：非已知子命令（chat/run-moa/models/discover/prompts/mcp/config/
+  params/workflow/setup/ask）一律按 serve 处理，argparse 解析 `--host/--port/--workers`
+  后启动 uvicorn；已知子命令仍委托 `cli.main`
+- **多模态全失败证据丢失**：`task_pipeline.py` 原先 multimodal fanout 全败时抛裸
+  `RuntimeError`，FanoutResult 里的逐平台失败证据被丢弃，supervisor 自愈也无从利用。
+  新增 `MultimodalAllFailedError`（携带 `result.to_dict()`），`_run_one` 捕获后把
+  证据写入 `task.output`；`_heal_reroute` 改为剔除永久不可用平台（no_key /
+  skipped_mock_unavailable）后重试，永久不可用且无可重试平台时保持 failed 终态并留证
+- **新端点缺 per-key 限流**：`routes/multimodal.py`、`routes/task_pipeline.py`
+  补齐与 chat/moa/dialogue 一致的 `get_limiter().check_and_incr` 鉴权限流
+- **WebUI 重复 escapeHtml**：`index.html` 存在两个 `escapeHtml`（行 1451 版本不完整，
+  未转义引号），删除之，保留行 2277 完整版；`node --check` 通过，单 `<script>` 标签
+- **真实冒烟（P7-4）**：真实启动 uvicorn（端口 18910，真实 API key 鉴权），
+  6/6 通过：WebUI 加载、房间创建/查询/列表/删除、SSE 流连接（keep-alive 帧）
+- 新增测试：`tests/test_cli_basic.py` +2（入口路由 serve 标志 / 已知子命令委托）、
+  `tests/test_task_pipeline.py` +2（自愈剔除坏平台 / 永久不可用保持 failed）
+- 全量回归 **1435 passed, 0 failed**（干净重跑，含本轮全部修复，详见 RELEASE_NOTES_v4.0.md）；
+  版本 3.1.1 → 4.0.0
 
 ## [3.1.1] — 2026-08-16 — 十轮全量审计修复（P0/P1 清零）
 

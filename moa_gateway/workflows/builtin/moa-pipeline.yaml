@@ -1,0 +1,57 @@
+name: "moa-pipeline"
+description: "MOA graph pipeline (P4-4) — two parallel layered-committee analyses merged by a final layered committee. Demonstrates moa_graph steps with dependency waves."
+version: "1.0"
+
+steps:
+  # ---- Wave 1: two independent moa_graph nodes run in parallel ----
+  - id: "research"
+    type: "moa_graph"
+    inputs:
+      prompt: "Deeply analyze the following task and produce the core solution:\n\n{{task}}"
+      strategy: "layered"
+      preset: "balanced"
+      reference_count: 3
+    outputs:
+      - "research_result"
+
+  - id: "risk_review"
+    type: "moa_graph"
+    inputs:
+      prompt: "Identify risks, edge cases and failure modes for this task:\n\n{{task}}"
+      strategy: "layered"
+      preset: "balanced"
+      reference_count: 3
+    outputs:
+      - "risk_result"
+
+  # ---- Wave 2: depends on both wave-1 nodes; merges them ----
+  - id: "synthesize"
+    type: "moa_graph"
+    depends_on: ["research", "risk_review"]
+    inputs:
+      prompt: >-
+        Produce the final deliverable by combining the core solution and the
+        risk review. Address every identified risk.
+
+
+        Core solution:
+        {{steps.research.output}}
+
+
+        Risk review:
+        {{steps.risk_review.output}}
+      strategy: "layered"
+      preset: "quality"
+      reference_count: 3
+      critic_rounds: 1
+    outputs:
+      - "final_report"
+
+  # ---- Wave 3: deterministic formatting over the merged graph output ----
+  - id: "format"
+    type: "transform"
+    depends_on: ["synthesize"]
+    inputs:
+      template: "=== MOA GRAPH PIPELINE REPORT ===\n{{steps.synthesize.output}}"
+    outputs:
+      - "report"

@@ -8,15 +8,18 @@ because only literal IP strings were checked. Encoded IP forms
 also bypassed the ``ipaddress.ip_address`` parse and were treated as
 ordinary domain names.
 
-This module is now the single source of truth. Before any DNS lookup it
-canonicalizes numeric IP literals with inet_aton semantics (decimal / hex /
-octal, 1-4 dot-separated parts) so the check is platform independent —
-glibc's ``getaddrinfo`` normalizes those forms, but the Windows resolver
-does not, and a resolver that answers for arbitrary hostnames would
-otherwise turn an encoded loopback literal into a "resolvable domain".
-It then resolves every remaining hostname via ``socket.getaddrinfo`` and
-rejects the URL if ANY resolved address is loopback, private, link-local,
-reserved, multicast or unspecified.
+This module is the single source of truth. Encoded IP literals —
+single-integer, octal, hex and short-dotted IPv4, plus every IPv6 text
+form — are recognized and normalized platform-independently BEFORE any
+DNS lookup and judged directly against the blocked-range list. Relying on
+``socket.getaddrinfo`` for that normalization is unsafe: its handling of
+encoded forms is platform-specific (glibc applies full inet_aton(3)
+semantics and maps ``2130706433`` to 127.0.0.1, while Windows resolved
+the same host to a public address, letting the request through).
+Ordinary domain names are still resolved via ``socket.getaddrinfo`` and
+the URL is rejected if ANY resolved address is loopback, private,
+link-local, reserved, multicast or unspecified. Hostnames that are
+neither a valid IP literal nor a plausible domain name fail closed.
 """
 from __future__ import annotations
 
@@ -74,13 +77,15 @@ _BLOCKED_NETWORKS = tuple(
         "fe80::/10",          # link-local
         "fec0::/10",          # deprecated site-local
         "ff00::/8",           # multicast
-        # v3.2.1 (red-team): IPv6 transition mechanisms can embed IPv4
-        # addresses the explicit list above never sees.
-        "2002::/16",          # 6to4 — [2002:7f00:1::] embeds 127.0.0.1
-        "2001:0::/32",        # Teredo
-        "192.88.99.0/24",     # 6to4 relay anycast
     )
 )
+
+# Deprecated IPv4-compatible IPv6 addresses (::/96, RFC 4291 section 2.5.5.1).
+# Python's ipaddress flags report them as global/public, but the embedded
+# IPv4 address is what a stack would actually reach (``::7f00:1`` IS
+# 127.0.0.1). No legitimate public target lives in this deprecated range,
+# so block it wholesale.
+_IPV4_COMPAT_V6 = ipaddress.ip_network("::/96")
 
 
 def _ip_is_dangerous(ip_str: str) -> bool:
@@ -93,6 +98,10 @@ def _ip_is_dangerous(ip_str: str) -> bool:
     # IPv4-mapped IPv6 (::ffff:127.0.0.1) — judge the embedded IPv4 too.
     if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
         ip = ip.ipv4_mapped
+
+    # IPv4-compatible IPv6 (::x.x.x.x) — deprecated range, see above.
+    if isinstance(ip, ipaddress.IPv6Address) and ip in _IPV4_COMPAT_V6:
+        return True
 
     if any(ip in net for net in _BLOCKED_NETWORKS):
         return True
@@ -109,64 +118,186 @@ def _ip_is_dangerous(ip_str: str) -> bool:
     )
 
 
-def _canonicalize_numeric_host(host: str) -> ipaddress.IPv4Address | None:
-    """Canonicalize a numeric host with inet_aton semantics.
+# ---------------------------------------------------------------------------
+# Platform-independent IP-literal normalization (audit P0 follow-up).
+#
+# socket.getaddrinfo() interprets encoded IPv4 forms (single integer,
+# octal, hex, short dotted) differently per platform: glibc applies full
+# inet_aton(3) semantics, while Windows resolved http://2130706433/
+# (decimal 127.0.0.1) to a public address in the wild — letting the
+# request through. We therefore recognize and normalize IP literals
+# ourselves, before any DNS lookup, using the broadest (inet_aton)
+# interpretation any real HTTP stack applies.
+# ---------------------------------------------------------------------------
 
-    Accepts decimal/hex/octal parts, 1-4 dot-separated parts, e.g.
-    ``2130706433``, ``0x7f000001``, ``0177.0.0.1``, ``127.1``, ``0x7f.0.0.1``.
+_DEC_DIGITS = frozenset("0123456789")
+_OCT_DIGITS = frozenset("01234567")
+_HEX_DIGITS = frozenset("0123456789abcdef")
 
-    Returns the canonical IPv4Address, ``None`` when the host is not a
-    numeric literal (a regular DNS name — including bare hex words like
-    ``deadbeef``, which inet_aton also treats as a name), and raises
-    ``ValueError`` when the host *is* numeric-looking but malformed or
-    overflows a 32-bit address (caller must fail closed).
+# Characters that can never appear in a DNS name / IDNA label. Anything
+# not listed here is left to the DNS path, which still rejects every
+# dangerous resolved address — permissiveness here cannot open a bypass.
+_DOMAIN_FORBIDDEN = frozenset(" \t\r\n\f\v[]%\\'\"<>^`{|}~!$&()*+,;=:@#?/")
+
+
+def _parse_aton_part(part: str) -> int:
+    """Parse one inet_aton(3) address part: ``0x`` hex, ``0`` octal, decimal.
+
+    Raises ValueError for empty or malformed parts. Mirrors glibc
+    semantics: a leading ``0`` (without ``x``) selects octal, so ``09``
+    is invalid, and unprefixed hex is not accepted.
     """
-    if not host or not host[0].isdigit() and host[0] not in ("." ,):
-        return None
+    if not part:
+        raise ValueError("empty address part")
+    p = part.lower()
+    if p.startswith("0x"):
+        digits = p[2:]
+        if not digits or any(c not in _HEX_DIGITS for c in digits):
+            raise ValueError(f"invalid hex address part {part!r}")
+        return int(digits, 16)
+    if len(p) > 1 and p[0] == "0":
+        digits = p[1:]
+        if any(c not in _OCT_DIGITS for c in digits):
+            raise ValueError(f"invalid octal address part {part!r}")
+        return int(digits, 8)
+    if any(c not in _DEC_DIGITS for c in p):
+        raise ValueError(f"invalid address part {part!r}")
+    return int(p, 10)
 
+
+def _inet_aton(host: str) -> str:
+    """Normalize an inet_aton-style IPv4 literal to canonical dotted form.
+
+    Accepts 1-4 dot-separated parts of decimal / octal / hex digits::
+
+        1 part  -> 32-bit address   2130706433, 0x7f000001, 017700000001
+        2 parts -> 8 + 24 bits      0x7f.1
+        3 parts -> 8 + 8 + 16 bits  127.0.1
+        4 parts -> 4 x 8 bits       0177.0.0.1
+
+    Raises ValueError for anything outside that grammar (including
+    out-of-range parts), which callers turn into a fail-closed reject.
+    """
     parts = host.split(".")
-    if any(p == "" for p in parts):
-        raise ValueError(f"empty component in numeric host: {host}")
+    if not 1 <= len(parts) <= 4:
+        raise ValueError(f"expected 1-4 address parts, got {len(parts)}")
+    values = [_parse_aton_part(p) for p in parts]
+    widths = [8] * (len(values) - 1) + [32 - 8 * (len(values) - 1)]
+    addr = 0
+    for value, width in zip(values, widths):
+        if value >= 1 << width:
+            raise ValueError(f"address part {value} exceeds {width}-bit field")
+        addr = (addr << width) | value
+    return str(ipaddress.IPv4Address(addr))
 
-    # Parse each component: 0x-prefixed hex, leading-0 octal, else decimal.
-    # A component containing non-[0-9] characters (other than a 0x prefix's
-    # hex digits) means this is not a numeric host at all.
-    values: list[int] = []
-    for p in parts:
-        if p.startswith("0x") or p.startswith("0X"):
-            try:
-                values.append(int(p, 16))
-            except ValueError:
-                raise ValueError(f"bad hex component: {p}") from None
-            continue
-        if not p.isdigit():
-            return None
+
+def _alternate_decimal_dangerous(host: str) -> bool:
+    """Judge the all-decimal reading of an ambiguous leading-zero literal.
+
+    Parts like ``010`` are interpreted as octal by glibc inet_aton (the
+    primary reading used by ``_inet_aton``) but as *decimal* by other
+    stacks (.NET ``IPAddress.Parse``, legacy Windows parsers). If the
+    host contains such parts and the all-decimal reading is a valid
+    address, it must be judged too — the literal is blocked when EITHER
+    interpretation reaches a dangerous range. Returns False when there is
+    no leading-zero ambiguity or the decimal reading is not a valid
+    address (i.e. no stack could reach it that way).
+    """
+    parts = host.split(".")
+    if not 1 <= len(parts) <= 4:
+        return False
+    ambiguous = False
+    values = []
+    for part in parts:
+        p = part.lower()
+        if not p or any(c not in _DEC_DIGITS for c in p):
+            return False  # hex/non-numeric part -> no decimal reading exists
         if len(p) > 1 and p[0] == "0":
-            values.append(int(p, 8))
-        else:
-            values.append(int(p, 10))
+            ambiguous = True
+        values.append(int(p, 10))
+    if not ambiguous:
+        return False
+    widths = [8] * (len(values) - 1) + [32 - 8 * (len(values) - 1)]
+    addr = 0
+    for value, width in zip(values, widths):
+        if value >= 1 << width:
+            return False  # decimal reading out of range -> unreachable
+        addr = (addr << width) | value
+    return _ip_is_dangerous(str(ipaddress.IPv4Address(addr)))
 
-    n = len(values)
-    if n == 1:
-        total = values[0]
-        if total > 0xFFFFFFFF:
-            raise ValueError(f"numeric host overflows 32 bits: {host}")
-    elif n == 2:
-        if values[1] > 0xFFFFFF:
-            raise ValueError(f"numeric host overflows 24-bit final part: {host}")
-        total = (values[0] << 24) | values[1]
-    elif n == 3:
-        if values[2] > 0xFFFF:
-            raise ValueError(f"numeric host overflows 16-bit final part: {host}")
-        total = (values[0] << 24) | (values[1] << 16) | values[2]
-    elif n == 4:
-        if any(v > 0xFF for v in values):
-            raise ValueError(f"octet out of range in {host}")
-        total = (values[0] << 24) | (values[1] << 16) | (values[2] << 8) | values[3]
-    else:
-        raise ValueError(f"too many components in numeric host: {host}")
 
-    return ipaddress.IPv4Address(total)
+def _ip_literal_attempt(host: str) -> bool:
+    """True when every dot-separated label starts with an ASCII digit.
+
+    Every inet_aton encoding (decimal / octal / hex, single or dotted)
+    starts with a digit. Real domains may contain digit-initial labels
+    (``360.com``), but then at least one label does not start with a
+    digit — so only all-digit-initial hosts are treated as IP-literal
+    attempts and held to the inet_aton grammar.
+    """
+    return all(part and part[0] in _DEC_DIGITS for part in host.split("."))
+
+
+def _looks_like_domain(host: str) -> bool:
+    """Conservative DNS-name shape check.
+
+    Deliberately permissive on what it accepts as "resolvable" (the DNS
+    path still validates every returned address); strict on characters
+    and label geometry that can never be a hostname.
+    """
+    if not host or len(host) > 253:
+        return False
+    if any(c in _DOMAIN_FORBIDDEN or ord(c) < 0x20 for c in host):
+        return False
+    for label in host.split("."):
+        if not label or len(label) > 63:
+            return False
+        if label.startswith("-") or label.endswith("-"):
+            return False
+    return True
+
+
+def _normalize_host_ip(host: str) -> tuple[str | None, str | None]:
+    """Classify a hostname without consulting getaddrinfo.
+
+    Returns:
+      ``(ip, None)``     — host is an IP literal in some classic encoding,
+                           normalized to canonical IPv4/IPv6 text;
+      ``(None, None)``   — plausible DNS name, must go through resolution;
+      ``(None, reason)`` — neither a valid IP literal nor a plausible
+                           domain name; caller must fail closed.
+    """
+    h = host.strip().rstrip(".")  # trailing-dot / FQDN-root tricks
+    if not h:
+        return None, "empty hostname"
+
+    if ":" in h:
+        # urlparse already stripped the brackets of an IPv6 literal, and a
+        # colon can never appear in a DNS name. Covers compressed forms,
+        # ::1, ::ffff:127.0.0.1, ::ffff:7f00:1, zone-indexed link-local.
+        try:
+            return str(ipaddress.IPv6Address(h)), None
+        except ValueError:
+            return None, f"invalid IPv6 literal: {host}"
+
+    # Strict dotted-quad IPv4 (fast path for the common case).
+    try:
+        return str(ipaddress.IPv4Address(h)), None
+    except ValueError:
+        pass
+
+    # Encoded IPv4: single integer / octal / hex / short dotted forms.
+    if _ip_literal_attempt(h):
+        try:
+            return _inet_aton(h), None
+        except ValueError as e:
+            return None, f"invalid encoded IP literal {host!r}: {e}"
+
+    if _looks_like_domain(h):
+        return None, None
+    return None, (
+        f"hostname {host!r} is neither a valid IP literal nor a domain name"
+    )
 
 
 def is_safe_external_url(
@@ -180,10 +311,14 @@ def is_safe_external_url(
     1. scheme is http/https;
     2. hostname present and not a known-internal name;
     3. explicit env override for trusted internal deployments;
-    4. numeric IP literals — canonicalized with inet_aton semantics
-       (decimal / hex / octal, 1-4 parts) and checked directly, with no
-       DNS round-trip; malformed numeric hosts fail closed;
-    5. DNS resolution — EVERY returned address must be public.
+    4. platform-independent IP-literal normalization — encoded IPv4 forms
+       (single integer, octal, hex, short dotted) and IPv6 literals are
+       normalized and judged directly against the blocked-range list,
+       without getaddrinfo (whose encoded-IP handling is platform-
+       specific); hosts that are neither a valid IP literal nor a
+       plausible domain name fail closed;
+    5. DNS resolution for ordinary domain names — EVERY returned address
+       must be public (guards against DNS-rebinding).
     """
     try:
         parsed = urlparse(url)
@@ -197,11 +332,10 @@ def is_safe_external_url(
     if not host:
         return False, "no hostname in URL"
 
-    host_l = host.lower()
-    # strip one trailing dot (absolute FQDN form) so "metadata.google.internal."
-    # still hits the blocklists (v3.2.1 red-team finding)
-    if host_l.endswith("."):
-        host_l = host_l.rstrip(".")
+    # Lowercase + strip FQDN trailing dot so name-based blocklist entries
+    # ("localhost", ".internal") cannot be evaded with "LOCALHOST." etc.
+    host_l = host.lower().rstrip(".")
+
     if host_l in _BLOCKED_HOSTS or any(host_l.endswith(s) for s in _BLOCKED_SUFFIXES):
         return False, f"blocked internal hostname: {host}"
 
@@ -209,17 +343,24 @@ def is_safe_external_url(
     if os.environ.get(allow_internal_env) == "1":
         return True, ""
 
-    # Platform-independent IP-literal check before any DNS interaction.
-    # glibc normalizes encoded literals, the Windows resolver does not —
-    # and a resolver that wildcard-answers every name would otherwise turn
-    # an encoded loopback literal into a "resolvable public domain".
-    try:
-        literal = _canonicalize_numeric_host(host_l)
-    except ValueError as e:
-        return False, f"malformed numeric host: {host} ({e})"
-    if literal is not None:
-        if _ip_is_dangerous(str(literal)):
-            return False, f"blocked address literal: {host} ({literal})"
+    # Platform-independent IP-literal check BEFORE any DNS lookup. Closes
+    # the encoded-IP bypass class (decimal / octal / hex / short dotted
+    # IPv4 and all IPv6 text forms) that getaddrinfo normalizes
+    # differently per platform.
+    ip_literal, ip_error = _normalize_host_ip(host_l)
+    if ip_error is not None:
+        return False, ip_error
+    if ip_literal is not None:
+        if _ip_is_dangerous(ip_literal):
+            return False, (
+                f"hostname {host} is a blocked IP literal ({ip_literal})"
+            )
+        if _alternate_decimal_dangerous(host_l):
+            return False, (
+                f"hostname {host} is an ambiguous octal/decimal IP literal "
+                f"whose decimal reading is a blocked address"
+            )
+        # Canonical public IP literal — safe without any resolution.
         return True, ""
 
     # Resolve and check every address the name maps to.

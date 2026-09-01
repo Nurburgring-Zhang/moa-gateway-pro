@@ -13,6 +13,8 @@ from pydantic import BaseModel, Field
 from .._helpers import mock_headers
 from ..auth import require_api_key
 from ..capability_toggles import require_capability
+from ..providers.audio_asr_provider import ASRProvider
+from ..providers.audio_tts_provider import TTSProvider
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["audio"])
@@ -29,6 +31,15 @@ class TTSRequest(BaseModel):
     voice: str = Field(default="alloy", description="Voice name/ID")
     response_format: str = Field(default="mp3", pattern=r"^(mp3|opus|aac|flac|wav)$")
     speed: float = Field(default=1.0, ge=0.25, le=4.0)
+    provider: str = Field(
+        default="auto",
+        pattern=r"^(auto|openai|dashscope|iflytek)$",
+        description=(
+            "TTS backend: auto picks by available key priority "
+            "(OPENAI_API_KEY → IFLYTEK_API_KEY → DASHSCOPE_TTS_API_KEY), "
+            "then falls back to the ElevenLabs/open-source path"
+        ),
+    )
 
 
 class TranscriptionResponse(BaseModel):
@@ -63,23 +74,71 @@ async def text_to_speech(
     req: TTSRequest,
     key_info: dict[str, Any] = Depends(require_api_key),
 ):
-    """Generate speech from text. OpenAI /v1/audio/speech compatible."""
-    provider = _get_audio_provider()
+    """Generate speech from text. OpenAI /v1/audio/speech compatible.
 
-    # Audit F24: the open-source provider's TTS is a labeled mock (no real
-    # synthesis); mark the response with X-MOA-Mock so clients know.
-    tts_is_mock = provider.__class__.__name__ == "OpenSourceAudioEditProvider"
+    provider selects the TTS backend:
+    - auto: dedicated providers by key priority (OPENAI_API_KEY →
+      IFLYTEK_API_KEY → DASHSCOPE_TTS_API_KEY); without those keys the
+      legacy ElevenLabs / labeled open-source path is kept.
+    - openai / dashscope / iflytek: force the dedicated provider.
+    """
+    provider_name = req.provider
+    tts_impl = None
+    tts_is_mock = False
+
+    if provider_name == "auto":
+        selected = _auto_select_tts()
+        if selected is not None:
+            provider_name = selected
+        else:
+            # Legacy path: ElevenLabs (real key) or labeled open-source mock.
+            tts_impl = _get_audio_provider()
+            tts_is_mock = tts_impl.__class__.__name__ == "OpenSourceAudioEditProvider"
+            if tts_is_mock and _mock_mode() == "disabled":
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "TTS provider not configured (set OPENAI_API_KEY, IFLYTEK_API_KEY, "
+                        "DASHSCOPE_TTS_API_KEY or ELEVENLABS_API_KEY)"
+                    ),
+                )
+
+    if tts_impl is None:
+        api_key, api_base = _resolve_tts_credentials(provider_name)
+        if api_key:
+            tts_impl = _build_tts_provider(provider_name, api_key, api_base)
+        elif _mock_mode() == "explicit":
+            # No real key + explicit mock policy → labeled synthetic audio.
+            from ..providers.audio_edit_provider import OpenSourceAudioEditProvider
+
+            tts_impl = OpenSourceAudioEditProvider()
+            tts_is_mock = True
+        else:
+            raise HTTPException(
+                status_code=503,
+                detail=f"TTS provider '{provider_name}' not configured (missing API key)",
+            )
 
     # Map OpenAI model names to ElevenLabs model IDs
     elevenlabs_model = _TTS_MODEL_MAP.get(req.model, req.model)
 
     try:
-        audio_bytes = await provider.text_to_speech(
-            text=req.input,
-            voice=req.voice,
-            model=elevenlabs_model,
-            output_format=req.response_format,
-        )
+        if isinstance(tts_impl, TTSProvider):
+            # Dedicated TTS providers implement synthesize().
+            audio_bytes = await tts_impl.synthesize(
+                text=req.input,
+                voice=req.voice,
+                audio_format=req.response_format,
+            )
+        else:
+            # Audit F24: the open-source provider's TTS is a labeled mock (no
+            # real synthesis); mark the response with X-MOA-Mock so clients know.
+            audio_bytes = await tts_impl.text_to_speech(
+                text=req.input,
+                voice=req.voice,
+                model=elevenlabs_model,
+                output_format=req.response_format,
+            )
 
         content_type_map = {
             "mp3": "audio/mpeg",
@@ -96,6 +155,8 @@ async def text_to_speech(
             media_type=content_type_map.get(req.response_format, "audio/mpeg"),
             headers=headers,
         )
+    except HTTPException:
+        raise
     except NotImplementedError as e:
         raise HTTPException(status_code=501, detail=str(e)) from e
     except Exception as e:
@@ -116,9 +177,27 @@ async def transcribe_audio(
     model: str = Form(default="whisper-1"),
     language: str | None = Form(default=None),
     response_format: str = Form(default="json"),
+    provider: str = Form(
+        default="auto",
+        description=(
+            "ASR backend: auto picks by available key priority "
+            "(WHISPER_API_KEY/OPENAI_API_KEY → IFLYTEK_API_KEY → DASHSCOPE_ASR_API_KEY), "
+            "then falls back to the ElevenLabs/open-source path"
+        ),
+    ),
     key_info: dict[str, Any] = Depends(require_api_key),
 ):
-    """Transcribe audio to text. OpenAI /v1/audio/transcriptions compatible."""
+    """Transcribe audio to text. OpenAI /v1/audio/transcriptions compatible.
+
+    provider selects the ASR backend:
+    - auto: dedicated providers by key priority (openai/Whisper → iflytek →
+      dashscope/paraformer); without those keys the legacy ElevenLabs /
+      labeled open-source path is kept.
+    - openai / dashscope / iflytek: force the dedicated provider.
+    """
+    if provider not in ("auto", "openai", "dashscope", "iflytek"):
+        raise HTTPException(status_code=400, detail=f"Unknown ASR provider: {provider}")
+
     audio_bytes = await file.read()
 
     if not audio_bytes:
@@ -126,20 +205,62 @@ async def transcribe_audio(
     if len(audio_bytes) > 25 * 1024 * 1024:  # 25MB limit
         raise HTTPException(status_code=400, detail="Audio file too large (max 25MB)")
 
-    provider = _get_audio_provider()
+    provider_name = provider
+    asr_impl = None
+    asr_is_mock = False
 
-    # Audit F24: the open-source provider's ASR is a labeled mock.
-    asr_is_mock = provider.__class__.__name__ == "OpenSourceAudioEditProvider"
+    if provider_name == "auto":
+        selected = _auto_select_asr()
+        if selected is not None:
+            provider_name = selected
+        else:
+            # Legacy path: ElevenLabs (real key) or labeled open-source mock.
+            asr_impl = _get_audio_provider()
+            asr_is_mock = asr_impl.__class__.__name__ == "OpenSourceAudioEditProvider"
+            if asr_is_mock and _mock_mode() == "disabled":
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "ASR provider not configured (set WHISPER_API_KEY/OPENAI_API_KEY, "
+                        "IFLYTEK_API_KEY or DASHSCOPE_ASR_API_KEY)"
+                    ),
+                )
+
+    if asr_impl is None:
+        api_key, api_base = _resolve_asr_credentials(provider_name)
+        if api_key:
+            asr_impl = _build_asr_provider(provider_name, api_key, api_base)
+        elif _mock_mode() == "explicit":
+            # No real key + explicit mock policy → labeled synthetic text.
+            from ..providers.audio_edit_provider import OpenSourceAudioEditProvider
+
+            asr_impl = OpenSourceAudioEditProvider()
+            asr_is_mock = True
+        else:
+            raise HTTPException(
+                status_code=503,
+                detail=f"ASR provider '{provider_name}' not configured (missing API key)",
+            )
 
     try:
-        result = await provider.transcribe(
-            audio_data=audio_bytes,
-            language=language or "auto",
-            response_format=response_format,
-        )
+        if isinstance(asr_impl, ASRProvider):
+            # Dedicated ASR providers implement transcribe() -> str.
+            text = await asr_impl.transcribe(
+                audio_data=audio_bytes,
+                language=language or "zh",
+            )
+        else:
+            result = await asr_impl.transcribe(
+                audio_data=audio_bytes,
+                language=language or "auto",
+                response_format=response_format,
+            )
+            text = result.get("text", "")
         for _hk, _hv in mock_headers(asr_is_mock).items():
             response.headers[_hk] = _hv
-        return TranscriptionResponse(text=result.get("text", ""))
+        return TranscriptionResponse(text=text)
+    except HTTPException:
+        raise
     except NotImplementedError as e:
         raise HTTPException(status_code=501, detail=str(e)) from e
     except Exception as e:
@@ -254,3 +375,128 @@ def _get_audio_provider():
 
     # Fallback to open-source provider
     return OpenSourceAudioEditProvider()
+
+
+# ─── Dedicated ASR/TTS provider wiring ──────────────────────────────────────
+# audio_asr_provider.py (Whisper / DashScope paraformer / iFlytek) and
+# audio_tts_provider.py (OpenAI / DashScope sambert / iFlytek) are wired
+# here. Key rules:
+# - Placeholder keys ("your-...", "mock") count as absent (is_mock_key).
+# - auto picks by available-key priority; the platform-wide DASHSCOPE_API_KEY
+#   is deliberately NOT an auto trigger — it is the qwen-chat/wanx key and
+#   DashScope audio services require separate activation. Set the dedicated
+#   DASHSCOPE_ASR_API_KEY / DASHSCOPE_TTS_API_KEY to auto-select DashScope.
+# - Explicit provider selection accepts the plain DASHSCOPE_API_KEY.
+# - No real key → settings.mock.mode decides: explicit = labeled open-source
+#   mock (200 + X-MOA-Mock), disabled = 503.
+
+
+def _clean_key(value: str) -> str:
+    from ..providers import is_mock_key
+
+    return "" if is_mock_key(value) else value
+
+
+def _mock_mode() -> str:
+    try:
+        from ..config import get_settings
+
+        return get_settings().mock.mode
+    except Exception:
+        return "explicit"
+
+
+def _resolve_asr_credentials(provider_name: str) -> tuple[str, str]:
+    """(api_key, api_base) for an explicit ASR provider, read from env."""
+    if provider_name == "openai":
+        key = _clean_key(
+            os.environ.get("WHISPER_API_KEY", "") or os.environ.get("OPENAI_API_KEY", "")
+        )
+        base = (
+            os.environ.get("WHISPER_API_BASE", "")
+            or os.environ.get("OPENAI_API_BASE", "")
+            or "https://api.openai.com/v1"
+        )
+    elif provider_name == "dashscope":
+        key = _clean_key(
+            os.environ.get("DASHSCOPE_ASR_API_KEY", "") or os.environ.get("DASHSCOPE_API_KEY", "")
+        )
+        base = os.environ.get("DASHSCOPE_API_BASE", "") or "https://dashscope.aliyuncs.com"
+    elif provider_name == "iflytek":
+        key = _clean_key(os.environ.get("IFLYTEK_API_KEY", ""))
+        base = os.environ.get("IFLYTEK_API_BASE", "") or "https://spark-api-open.xf-yun.com"
+    else:
+        key, base = "", ""
+    return key, base
+
+
+def _resolve_tts_credentials(provider_name: str) -> tuple[str, str]:
+    """(api_key, api_base) for an explicit TTS provider, read from env."""
+    if provider_name == "openai":
+        key = _clean_key(os.environ.get("OPENAI_API_KEY", ""))
+        base = os.environ.get("OPENAI_API_BASE", "") or "https://api.openai.com/v1"
+    elif provider_name == "dashscope":
+        key = _clean_key(
+            os.environ.get("DASHSCOPE_TTS_API_KEY", "") or os.environ.get("DASHSCOPE_API_KEY", "")
+        )
+        base = os.environ.get("DASHSCOPE_API_BASE", "") or "https://dashscope.aliyuncs.com"
+    elif provider_name == "iflytek":
+        key = _clean_key(os.environ.get("IFLYTEK_API_KEY", ""))
+        base = os.environ.get("IFLYTEK_API_BASE", "") or "https://spark-api-open.xf-yun.com"
+    else:
+        key, base = "", ""
+    return key, base
+
+
+def _build_asr_provider(provider_name: str, api_key: str, api_base: str) -> ASRProvider:
+    from ..providers.audio_asr_provider import (
+        IFlytekASRProvider,
+        OpenAIASRProvider,
+        QwenASRProvider,
+    )
+
+    if provider_name == "openai":
+        return OpenAIASRProvider(api_base=api_base, api_key=api_key)
+    if provider_name == "dashscope":
+        return QwenASRProvider(api_base=api_base, api_key=api_key)
+    return IFlytekASRProvider(api_base=api_base, api_key=api_key)
+
+
+def _build_tts_provider(provider_name: str, api_key: str, api_base: str) -> TTSProvider:
+    from ..providers.audio_tts_provider import (
+        IFlytekTTSProvider,
+        OpenAITTSProvider,
+        QwenTTSProvider,
+    )
+
+    if provider_name == "openai":
+        return OpenAITTSProvider(api_base=api_base, api_key=api_key)
+    if provider_name == "dashscope":
+        return QwenTTSProvider(api_base=api_base, api_key=api_key)
+    return IFlytekTTSProvider(api_base=api_base, api_key=api_key)
+
+
+def _auto_select_asr() -> str | None:
+    """Pick an ASR provider by available-key priority, or None for legacy."""
+    for candidate in ("openai", "iflytek", "dashscope"):
+        if candidate == "dashscope":
+            # Dedicated audio key only — see module note above.
+            key = _clean_key(os.environ.get("DASHSCOPE_ASR_API_KEY", ""))
+        else:
+            key, _base = _resolve_asr_credentials(candidate)
+        if key:
+            return candidate
+    return None
+
+
+def _auto_select_tts() -> str | None:
+    """Pick a TTS provider by available-key priority, or None for legacy."""
+    for candidate in ("openai", "iflytek", "dashscope"):
+        if candidate == "dashscope":
+            # Dedicated audio key only — see module note above.
+            key = _clean_key(os.environ.get("DASHSCOPE_TTS_API_KEY", ""))
+        else:
+            key, _base = _resolve_tts_credentials(candidate)
+        if key:
+            return candidate
+    return None

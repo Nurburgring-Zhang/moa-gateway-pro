@@ -1,3 +1,19 @@
+import type {
+  ChannelListResponse,
+  FreeTierEntry,
+  MemoryItem,
+  MemoryRecallResponse,
+  QuotaCheckResponse,
+  QuotaStatusResponse,
+  RoutingResolveResponse,
+  RoutingStrategiesResponse,
+  RoutingTelemetryResponse,
+  SkillDetailResponse,
+  SkillInvokeResponse,
+  SkillListResponse,
+  SkillSearchResponse,
+} from '@/types';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8910';
 
 class ApiClient {
@@ -135,6 +151,18 @@ class ApiClient {
     return this.request(`/v1/workflows/${id}/trigger`, { method: 'POST' });
   }
 
+  // Orchestrator (v3.2.1 backport) — capability registry summary {total, by_type, ...}.
+  getOrchestratorCapabilities() {
+    return this.request<Record<string, unknown>>('/v1/orchestrator/capabilities');
+  }
+
+  runOrchestration(task: string, input: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>('/v1/orchestrator/run', {
+      method: 'POST',
+      body: JSON.stringify({ task, input }),
+    });
+  }
+
   // API Keys — backend returns a bare array.
   async getApiKeys(): Promise<Array<Record<string, unknown>>> {
     const body = await this.request<unknown>('/api/admin/api-keys');
@@ -182,38 +210,209 @@ class ApiClient {
     return this.request('/api/admin/settings', { method: 'PUT', body: JSON.stringify(data) });
   }
 
-  // Orchestrator (自主编排引擎)
-  runOrchestration(task: string, input: Record<string, unknown> = {}) {
-    return this.request<Record<string, unknown>>('/v1/orchestrator/run', {
+  // ================= v4.1 integration surfaces =================
+
+  // M1 — routing strategies
+  getRoutingStrategies() {
+    return this.request<RoutingStrategiesResponse>('/v1/routing/strategies');
+  }
+
+  resolveRouting(body: {
+    candidates: Array<Record<string, unknown>>;
+    strategy?: string | null;
+    context?: Record<string, unknown> | null;
+    dry_run?: boolean;
+  }) {
+    return this.request<RoutingResolveResponse>('/v1/routing/resolve', {
       method: 'POST',
-      body: JSON.stringify({ task, input }),
+      body: JSON.stringify(body),
     });
   }
 
-  planOrchestration(task: string, input: Record<string, unknown> = {}) {
-    return this.request<Record<string, unknown>>('/v1/orchestrator/plan', {
+  getRoutingTelemetry() {
+    return this.request<RoutingTelemetryResponse>('/v1/routing/telemetry');
+  }
+
+  // M2 — quota scheduler
+  getQuotaStatus() {
+    return this.request<QuotaStatusResponse>('/v1/quota/status');
+  }
+
+  getQuotaSnapshots(endpointId?: string, limit = 100) {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (endpointId) params.set('endpoint_id', endpointId);
+    return this.request<{ count: number; snapshots: Array<Record<string, unknown>> }>(
+      `/v1/quota/snapshots?${params}`
+    );
+  }
+
+  checkQuota(body: { provider_id?: string; connection_id?: string; endpoint_id?: string }) {
+    return this.request<QuotaCheckResponse>('/v1/quota/check', {
       method: 'POST',
-      body: JSON.stringify({ task, input }),
+      body: JSON.stringify(body),
     });
   }
 
-  getOrchestratorCapabilities() {
-    return this.request<Record<string, unknown>>('/v1/orchestrator/capabilities');
-  }
-
-  getOrchestratorSkills() {
-    return this.request<Record<string, unknown>>('/v1/orchestrator/skills');
-  }
-
-  getOrchestratorScores() {
-    return this.request<Record<string, unknown>>('/v1/orchestrator/scores');
-  }
-
-  developSkill(spec: Record<string, unknown>) {
-    return this.request<Record<string, unknown>>('/v1/orchestrator/skills', {
+  refreshQuota() {
+    return this.request<Record<string, unknown>>('/v1/quota/refresh', {
       method: 'POST',
-      body: JSON.stringify(spec),
+      body: JSON.stringify({}),
     });
+  }
+
+  // M3 — prompt compression (envelopes normalized on the page side)
+  getCompressionModes() {
+    return this.request<{
+      modes: Array<{ name: string; description: string; is_default: boolean }>;
+      config?: Record<string, unknown>;
+      stacked_default_pipeline?: Array<Record<string, unknown>>;
+    }>('/v1/compression/modes');
+  }
+
+  getCompressionStats() {
+    return this.request<Record<string, unknown>>('/v1/compression/stats');
+  }
+
+  compressPrompt(body: { text?: string; messages?: Array<Record<string, unknown>>; mode?: string }) {
+    return this.request<Record<string, unknown>>('/v1/compression/compress', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  // M4 — free-tier catalog (catalog.query: page/page_size -> {total, page, page_size, items})
+  async getFreeTiers(params: {
+    provider?: string;
+    regime?: string;
+    page: number;
+    pageSize: number;
+  }): Promise<{ entries: FreeTierEntry[]; total: number | null }> {
+    const qs = new URLSearchParams({
+      page: String(params.page),
+      page_size: String(params.pageSize),
+    });
+    if (params.provider) qs.set('provider', params.provider);
+    if (params.regime) qs.set('regime', params.regime);
+    const body = await this.request<Record<string, unknown>>(`/v1/free-tiers?${qs}`);
+    // Defensive unwrap: tolerate bare-array or entries-envelope variants too.
+    const list = Array.isArray(body)
+      ? body
+      : Array.isArray(body.items)
+        ? body.items
+        : Array.isArray(body.entries)
+          ? body.entries
+          : [];
+    const total =
+      typeof body.total === 'number'
+        ? body.total
+        : typeof body.count === 'number'
+          ? body.count
+          : null;
+    return { entries: list as FreeTierEntry[], total };
+  }
+
+  getFreeTier(key: string) {
+    return this.request<Record<string, unknown>>(`/v1/free-tiers/${encodeURIComponent(key)}`);
+  }
+
+  // M10 — memory
+  getMemoryItems(params: {
+    repository: string;
+    memoryType?: string;
+    limit: number;
+    offset: number;
+  }) {
+    const qs = new URLSearchParams({
+      repository: params.repository,
+      limit: String(params.limit),
+      offset: String(params.offset),
+    });
+    if (params.memoryType) qs.set('memory_type', params.memoryType);
+    return this.request<{ items: MemoryItem[]; count: number; total: number }>(
+      `/v1/memory/items?${qs}`
+    );
+  }
+
+  deleteMemoryItem(itemId: number, repository: string) {
+    const qs = new URLSearchParams({ repository });
+    return this.request<{ deleted: boolean; id: number }>(
+      `/v1/memory/items/${itemId}?${qs}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  recallMemory(params: { query: string; repository?: string; cwd?: string }) {
+    const qs = new URLSearchParams({ query: params.query });
+    if (params.repository) qs.set('repository', params.repository);
+    if (params.cwd) qs.set('cwd', params.cwd);
+    return this.request<MemoryRecallResponse>(`/v1/memory/recall?${qs}`);
+  }
+
+  // M7 — skillhub
+  getSkills(source?: string) {
+    const qs = source ? `?source=${encodeURIComponent(source)}` : '';
+    return this.request<SkillListResponse>(`/v1/skills${qs}`);
+  }
+
+  searchSkills(query: string, topK = 5) {
+    return this.request<SkillSearchResponse>('/v1/skills/search', {
+      method: 'POST',
+      body: JSON.stringify({ query, top_k: topK }),
+    });
+  }
+
+  getSkill(name: string, withContent = false) {
+    const qs = withContent ? '?with_content=true' : '';
+    return this.request<SkillDetailResponse>(`/v1/skills/${encodeURIComponent(name)}${qs}`);
+  }
+
+  createSkill(body: {
+    name?: string;
+    description?: string;
+    content?: string;
+    meta?: Record<string, unknown>;
+    force_template?: boolean;
+  }) {
+    return this.request<Record<string, unknown>>('/v1/skills', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  }
+
+  updateSkill(
+    name: string,
+    body: { content?: string; description?: string; meta?: Record<string, unknown> }
+  ) {
+    return this.request<Record<string, unknown>>(`/v1/skills/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+  }
+
+  deleteSkill(name: string) {
+    return this.request<{ deleted: string; dir: string }>(
+      `/v1/skills/${encodeURIComponent(name)}`,
+      { method: 'DELETE' }
+    );
+  }
+
+  invokeSkill(name: string, body: { task: string; tier?: string }) {
+    return this.request<SkillInvokeResponse>(
+      `/v1/skills/${encodeURIComponent(name)}/invoke`,
+      { method: 'POST', body: JSON.stringify(body) }
+    );
+  }
+
+  // M8 — IM channels
+  getChannels() {
+    return this.request<ChannelListResponse>('/v1/channels');
+  }
+
+  sendChannelMessage(name: string, body: { chat_id: string; text: string }) {
+    return this.request<Record<string, unknown>>(
+      `/v1/channels/${encodeURIComponent(name)}/send`,
+      { method: 'POST', body: JSON.stringify(body) }
+    );
   }
 }
 

@@ -322,6 +322,221 @@ class AssistantConfig(BaseModel):
     llm_call_timeout_seconds: float = 120.0
 
 
+class MCPConfig(BaseModel):
+    """MCP external-server configuration.
+
+    Security model for the stdio launcher (spawning external MCP servers as
+    child processes):
+    - ``stdio_allowed_commands`` is a strict allowlist of executable names.
+      Any command whose basename is not in this list is refused before the
+      subprocess is ever spawned.
+    - ``stdio_strip_secret_env`` removes the gateway's own secret variables
+      from the child environment so a third-party MCP server cannot read
+      admin credentials / signing keys via ``os.environ``.
+    """
+
+    stdio_allowed_commands: list[str] = Field(
+        default_factory=lambda: ["python", "python3", "node", "npx", "uvx"]
+    )
+    stdio_strip_secret_env: bool = True
+    # Default per-request JSON-RPC timeout (seconds) for stdio clients.
+    stdio_request_timeout: float = Field(default=30.0, gt=0)
+    # Grace period (seconds) for a stdio server to exit on shutdown before kill.
+    stdio_shutdown_timeout: float = Field(default=5.0, gt=0)
+
+
+class CLIConfig(BaseModel):
+    """External CLI tool registry / execution sandbox configuration.
+
+    Security model (allowlist-only, mirrors the MCP stdio launcher):
+    - ``allowed_executables``: only these program names may ever be spawned.
+      Registering any tool whose argv[0] basename is not on the list is
+      rejected. Admins extend the list via config.yaml — never per-request.
+    - ``sandbox_dir``: default working directory for spawned children (under
+      the data dir, auto-created). A tool may only use another cwd if it is
+      whitelisted via ``allowed_dirs``.
+    - argv is always passed to subprocess as a list (never a shell string)
+      and the child env is scrubbed of gateway secrets before spawn
+      (see capability/cli_registry.py).
+    """
+
+    enabled: bool = True
+    allowed_executables: list[str] = Field(
+        default_factory=lambda: ["python", "python3", "git", "node", "curl"]
+    )
+    sandbox_dir: str = "data/cli_sandbox"
+    # Extra directories (absolute or ROOT_DIR-relative) a tool may use as cwd.
+    allowed_dirs: list[str] = Field(default_factory=list)
+    default_timeout_s: float = Field(30.0, gt=0)
+    max_timeout_s: float = Field(300.0, gt=0)
+    max_output_bytes: int = Field(1_000_000, gt=0)
+    # Hard ceiling for a single tool's registered max_output_bytes.
+    max_output_bytes_cap: int = Field(10_000_000, gt=0)
+
+
+# ============================================================================
+# v4.1.0 integration configs — derived from three MIT-licensed projects:
+# OmniRoute (routing/quota/compression/free-tiers/A2A), OpenClacky
+# (token efficiency/skills/subagents/channels), MemoraX Code (memory).
+# Attribution: see THIRD_PARTY_NOTICES.md.
+# ============================================================================
+
+
+class RoutingStrategiesConfig(BaseModel):
+    """OmniRoute-style routing strategy engine (19 public + quota-share)."""
+
+    enabled: bool = True
+    default_strategy: str = "auto"
+    # Sliding window size for per-endpoint latency/success statistics.
+    history_window: int = Field(default=100, ge=1)
+    # Auto-strategy factor weights (OmniRoute autoCombo defaults, renormalised).
+    auto_weights: dict[str, float] = Field(
+        default_factory=lambda: {
+            "quota": 0.143,
+            "health": 0.161,
+            "cost_inv": 0.143,
+            "latency_inv": 0.114,
+            "task_fit": 0.076,
+            "stability": 0.048,
+            "tier": 0.048,
+            "specificity": 0.048,
+            "context_affinity": 0.048,
+            "session_avail": 0.048,
+            "conn_density": 0.048,
+            "quality": 0.030,
+        }
+    )
+
+
+class QuotaSchedulerConfig(BaseModel):
+    """OmniRoute-style quota telemetry + quota-aware scheduling."""
+
+    enabled: bool = True
+    # Adaptive monitor cadence: normal -> fast when approaching limits.
+    poll_interval_s: float = Field(default=60.0, gt=0)
+    fast_poll_interval_s: float = Field(default=15.0, gt=0)
+    warn_threshold: float = Field(default=0.80, ge=0, le=1)
+    exhaust_threshold: float = Field(default=0.95, ge=0, le=1)
+    # Fail-open: quota uncertainty never blocks requests (OmniRoute policy).
+    fail_open: bool = True
+    max_snapshots: int = Field(default=5000, ge=100)
+
+
+class CompressionConfig(BaseModel):
+    """OmniRTK/Caveman stacked prompt-compression pipeline.
+
+    ``apply_to_chat`` is opt-in (default False): mutating request payloads by
+    default would silently alter legitimate traffic (OmniRoute hard rule #20).
+    """
+
+    enabled: bool = True
+    apply_to_chat: bool = False
+    default_mode: str = "off"  # off|lite|standard|aggressive|ultra|rtk|stacked
+    # Fidelity gate: reject a compression result that drops protected blocks.
+    fidelity_gate: bool = True
+    # Preserve blocks carrying provider cache markers byte-for-byte.
+    preserve_cache_control: bool = True
+    hard_budget_chars: int = Field(default=200_000, gt=0)
+    max_input_chars: int = Field(default=1_000_000, gt=0)
+
+
+class FreeTiersConfig(BaseModel):
+    """Free-tier catalog (OmniRoute catalog data, pool-deduped aggregation)."""
+
+    enabled: bool = True
+    # Empty = use bundled catalog resource shipped with the package.
+    catalog_path: str = ""
+
+
+class A2AConfig(BaseModel):
+    """Agent-to-Agent (A2A) JSON-RPC 2.0 surface + Agent Card."""
+
+    enabled: bool = True
+    agent_name: str = "moa-gateway-pro"
+    agent_description: str = (
+        "Industrial multi-model collaboration gateway: routing, MoA, quota-aware "
+        "scheduling, compression, skills and cross-session memory."
+    )
+    agent_version: str = "4.2.0"
+
+
+class EfficiencyConfig(BaseModel):
+    """OpenClacky-style token-efficiency harness for conversational sessions."""
+
+    enabled: bool = True
+    # Anthropic-style double cache markers on the two trailing messages.
+    cache_markers: bool = True
+    # Compression triggers (OpenClacky defaults).
+    compression_threshold_tokens: int = Field(default=150_000, gt=0)
+    compression_threshold_messages: int = Field(default=200, gt=0)
+    # Idle compression runs before the typical 5-min provider cache TTL so the
+    # compression call itself hits the warm cache (OpenClacky: 266s).
+    idle_delay_s: float = Field(default=266.0, gt=0)
+    idle_threshold_tokens: int = Field(default=20_000, gt=0)
+    target_compressed_tokens: int = Field(default=10_000, gt=0)
+    max_recent_messages: int = Field(default=20, gt=0)
+    # Raw history archive (markdown chunks) kept under the data dir.
+    archive_dir: str = "data/session_archives"
+
+
+class SkillHubConfig(BaseModel):
+    """OpenClacky-style skill ecosystem (SKILL.md + invoke_skill meta tool)."""
+
+    enabled: bool = True
+    # Extra skill directories scanned after the bundled set (first wins).
+    extra_dirs: list[str] = Field(default_factory=list)
+    max_skills_in_prompt: int = Field(default=30, ge=1)
+    # Self-evolution: reflect & rewrite a skill after N+ iterations of use.
+    evolution_enabled: bool = True
+    evolution_min_iterations: int = Field(default=5, ge=1)
+    # Auto-create a new skill when a skill-less task iterates N+ times.
+    auto_create_min_iterations: int = Field(default=12, ge=1)
+
+
+class ChannelsConfig(BaseModel):
+    """OpenClacky-style IM channel layer (Telegram/Feishu/DingTalk/WeCom/Discord)."""
+
+    enabled: bool = True
+    poll_interval_s: float = Field(default=3.0, gt=0)
+    max_message_chars: int = Field(default=8000, gt=0)
+    session_ttl_s: float = Field(default=3600.0, gt=0)
+    # Credentials come from env only (never config files):
+    #   MOA_TELEGRAM_BOT_TOKEN / MOA_FEISHU_APP_SECRET / MOA_DINGTALK_SECRET ...
+    env_prefix: str = "MOA_"
+
+
+class MemoryConfig(BaseModel):
+    """MemoraX-style cross-session memory layer.
+
+    Retrieval injection and writeback are both opt-in (default False):
+    the gateway must never mutate conversational traffic silently.
+    """
+
+    enabled: bool = True
+    retrieval_enabled: bool = False
+    writeback_enabled: bool = False
+    # Recall recipe (MemoraX defaults): small top_k + score floor + char budget.
+    top_k: int = Field(default=6, ge=1)
+    min_score: float = Field(default=0.0, ge=0, le=1)
+    max_context_chars: int = Field(default=4000, gt=0)
+    max_item_chars: int = Field(default=1000, gt=0)
+    memory_type_order: list[str] = Field(
+        default_factory=lambda: ["core", "episodic", "semantic", "procedural"]
+    )
+    # Writeback pipeline: buffer -> chunk -> idempotent store.
+    buffer_turns: int = Field(default=8, ge=1)
+    buffer_seconds: float = Field(default=600.0, gt=0)
+    buffer_chars: int = Field(default=131_072, gt=0)
+    chunk_chars: int = Field(default=8000, gt=100)
+    chunk_overlap: float = Field(default=0.05, ge=0, le=0.5)
+    redact_pii: bool = True
+    # Workspace (repo-style) memory: .moa_memory knowledge layer.
+    workspace_enabled: bool = False
+    workspace_update_policy: str = "adaptive"  # adaptive|every_commit|commit_count|daily
+    workspace_commit_threshold: int = Field(default=5, ge=1)
+    workspace_cooldown_hours: float = Field(default=24.0, gt=0)
+
+
 class Settings(BaseModel):
     """全局配置 — root model"""
 
@@ -345,6 +560,19 @@ class Settings(BaseModel):
     benchmark: BenchmarkConfig = Field(default_factory=BenchmarkConfig)
     optimizer: OptimizerConfig = Field(default_factory=OptimizerConfig)
     assistant: AssistantConfig = Field(default_factory=AssistantConfig)
+    mcp: MCPConfig = Field(default_factory=MCPConfig)
+    cli: CLIConfig = Field(default_factory=CLIConfig)
+
+    # === v4.1.0 integration (OmniRoute / OpenClacky / MemoraX Code) ===
+    routing_strategies: RoutingStrategiesConfig = Field(default_factory=RoutingStrategiesConfig)
+    quota: QuotaSchedulerConfig = Field(default_factory=QuotaSchedulerConfig)
+    compression: CompressionConfig = Field(default_factory=CompressionConfig)
+    free_tiers: FreeTiersConfig = Field(default_factory=FreeTiersConfig)
+    a2a: A2AConfig = Field(default_factory=A2AConfig)
+    efficiency: EfficiencyConfig = Field(default_factory=EfficiencyConfig)
+    skillhub: SkillHubConfig = Field(default_factory=SkillHubConfig)
+    channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
 
 
 def _ensure_jwt_secret(cfg: Settings) -> Settings:

@@ -155,10 +155,6 @@ test_*.json
 test_*.txt
 test_*.log
 **/test_*.py
-# EXCEPTION (v3.2.1): moa_gateway/observability/test_report.py is a RUNTIME
-# module (imported by server startup), not a test script. This ignore rule is
-# exactly why the v3.1.1 release shipped without it and could not boot.
-!moa_gateway/observability/test_report.py
 **/test_*.json
 **/test_*.txt
 **/test_*.log
@@ -172,7 +168,6 @@ bench_*.log
 # Node / Next.js build artifacts
 node_modules/
 .next/
-*.tsbuildinfo
 
 # === Allow committed test suite ===
 !tests/

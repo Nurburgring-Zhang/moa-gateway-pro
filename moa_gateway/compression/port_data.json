@@ -1,0 +1,2017 @@
+{
+ "stopwords": [
+  "a",
+  "an",
+  "the",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "being",
+  "have",
+  "has",
+  "had",
+  "do",
+  "does",
+  "did",
+  "will",
+  "would",
+  "could",
+  "should",
+  "may",
+  "might",
+  "shall",
+  "can",
+  "need",
+  "dare",
+  "ought",
+  "used",
+  "i",
+  "we",
+  "you",
+  "he",
+  "she",
+  "it",
+  "they",
+  "me",
+  "us",
+  "him",
+  "her",
+  "them",
+  "my",
+  "our",
+  "your",
+  "his",
+  "its",
+  "their",
+  "this",
+  "that",
+  "these",
+  "those",
+  "and",
+  "but",
+  "or",
+  "nor",
+  "for",
+  "yet",
+  "so",
+  "as",
+  "at",
+  "by",
+  "in",
+  "of",
+  "on",
+  "to",
+  "up",
+  "via",
+  "with",
+  "from",
+  "into",
+  "onto",
+  "upon",
+  "about",
+  "just",
+  "very",
+  "really",
+  "quite",
+  "rather",
+  "also",
+  "too",
+  "even",
+  "still",
+  "already",
+  "always",
+  "never",
+  "often",
+  "usually",
+  "sometimes",
+  "here",
+  "there"
+ ],
+ "forcePreserveRe": {
+  "source": "\\d|https?:\\/\\/|[._\\/\\\\]|Error:|Exception:|```",
+  "flags": "i"
+ },
+ "intentTriggers": {
+  "source": "^(?:request|fix|implement|add|remove|update|refactor|create|delete|change|build)\\s*:",
+  "flags": "i"
+ },
+ "fileExtensions": [
+  "ts",
+  "tsx",
+  "js",
+  "jsx",
+  "py",
+  "md",
+  "json",
+  "sql",
+  "css",
+  "html",
+  "yaml",
+  "yml",
+  "sh",
+  "rb",
+  "go",
+  "rs",
+  "java",
+  "c",
+  "cpp",
+  "h",
+  "hpp"
+ ],
+ "ruleKeywords": {
+  "redundant_phrasing": [
+   "make sure",
+   "be sure"
+  ],
+  "redundant_because": [
+   "due to the fact",
+   "the reason is because"
+  ],
+  "redundant_directive": [
+   "it is important",
+   "you should",
+   "remember to"
+  ],
+  "pleasantries": [
+   "sure",
+   "certainly",
+   "of course",
+   "happy to",
+   "thanks",
+   "thank you",
+   "glad to help",
+   "glad to",
+   "no problem",
+   "you're welcome",
+   "youre welcome",
+   "absolutely"
+  ],
+  "polite_framing": [
+   "please",
+   "kindly",
+   "could you please",
+   "would you please",
+   "can you please",
+   "i would like you",
+   "i want you",
+   "i need you"
+  ],
+  "hedging": [
+   "it seems like",
+   "it appears that",
+   "i think that",
+   "i believe that",
+   "probably",
+   "possibly",
+   "maybe it"
+  ],
+  "verbose_instructions": [
+   "provide a detailed",
+   "give me a comprehensive",
+   "write an in-depth",
+   "create a thorough",
+   "explain in detail"
+  ],
+  "filler_adverbs": [
+   "basically",
+   "essentially",
+   "actually",
+   "literally",
+   "simply",
+   "currently"
+  ],
+  "filler_phrases": [
+   "i want to",
+   "i need to",
+   "i'd like to",
+   "i'm looking for"
+  ],
+  "redundant_openers": [
+   "hi there",
+   "hello",
+   "good morning",
+   "hey"
+  ],
+  "verbose_requests": [
+   "i was wondering",
+   "would it be possible"
+  ],
+  "leader_phrases": [
+   "i'll",
+   "i will",
+   "i can",
+   "i'd",
+   "let me",
+   "you can",
+   "we will",
+   "we can",
+   "let's"
+  ],
+  "self_reference": [
+   "i am trying to",
+   "i am working on",
+   "i have been"
+  ],
+  "excessive_gratitude": [
+   "thank you so much",
+   "thanks in advance",
+   "i really appreciate"
+  ],
+  "qualifier_removal": [
+   "a bit",
+   "a little",
+   "somewhat",
+   "kind of",
+   "sort of"
+  ],
+  "softeners": [
+   "if possible",
+   "when you get a chance",
+   "at your convenience",
+   "just wondering"
+  ],
+  "uncertainty_fillers": [
+   "i guess",
+   "i suppose",
+   "more or less",
+   "in a way"
+  ],
+  "assistant_fillers": [
+   "here's",
+   "below is",
+   "this is"
+  ],
+  "compound_collapse": [
+   "and any potential"
+  ],
+  "explanatory_prefix": [
+   "the function appears to be handling",
+   "the code seems to",
+   "the class is",
+   "this module is"
+  ],
+  "question_to_directive": [
+   "can you explain why",
+   "could you show me how",
+   "would you tell me",
+   "can you tell me"
+  ],
+  "context_setup": [
+   "i have the following code",
+   "here is my code",
+   "below is the code"
+  ],
+  "intent_clarification": [
+   "what i'm trying to do",
+   "my objective is to",
+   "what i need is",
+   "i'm aiming to"
+  ],
+  "background_removal": [
+   "as you may know",
+   "as we discussed earlier"
+  ],
+  "meta_commentary": [
+   "note that",
+   "keep in mind",
+   "remember that"
+  ],
+  "purpose_statement": [
+   "for the purpose of",
+   "with the goal of",
+   "in an effort to",
+   "for every"
+  ],
+  "list_conjunction": [
+   "and also",
+   "as well as"
+  ],
+  "purpose_phrases": [
+   "in order to",
+   "so as to"
+  ],
+  "redundant_quantifiers": [
+   "each and every",
+   "any and all"
+  ],
+  "all_quantifier": [
+   "any and all"
+  ],
+  "verbose_connectors": [
+   "furthermore",
+   "additionally",
+   "moreover",
+   "in addition"
+  ],
+  "transition_removal": [
+   "on the other hand",
+   "in contrast",
+   "however"
+  ],
+  "emphasis_removal": [
+   "very",
+   "really",
+   "extremely",
+   "highly",
+   "quite"
+  ],
+  "passive_voice": [
+   "is being used",
+   "is being called",
+   "is being generated",
+   "was created",
+   "was generated",
+   "was implemented"
+  ],
+  "repeated_context": [
+   "as we discussed earlier",
+   "as mentioned before",
+   "as previously stated",
+   "as i said before"
+  ],
+  "repeated_question": [
+   "same question as before",
+   "i asked this earlier",
+   "this is the same question"
+  ],
+  "reestablished_context": [
+   "going back to the code above",
+   "referring back to",
+   "returning to"
+  ],
+  "summary_replacement": [
+   "to summarize",
+   "in summary of our conversation",
+   "to recap"
+  ],
+  "ultra_abbreviations": [
+   "database"
+  ],
+  "ultra_config_abbreviation": [
+   "configuration"
+  ],
+  "ultra_function_abbreviation": [
+   "function"
+  ],
+  "ultra_request_abbreviation": [
+   "request"
+  ],
+  "ultra_response_abbreviation": [
+   "response"
+  ],
+  "ultra_implementation_abbreviation": [
+   "implementation"
+  ],
+  "ultra_authentication_abbreviation": [
+   "authentication"
+  ],
+  "ultra_authorization_abbreviation": [
+   "authorization"
+  ],
+  "ultra_application_abbreviation": [
+   "application"
+  ],
+  "ultra_dependency_abbreviation": [
+   "dependency",
+   "dependencies"
+  ],
+  "ultra_common_abbreviations": [
+   "implementation",
+   "authentication",
+   "authorization",
+   "application",
+   "dependency",
+   "dependencies"
+  ]
+ },
+ "commandPrefixes": [
+  "git",
+  "make",
+  "gradle",
+  "gradlew",
+  "dotnet",
+  "terraform",
+  "tofu",
+  "opentofu",
+  "systemctl",
+  "npm",
+  "pnpm",
+  "yarn",
+  "vitest",
+  "jest",
+  "pytest",
+  "python",
+  "go",
+  "cargo",
+  "tsc",
+  "eslint",
+  "webpack",
+  "vite",
+  "biome",
+  "prettier",
+  "turbo",
+  "nx",
+  "playwright",
+  "ruff",
+  "mypy",
+  "pip",
+  "uv",
+  "poetry",
+  "golangci-lint",
+  "bundle",
+  "rubocop",
+  "kubectl",
+  "composer",
+  "gh",
+  "docker",
+  "aws",
+  "gcloud",
+  "ssh",
+  "rsync",
+  "curl",
+  "wget",
+  "ls",
+  "find",
+  "grep",
+  "rg",
+  "ag",
+  "ps",
+  "df",
+  "du"
+ ],
+ "commandPrefixPattern": {
+  "source": "^(?:git|make|gradle|gradlew|dotnet|terraform|tofu|opentofu|systemctl|npm|pnpm|yarn|vitest|jest|pytest|python|go|cargo|tsc|eslint|webpack|vite|biome|prettier|turbo|nx|playwright|ruff|mypy|pip|uv|poetry|golangci-lint|bundle|rubocop|kubectl|composer|gh|docker|aws|gcloud|ssh|rsync|curl|wget|ls|find|grep|rg|ag|ps|df|du)\\b",
+  "flags": ""
+ },
+ "detectors": [
+  {
+   "type": "git-status",
+   "category": "git",
+   "commandPatterns": [
+    {
+     "source": "^git\\s+status\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^On branch ",
+     "flags": "m"
+    },
+    {
+     "source": "^Changes (?:not staged|to be committed)",
+     "flags": "m"
+    },
+    {
+     "source": "^Untracked files:",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "git-branch",
+   "category": "git",
+   "commandPatterns": [
+    {
+     "source": "^git\\s+branch\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^git\\s+checkout\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^git\\s+switch\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^\\*\\s+\\S+",
+     "flags": "m"
+    },
+    {
+     "source": "Switched to (?:a new )?branch",
+     "flags": "i"
+    },
+    {
+     "source": "Already on ['\"][^'\"]+['\"]",
+     "flags": "i"
+    }
+   ]
+  },
+  {
+   "type": "git-diff",
+   "category": "git",
+   "commandPatterns": [
+    {
+     "source": "^git\\s+diff\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^git\\s+show\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^diff --git ",
+     "flags": "m"
+    },
+    {
+     "source": "^@@\\s+-\\d+,\\d+\\s+\\+\\d+,\\d+\\s+@@",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "git-log",
+   "category": "git",
+   "commandPatterns": [
+    {
+     "source": "^git\\s+log\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^commit [0-9a-f]{7,40}",
+     "flags": "m"
+    },
+    {
+     "source": "^Author: ",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "make",
+   "category": "build",
+   "commandPatterns": [
+    {
+     "source": "^make\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^make\\[\\d+\\]: (?:Entering|Leaving) directory",
+     "flags": "m"
+    },
+    {
+     "source": "make: \\*\\*\\* ",
+     "flags": ""
+    }
+   ]
+  },
+  {
+   "type": "gradle",
+   "category": "build",
+   "commandPatterns": [
+    {
+     "source": "^(?:gradle|gradlew|\\.\\/gradlew)\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^> Task :",
+     "flags": "m"
+    },
+    {
+     "source": "^BUILD (?:SUCCESSFUL|FAILED)\\b",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "dotnet",
+   "category": "build",
+   "commandPatterns": [
+    {
+     "source": "^dotnet\\s+(?:build|test|run|restore|publish|pack|msbuild)\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^dotnet\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^Build (?:succeeded|FAILED)\\b",
+     "flags": "m"
+    },
+    {
+     "source": "\\b(?:error|warning) CS\\d+\\b",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "terraform-plan",
+   "category": "infra",
+   "commandPatterns": [
+    {
+     "source": "^terraform\\s+plan\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "Terraform will perform the following actions:",
+     "flags": ""
+    },
+    {
+     "source": "Plan: \\d+ to add",
+     "flags": "i"
+    }
+   ]
+  },
+  {
+   "type": "tofu-plan",
+   "category": "infra",
+   "commandPatterns": [
+    {
+     "source": "^(?:tofu|opentofu)\\s+plan\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "OpenTofu will perform the following actions:",
+     "flags": ""
+    },
+    {
+     "source": "Plan: \\d+ to add",
+     "flags": "i"
+    }
+   ]
+  },
+  {
+   "type": "systemctl-status",
+   "category": "infra",
+   "commandPatterns": [
+    {
+     "source": "^systemctl\\s+status\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^\\s*Loaded:\\s+",
+     "flags": "m"
+    },
+    {
+     "source": "^\\s*Active:\\s+",
+     "flags": "m"
+    },
+    {
+     "source": "^●\\s+\\S+\\.service",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "test-vitest",
+   "category": "test",
+   "commandPatterns": [
+    {
+     "source": "^vitest\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^npm\\s+(?:run\\s+)?test:vitest\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "\\bvitest\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^ ✓ ",
+     "flags": "m"
+    },
+    {
+     "source": "^ ❯ ",
+     "flags": "m"
+    },
+    {
+     "source": "Test Files\\s+\\d+\\s+(?:passed|failed)",
+     "flags": "i"
+    }
+   ]
+  },
+  {
+   "type": "test-jest",
+   "category": "test",
+   "commandPatterns": [
+    {
+     "source": "^jest\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^npm\\s+(?:run\\s+)?test\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "Test Suites:\\s+\\d+",
+     "flags": "i"
+    },
+    {
+     "source": "Tests:\\s+\\d+",
+     "flags": "i"
+    },
+    {
+     "source": "^PASS\\s+",
+     "flags": "m"
+    },
+    {
+     "source": "^FAIL\\s+",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "test-pytest",
+   "category": "test",
+   "commandPatterns": [
+    {
+     "source": "^pytest\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^python\\s+-m\\s+pytest\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "=+\\s+(?:\\d+\\s+)?(?:passed|failed|errors?)",
+     "flags": "i"
+    },
+    {
+     "source": "^E\\s+",
+     "flags": "m"
+    },
+    {
+     "source": "^FAILED ",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "test-cargo",
+   "category": "test",
+   "commandPatterns": [
+    {
+     "source": "^cargo\\s+test\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^cargo\\s+nextest\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^running \\d+ tests?",
+     "flags": "m"
+    },
+    {
+     "source": "^test\\s+[\\w:.-]+\\s+\\.\\.\\.\\s+(?:ok|FAILED|ignored)",
+     "flags": "m"
+    },
+    {
+     "source": "test result:\\s+(?:ok|FAILED)",
+     "flags": "i"
+    }
+   ]
+  },
+  {
+   "type": "test-go",
+   "category": "test",
+   "commandPatterns": [
+    {
+     "source": "^go\\s+test\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^(?:ok|FAIL)\\s+[\\w./-]+\\s+[\\d.]+s",
+     "flags": "m"
+    },
+    {
+     "source": "^--- FAIL: ",
+     "flags": "m"
+    },
+    {
+     "source": "^panic: ",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "build-typescript",
+   "category": "build",
+   "commandPatterns": [
+    {
+     "source": "^tsc\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^npm\\s+run\\s+typecheck\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "TS\\d{4}:",
+     "flags": ""
+    },
+    {
+     "source": "error TS\\d{4}",
+     "flags": "i"
+    }
+   ]
+  },
+  {
+   "type": "build-eslint",
+   "category": "build",
+   "commandPatterns": [
+    {
+     "source": "^eslint\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^npm\\s+run\\s+lint\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "\\s+\\d+:\\d+\\s+(?:error|warning)\\s+",
+     "flags": ""
+    },
+    {
+     "source": "✖\\s+\\d+\\s+problems?",
+     "flags": ""
+    }
+   ]
+  },
+  {
+   "type": "build-webpack",
+   "category": "build",
+   "commandPatterns": [
+    {
+     "source": "^webpack\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^npx\\s+webpack\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^npm\\s+run\\s+build:webpack\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "webpack\\s+\\d",
+     "flags": "i"
+    },
+    {
+     "source": "compiled (?:successfully|with \\d+ errors?)",
+     "flags": "i"
+    },
+    {
+     "source": "asset .+\\.js",
+     "flags": "i"
+    }
+   ]
+  },
+  {
+   "type": "build-vite",
+   "category": "build",
+   "commandPatterns": [
+    {
+     "source": "^vite\\s+build\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^npm\\s+run\\s+build\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^pnpm\\s+build\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "vite v[\\d.]+",
+     "flags": "i"
+    },
+    {
+     "source": "✓ built in",
+     "flags": "i"
+    },
+    {
+     "source": "transforming \\(\\d+\\)",
+     "flags": "i"
+    }
+   ]
+  },
+  {
+   "type": "biome",
+   "category": "build",
+   "commandPatterns": [
+    {
+     "source": "^biome\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^npx\\s+biome\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "lint\\/[A-Za-z0-9/.-]+",
+     "flags": ""
+    },
+    {
+     "source": "Checked \\d+ files? in",
+     "flags": "i"
+    }
+   ]
+  },
+  {
+   "type": "prettier",
+   "category": "build",
+   "commandPatterns": [
+    {
+     "source": "^prettier\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^npx\\s+prettier\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^Checking formatting\\.\\.\\.",
+     "flags": "m"
+    },
+    {
+     "source": "Code style issues found",
+     "flags": "i"
+    }
+   ]
+  },
+  {
+   "type": "turbo",
+   "category": "build",
+   "commandPatterns": [
+    {
+     "source": "^turbo\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^npx\\s+turbo\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^• Packages in scope:",
+     "flags": "m"
+    },
+    {
+     "source": "^Tasks:\\s+\\d+\\s+successful",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "nx",
+   "category": "build",
+   "commandPatterns": [
+    {
+     "source": "^nx\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^npx\\s+nx\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^NX\\s+",
+     "flags": "m"
+    },
+    {
+     "source": "^> nx run ",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "playwright",
+   "category": "test",
+   "commandPatterns": [
+    {
+     "source": "^playwright\\s+test\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^npx\\s+playwright\\s+test\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "Running \\d+ tests? using \\d+ workers?",
+     "flags": "i"
+    },
+    {
+     "source": "^\\s+\\d+ failed",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "npm-install",
+   "category": "package",
+   "commandPatterns": [
+    {
+     "source": "^(?:npm|pnpm|yarn)\\s+(?:install|add|update)\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "added \\d+ packages",
+     "flags": "i"
+    },
+    {
+     "source": "packages are looking for funding",
+     "flags": "i"
+    },
+    {
+     "source": "audited \\d+ packages",
+     "flags": "i"
+    }
+   ]
+  },
+  {
+   "type": "npm-audit",
+   "category": "package",
+   "commandPatterns": [
+    {
+     "source": "^(?:npm|pnpm|yarn)\\s+audit\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "found \\d+ vulnerabilities",
+     "flags": "i"
+    },
+    {
+     "source": "\\b(?:low|moderate|high|critical)\\b",
+     "flags": "i"
+    }
+   ]
+  },
+  {
+   "type": "ruff",
+   "category": "build",
+   "commandPatterns": [
+    {
+     "source": "^ruff\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^uv\\s+run\\s+ruff\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^[\\w./-]+\\.py:\\d+:\\d+:\\s+[A-Z]\\d+",
+     "flags": "m"
+    },
+    {
+     "source": "Found \\d+ errors?\\.",
+     "flags": "i"
+    }
+   ]
+  },
+  {
+   "type": "mypy",
+   "category": "build",
+   "commandPatterns": [
+    {
+     "source": "^mypy\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^python\\s+-m\\s+mypy\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^[\\w./-]+\\.py:\\d+:\\s+error:",
+     "flags": "m"
+    },
+    {
+     "source": "Found \\d+ errors? in \\d+ files?",
+     "flags": "i"
+    }
+   ]
+  },
+  {
+   "type": "pip",
+   "category": "package",
+   "commandPatterns": [
+    {
+     "source": "^pip\\s+(?:install|download|uninstall)\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^python\\s+-m\\s+pip\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^Collecting ",
+     "flags": "m"
+    },
+    {
+     "source": "^Successfully installed ",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "uv-sync",
+   "category": "package",
+   "commandPatterns": [
+    {
+     "source": "^uv\\s+sync\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^uv\\s+pip\\s+install\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^Resolved \\d+ packages?",
+     "flags": "m"
+    },
+    {
+     "source": "^Installed \\d+ packages?",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "poetry-install",
+   "category": "package",
+   "commandPatterns": [
+    {
+     "source": "^poetry\\s+install\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^Installing dependencies from lock file",
+     "flags": "m"
+    },
+    {
+     "source": "^Package operations:",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "golangci-lint",
+   "category": "build",
+   "commandPatterns": [
+    {
+     "source": "^golangci-lint\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^[\\w./-]+\\.go:\\d+:\\d+:",
+     "flags": "m"
+    },
+    {
+     "source": "^\\d+ issues?:",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "bundle-install",
+   "category": "package",
+   "commandPatterns": [
+    {
+     "source": "^bundle\\s+install\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^Fetching gem metadata from ",
+     "flags": "m"
+    },
+    {
+     "source": "^Bundle complete!",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "rubocop",
+   "category": "build",
+   "commandPatterns": [
+    {
+     "source": "^rubocop\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^bundle\\s+exec\\s+rubocop\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^Inspecting \\d+ files",
+     "flags": "m"
+    },
+    {
+     "source": "^[\\w./-]+\\.rb:\\d+:\\d+:\\s+[A-Z]:",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "docker-ps",
+   "category": "docker",
+   "commandPatterns": [
+    {
+     "source": "^docker\\s+ps\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^CONTAINER ID\\s+IMAGE\\s+COMMAND",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "docker-logs",
+   "category": "docker",
+   "commandPatterns": [
+    {
+     "source": "^docker\\s+logs\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^docker\\s+compose\\s+logs\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}",
+     "flags": "m"
+    },
+    {
+     "source": "\\b(?:ERROR|WARN|INFO)\\b",
+     "flags": ""
+    },
+    {
+     "source": "^Attaching to ",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "aws",
+   "category": "cloud",
+   "commandPatterns": [
+    {
+     "source": "^aws\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "An error occurred \\([A-Za-z0-9]+\\) when calling",
+     "flags": ""
+    },
+    {
+     "source": "^(?:upload|download): ",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "gcloud",
+   "category": "cloud",
+   "commandPatterns": [
+    {
+     "source": "^gcloud\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^ERROR: \\(gcloud\\.",
+     "flags": "m"
+    },
+    {
+     "source": "^Updated property \\[",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "ssh",
+   "category": "cloud",
+   "commandPatterns": [
+    {
+     "source": "^ssh\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "Permission denied \\(",
+     "flags": ""
+    },
+    {
+     "source": "Host key verification failed",
+     "flags": ""
+    },
+    {
+     "source": "Connection timed out",
+     "flags": ""
+    }
+   ]
+  },
+  {
+   "type": "rsync",
+   "category": "cloud",
+   "commandPatterns": [
+    {
+     "source": "^rsync\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^sending incremental file list",
+     "flags": "m"
+    },
+    {
+     "source": "^rsync error:",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "curl",
+   "category": "cloud",
+   "commandPatterns": [
+    {
+     "source": "^curl\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "curl: \\(\\d+\\)",
+     "flags": ""
+    },
+    {
+     "source": "^HTTP\\/\\d(?:\\.\\d)? \\d{3}",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "wget",
+   "category": "cloud",
+   "commandPatterns": [
+    {
+     "source": "^wget\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^--\\d{4}-\\d{2}-\\d{2}",
+     "flags": "m"
+    },
+    {
+     "source": "^ERROR \\d{3}:",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "json-output",
+   "category": "generic",
+   "commandPatterns": [
+    {
+     "source": "^jq\\b",
+     "flags": "i"
+    },
+    {
+     "source": "^cat\\s+.*\\.json\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^\\s*[\\[{][\\s\\S]*[\\]}]\\s*$",
+     "flags": ""
+    }
+   ]
+  },
+  {
+   "type": "shell-ls",
+   "category": "shell",
+   "commandPatterns": [
+    {
+     "source": "^ls(?:\\s+-[A-Za-z]+)?\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^total \\d+",
+     "flags": "m"
+    },
+    {
+     "source": "^\\S+\\s+\\S+\\s+\\d+\\s+\\w+\\s+\\d{1,2}\\s+",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "shell-find",
+   "category": "shell",
+   "commandPatterns": [
+    {
+     "source": "^find\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^(?:\\.{1,2}|\\/|[\\w.-]+\\/).+",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "shell-grep",
+   "category": "shell",
+   "commandPatterns": [
+    {
+     "source": "^(?:grep|rg|ag)\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^[\\w./-]+\\.(?:ts|tsx|js|jsx|py|go|rs|java|rb|md|json|ya?ml|txt):\\d*:",
+     "flags": "m"
+    },
+    {
+     "source": "^[\\w./-]+\\/[\\w./-]+:\\d*:",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "shell-ps",
+   "category": "shell",
+   "commandPatterns": [
+    {
+     "source": "^ps\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^(?:USER\\s+PID|\\s*PID\\s+)",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "shell-df",
+   "category": "shell",
+   "commandPatterns": [
+    {
+     "source": "^df\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^Filesystem\\s+.*Use%",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "shell-du",
+   "category": "shell",
+   "commandPatterns": [
+    {
+     "source": "^du\\b",
+     "flags": "i"
+    }
+   ],
+   "contentPatterns": [
+    {
+     "source": "^\\d+(?:\\.\\d+)?[KMGTP]?\\s+\\S+",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "error-stacktrace",
+   "category": "generic",
+   "commandPatterns": [],
+   "contentPatterns": [
+    {
+     "source": "Traceback \\(most recent call last\\):",
+     "flags": ""
+    },
+    {
+     "source": "^\\s+at\\s+\\S+\\s+\\(.+:\\d+:\\d+\\)",
+     "flags": "m"
+    },
+    {
+     "source": "^panic: ",
+     "flags": "m"
+    },
+    {
+     "source": "^thread '[^']+' panicked at",
+     "flags": "m"
+    }
+   ]
+  },
+  {
+   "type": "generic-error",
+   "category": "generic",
+   "commandPatterns": [],
+   "contentPatterns": [
+    {
+     "source": "Error:",
+     "flags": ""
+    },
+    {
+     "source": "Exception:",
+     "flags": ""
+    },
+    {
+     "source": "Traceback \\(most recent call last\\):",
+     "flags": ""
+    }
+   ]
+  }
+ ],
+ "cavemanRules": [
+  {
+   "name": "redundant_phrasing",
+   "source": "\\b(?:make sure to|be sure to|due to the fact that|the reason is because|it is important to|you should|remember to)\\b\\s*",
+   "flags": "gi",
+   "replacement": {
+    "__fn": true,
+    "map": {
+     "make sure to": "ensure ",
+     "be sure to": "ensure ",
+     "due to the fact that": "because ",
+     "the reason is because": "because ",
+     "it is important to": "",
+     "you should": "",
+     "remember to": ""
+    },
+    "fallback": "",
+    "src": "(match        )         => {\r\n      const map                         = {\r\n        \"make sure to\": \"ensure \",\r\n        \"be sure to\": \"ensure \",\r\n        \"due to the fact that\": \"because \",\r\n        \"the reason is because\": \"because \",\r\n        \"it is important to\": \"\",\r\n        \"you should\": \"\",\r\n        \"remember to\": \"\",\r\n      };\r\n      return map[match.trim().toLowerCase()] ?? \"\";\r\n    }"
+   },
+   "context": "all",
+   "category": "structural",
+   "minIntensity": "full"
+  },
+  {
+   "name": "pleasantries",
+   "source": "(?<!make\\s)(?<!be\\s)\\b(?:i'?d be happy to|i would be happy to|i'?d be glad to|i would be glad to|glad to help|happy to|thank you|thanks|no problem|you'?re welcome|absolutely|certainly|of course|sure)\\b[,.!?\\s]*",
+   "flags": "gi",
+   "replacement": "",
+   "context": "all",
+   "category": "filler",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "polite_framing",
+   "source": "\\b(?:please|kindly|could you please|would you please|can you please|I would like you to|I want you to|I need you to)\\b\\s*",
+   "flags": "gi",
+   "replacement": "",
+   "context": "all",
+   "category": "filler",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "hedging",
+   "source": "\\b(?:it seems like|it appears that|I think that|I believe that|probably|possibly|maybe it)\\b\\s*",
+   "flags": "gi",
+   "replacement": "",
+   "context": "all",
+   "category": "filler",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "verbose_instructions",
+   "source": "\\b(?:provide a detailed explanation of|give me a comprehensive explanation of|write an in-depth explanation of|create a thorough explanation of|provide a detailed|give me a comprehensive|write an in-depth|create a thorough|explain in detail)\\b",
+   "flags": "gi",
+   "replacement": {
+    "__fn": true,
+    "map": {
+     "provide a detailed explanation of": "explain ",
+     "give me a comprehensive explanation of": "explain ",
+     "write an in-depth explanation of": "explain ",
+     "create a thorough explanation of": "explain ",
+     "provide a detailed": "provide ",
+     "give me a comprehensive": "give ",
+     "write an in-depth": "write ",
+     "create a thorough": "create ",
+     "explain in detail": "explain "
+    },
+    "fallback": "match",
+    "src": "(match        )         => {\r\n      const map                         = {\r\n        \"provide a detailed explanation of\": \"explain \",\r\n        \"give me a comprehensive explanation of\": \"explain \",\r\n        \"write an in-depth explanation of\": \"explain \",\r\n        \"create a thorough explanation of\": \"explain \",\r\n        \"provide a detailed\": \"provide \",\r\n        \"give me a comprehensive\": \"give \",\r\n        \"write an in-depth\": \"write \",\r\n        \"create a thorough\": \"create \",\r\n        \"explain in detail\": \"explain \",\r\n      };\r\n      const lower = match.toLowerCase();\r\n      return map[lower] ?? match;\r\n    }"
+   },
+   "context": "all",
+   "category": "filler",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "filler_adverbs",
+   "source": "(?<![a-z])\\b(?:basically|essentially|actually|literally|simply|currently)\\b\\s*",
+   "flags": "gi",
+   "replacement": "",
+   "context": "all",
+   "category": "filler",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "articles",
+   "source": "\\b(?:[Aa]n|[Aa]|[Tt]he)\\s+(?=[a-z])",
+   "flags": "g",
+   "replacement": "",
+   "context": "all",
+   "category": "terse",
+   "minIntensity": "full"
+  },
+  {
+   "name": "filler_phrases",
+   "source": "^(?:I want to|I need to|I'd like to|I'm looking for)\\b\\s*",
+   "flags": "gim",
+   "replacement": "",
+   "context": "user",
+   "category": "filler",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "redundant_openers",
+   "source": "^(?:Hi there|Hello|Good morning|Hey)\\s*[,.!?\\s]?\\s*",
+   "flags": "gim",
+   "replacement": "",
+   "context": "user",
+   "category": "filler",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "verbose_requests",
+   "source": "\\b(?:I was wondering if you could|Would it be possible to)\\b\\s*",
+   "flags": "gi",
+   "replacement": "",
+   "context": "user",
+   "category": "filler",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "leader_phrases",
+   "source": "^(?:i'?ll|i will|i can|i'?d|let me|you can|we will|we can|let'?s)\\s+(?=[a-z])",
+   "flags": "gim",
+   "replacement": "",
+   "context": "all",
+   "category": "terse",
+   "minIntensity": "full"
+  },
+  {
+   "name": "self_reference",
+   "source": "^(?:I am trying to|I am working on|I have been)\\b\\s*",
+   "flags": "gim",
+   "replacement": "",
+   "context": "user",
+   "category": "filler",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "excessive_gratitude",
+   "source": "\\b(?:Thank you so much|Thanks in advance|I really appreciate)\\b[,.!?\\s]*",
+   "flags": "gi",
+   "replacement": "",
+   "context": "all",
+   "category": "filler",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "qualifier_removal",
+   "source": "\\b(?:a bit|a little|somewhat|kind of|sort of)\\b\\s*",
+   "flags": "gi",
+   "replacement": "",
+   "context": "all",
+   "category": "filler",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "compound_collapse",
+   "source": "\\band any potential\\b",
+   "flags": "gi",
+   "replacement": "",
+   "context": "all",
+   "category": "context",
+   "minIntensity": "full"
+  },
+  {
+   "name": "explanatory_prefix",
+   "source": "\\b(?:The function appears to be handling|The code seems to|The class is|This module is)\\b",
+   "flags": "gi",
+   "replacement": {
+    "__fn": true,
+    "map": {
+     "the function appears to be handling": "Function:",
+     "the code seems to": "Code:",
+     "the class is": "Class:",
+     "this module is": "Module:"
+    },
+    "fallback": "match",
+    "src": "(match        )         => {\r\n      const map                         = {\r\n        \"the function appears to be handling\": \"Function:\",\r\n        \"the code seems to\": \"Code:\",\r\n        \"the class is\": \"Class:\",\r\n        \"this module is\": \"Module:\",\r\n      };\r\n      return map[match.toLowerCase()] ?? match;\r\n    }"
+   },
+   "context": "all",
+   "category": "context",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "question_to_directive",
+   "source": "\\b(?:Can you explain why|Could you show me how|Would you tell me|Can you tell me)\\b\\s*",
+   "flags": "gi",
+   "replacement": {
+    "__fn": true,
+    "map": {
+     "can you explain why": "Explain why ",
+     "could you show me how": "Show how ",
+     "would you tell me": "Tell me ",
+     "can you tell me": "Tell me "
+    },
+    "fallback": "match",
+    "src": "(match        )         => {\r\n      const trimmed = match.trimEnd().toLowerCase();\r\n      const map                         = {\r\n        \"can you explain why\": \"Explain why \",\r\n        \"could you show me how\": \"Show how \",\r\n        \"would you tell me\": \"Tell me \",\r\n        \"can you tell me\": \"Tell me \",\r\n      };\r\n      return map[trimmed] ?? match;\r\n    }"
+   },
+   "context": "user",
+   "category": "context",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "context_setup",
+   "source": "\\b(?:I have the following code|Here is my code|Below is the code)\\b\\s*[:.]?\\s*",
+   "flags": "gi",
+   "replacement": "Code:",
+   "context": "user",
+   "category": "context",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "intent_clarification",
+   "source": "\\b(?:What I'm trying to do is|My objective is to|What I need is|I'm aiming to)\\b\\s*",
+   "flags": "gi",
+   "replacement": "Goal:",
+   "context": "user",
+   "category": "context",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "background_removal",
+   "source": "\\b(?:As you may know,?\\s*|As we discussed earlier,?\\s*)",
+   "flags": "gi",
+   "replacement": "",
+   "context": "all",
+   "category": "context",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "meta_commentary",
+   "source": "^(?:Note that|Keep in mind that|Remember that)\\b\\s*",
+   "flags": "gim",
+   "replacement": "",
+   "context": "all",
+   "category": "context",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "purpose_statement",
+   "source": "\\b(?:for the purpose of|with the goal of|in an effort to|for every)\\b",
+   "flags": "gi",
+   "replacement": {
+    "__fn": true,
+    "map": {
+     "for the purpose of": "for",
+     "with the goal of": "to",
+     "in an effort to": "to",
+     "for every": "per"
+    },
+    "fallback": "match",
+    "src": "(match        )         => {\r\n      const map                         = {\r\n        \"for the purpose of\": \"for\",\r\n        \"with the goal of\": \"to\",\r\n        \"in an effort to\": \"to\",\r\n        \"for every\": \"per\",\r\n      };\r\n      return map[match.toLowerCase()] ?? match;\r\n    }"
+   },
+   "context": "all",
+   "category": "context",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "list_conjunction",
+   "source": ",\\s*and also\\s+|,\\s*as well as\\s+",
+   "flags": "gi",
+   "replacement": ", ",
+   "context": "all",
+   "category": "structural",
+   "minIntensity": "full"
+  },
+  {
+   "name": "purpose_phrases",
+   "source": "\\b(?:in order to|so as to)\\b\\s*",
+   "flags": "gi",
+   "replacement": "to ",
+   "context": "all",
+   "category": "structural",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "redundant_quantifiers",
+   "source": "\\b(?:each and every single|each and every|any and all)\\b",
+   "flags": "gi",
+   "replacement": {
+    "__fn": true,
+    "map": {
+     "each and every single": "each",
+     "each and every": "each",
+     "any and all": "all"
+    },
+    "fallback": "match",
+    "src": "(match        )         => {\r\n      const map                         = {\r\n        \"each and every single\": \"each\",\r\n        \"each and every\": \"each\",\r\n        \"any and all\": \"all\",\r\n      };\r\n      return map[match.toLowerCase()] ?? match;\r\n    }"
+   },
+   "context": "all",
+   "category": "structural",
+   "minIntensity": "full"
+  },
+  {
+   "name": "verbose_connectors",
+   "source": "\\b(?:furthermore|additionally|moreover|in addition)\\b\\s*",
+   "flags": "gi",
+   "replacement": "also ",
+   "context": "all",
+   "category": "structural",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "transition_removal",
+   "source": "^(?:On the other hand,?\\s*|In contrast,?\\s*|However,?\\s*)",
+   "flags": "gim",
+   "replacement": "",
+   "context": "all",
+   "category": "structural",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "emphasis_removal",
+   "source": "\\b(?:very|really|extremely|highly|quite)\\s+(?=[a-z])",
+   "flags": "gi",
+   "replacement": "",
+   "context": "all",
+   "category": "structural",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "passive_voice",
+   "source": "\\b(?:is being used|is being called|is being generated|was created|was generated|was implemented)\\b",
+   "flags": "gi",
+   "replacement": {
+    "__fn": true,
+    "map": {
+     "is being used": "uses",
+     "is being called": "calls",
+     "is being generated": "generated",
+     "was created": "created",
+     "was generated": "generated",
+     "was implemented": "implemented"
+    },
+    "fallback": "match",
+    "src": "(match        )         => {\r\n      const map                         = {\r\n        \"is being used\": \"uses\",\r\n        \"is being called\": \"calls\",\r\n        \"is being generated\": \"generated\",\r\n        \"was created\": \"created\",\r\n        \"was generated\": \"generated\",\r\n        \"was implemented\": \"implemented\",\r\n      };\r\n      return map[match.toLowerCase()] ?? match;\r\n    }"
+   },
+   "context": "all",
+   "category": "structural",
+   "minIntensity": "full"
+  },
+  {
+   "name": "repeated_context",
+   "source": "\\b(?:As we discussed earlier|As mentioned before|As previously stated|As I said before)\\b[,.]?\\s*",
+   "flags": "gi",
+   "replacement": "See above. ",
+   "context": "all",
+   "category": "dedup",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "repeated_question",
+   "source": "\\b(?:Same question as before|I asked this earlier|This is the same question)\\b[,.]?\\s*",
+   "flags": "gi",
+   "replacement": "[same question] ",
+   "context": "user",
+   "category": "dedup",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "reestablished_context",
+   "source": "\\b(?:Going back to the code above|Referring back to|Returning to)\\b\\s*",
+   "flags": "gi",
+   "replacement": "Re: ",
+   "context": "all",
+   "category": "dedup",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "summary_replacement",
+   "source": "\\b(?:To summarize what we've discussed|In summary of our conversation|To recap)\\b[,.]?\\s*",
+   "flags": "gi",
+   "replacement": "Summary: ",
+   "context": "assistant",
+   "category": "dedup",
+   "minIntensity": "lite"
+  },
+  {
+   "name": "ultra_abbreviations",
+   "source": "\\b(?:database|configuration|function|request|response|implementation|authentication|authorization|application|dependency|dependencies)\\b",
+   "flags": "gi",
+   "replacement": {
+    "__fn": true,
+    "map": {
+     "database": "DB",
+     "configuration": "config",
+     "function": "fn",
+     "request": "req",
+     "response": "res",
+     "implementation": "impl",
+     "authentication": "auth",
+     "authorization": "authz",
+     "application": "app",
+     "dependency": "dep",
+     "dependencies": "deps"
+    },
+    "fallback": "match",
+    "src": "(match        )         => {\r\n      const map                         = {\r\n        database: \"DB\",\r\n        configuration: \"config\",\r\n        function: \"fn\",\r\n        request: \"req\",\r\n        response: \"res\",\r\n        implementation: \"impl\",\r\n        authentication: \"auth\",\r\n        authorization: \"authz\",\r\n        application: \"app\",\r\n        dependency: \"dep\",\r\n        dependencies: \"deps\",\r\n      };\r\n      return map[match.toLowerCase()] ?? match;\r\n    }"
+   },
+   "context": "all",
+   "category": "ultra",
+   "minIntensity": "ultra"
+  }
+ ]
+}

@@ -26,6 +26,20 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
+try:
+    from ..agent_loop.skills import BUILTIN_TOOL_NAMES, DANGEROUS_TOOLS
+except ImportError:  # v4.1: these name-collision guards live here instead
+    from ..agent_loop.skills import BUILTIN_TOOLS
+
+    # Ported from v3.2.1 agent_loop.skills: tools a hot-deployed custom skill
+    # must never shadow or impersonate.
+    DANGEROUS_TOOLS = frozenset(
+        {"code_execute", "file_read", "file_write", "file_list", "api_verify"}
+    )
+    # Frozen at import time - BEFORE any hot-deployed custom skill registers
+    # into the mutable BUILTIN_TOOLS dict (same semantics as v3.2.1).
+    BUILTIN_TOOL_NAMES = frozenset(BUILTIN_TOOLS)
+
 logger = logging.getLogger(__name__)
 
 _SKILL_DIR = Path("data") / "orchestrator_skills"
@@ -67,8 +81,6 @@ class SkillFactory:
         # (e.g. "code_execute" would overwrite the real one in BUILTIN_TOOLS).
         # Check the frozen pristine-name set, not the live dict (which hot
         # deploys mutate).
-        from ..agent_loop.skills import BUILTIN_TOOL_NAMES, DANGEROUS_TOOLS
-
         if name.lower() in BUILTIN_TOOL_NAMES or name.lower() in DANGEROUS_TOOLS:
             raise SkillFactoryError(f"skill name '{name}' 与内置工具冲突, 必须换名")
 
@@ -283,7 +295,6 @@ class SkillFactory:
         try:
             if not self._dir.exists():
                 return loaded
-            from ..agent_loop.skills import BUILTIN_TOOL_NAMES, DANGEROUS_TOOLS
             from ..agent_loop.skills.code_execute import SandboxViolation, sanitize_code
 
             for f in sorted(self._dir.glob("*.json")):

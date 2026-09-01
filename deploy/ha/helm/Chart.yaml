@@ -1,8 +1,8 @@
 apiVersion: v2
 name: moa-gateway-pro
 description: Industrial-grade AI Gateway with Multi-Model Orchestration
-version: 3.2.1
-appVersion: "3.2.1"
+version: 1.8.1
+appVersion: "1.8.1"
 type: application
 keywords:
   - ai-gateway

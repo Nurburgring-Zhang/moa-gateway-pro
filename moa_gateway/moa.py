@@ -103,6 +103,9 @@ class MoAResult:
     # must surface this (X-MOA-Mock header + body field) so callers can never
     # mistake synthetic output for real model output.
     mock_used: bool = False
+    # Real tool executions performed by the aggregator tool loop
+    # (entries: round/tool/args/success/result_summary/latency_ms/usage/source).
+    tool_trace: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -157,6 +160,7 @@ class MoAResult:
             "fallback_used": self.fallback_used,
             "mock": self.mock_used,
             "pipeline_stages": self.pipeline_stages,
+            "tool_trace": [dict(t) for t in self.tool_trace],
             "final_content": self.final_content,
         }
 
@@ -217,6 +221,25 @@ VERDICT: PASS
 
 否则输出修订后的完整答案(直接给最终版,不要解释修改过程)。"""
 
+# 聚合器工具循环协议(真实工具执行,非 schema 透传)
+SYSTEM_TOOL_LOOP = """你现在处于**工具模式**。你可以调用真实工具来完成计算、查询或验证。
+
+可用工具:
+{tool_doc}
+
+输出格式 — 只输出一个 JSON 对象,不要输出任何其他文字:
+1. 需要调用工具时:
+{{"tool_calls": [{{"name": "<工具名>", "arguments": {{...}}}}]}}
+2. 已经可以得到最终答案时:
+{{"final_answer": "<最终答案>"}}
+
+规则:
+- 只能调用上面列出的工具,使用完整工具名(含前缀)。
+- 不要编造工具执行结果;真实结果会在下一轮消息中给出。
+- 工具结果已足以回答时,立即输出 final_answer。
+- final_answer 必须直接回答用户问题(可含计算结果/结论)。
+"""
+
 
 class MoAOrchestrator:
     """MoA 编排引擎"""
@@ -241,6 +264,8 @@ class MoAOrchestrator:
         temperature: float | None = None,
         max_tokens: int | None = None,
         stream: bool = False,
+        max_tool_rounds: int | None = None,
+        caller_role: str | None = None,
     ) -> MoAResult:
         """统一执行入口,根据 preset/strategy 分发。
         Wrapped with overall timeout to prevent indefinite hangs."""
@@ -251,6 +276,7 @@ class MoAOrchestrator:
                     query, context, tools, preset, strategy,
                     reference_count, aggregator, critic_rounds,
                     temperature, max_tokens, stream,
+                    max_tool_rounds, caller_role,
                 ),
                 timeout=MOA_TIMEOUT,
             )
@@ -272,6 +298,8 @@ class MoAOrchestrator:
         temperature: float | None = None,
         max_tokens: int | None = None,
         stream: bool = False,
+        max_tool_rounds: int | None = None,
+        caller_role: str | None = None,
     ) -> MoAResult:
         """Internal execute implementation."""
         request_id = "moa_" + uuid.uuid4().hex[:12]
@@ -309,6 +337,17 @@ class MoAOrchestrator:
         else:
             messages = context.copy()
             messages[-1] = {"role": "user", "content": query}
+
+        # 工具分流(结构性缺口修复):
+        # - str 条目 = ToolHub 工具名(local__/mcp__/external__)→ 聚合阶段
+        #   结束后进入真实工具执行循环(_run_aggregator_tool_loop)
+        # - dict 条目 = OpenAI 风格 schema,照旧透传给聚合器/提供商
+        # 不带 str 条目时 tools 语义与历史完全一致。
+        hub_tool_names: list[str] = []
+        if tools:
+            hub_tool_names = [t.strip() for t in tools if isinstance(t, str) and t.strip()]
+            schema_tools = [t for t in tools if isinstance(t, dict)] or None
+            tools = schema_tools
 
         # 分发到具体 strategy
         try:
@@ -380,6 +419,20 @@ class MoAOrchestrator:
                         max_tok,
                         start,
                     )
+            # 聚合器工具循环:请求携带 ToolHub 工具名时,聚合阶段升级为
+            # "聚合器可发起真实工具调用"的循环(结果回填、收敛或达上限)。
+            if hub_tool_names:
+                await self._run_aggregator_tool_loop(
+                    result=result,
+                    messages=messages,
+                    tool_names=hub_tool_names,
+                    caller_role=caller_role or "user",
+                    max_tool_rounds=(
+                        max_tool_rounds if max_tool_rounds and max_tool_rounds > 0 else 3
+                    ),
+                    temperature=agg_temp,
+                    max_tokens=max_tok,
+                )
         except ProviderError:
             # B2 review M3: keep provider status semantics (e.g. 503 when
             # mock.mode=disabled) instead of flattening to a generic 502.
@@ -673,6 +726,202 @@ class MoAOrchestrator:
                 break
 
         result.final_content = current_content
+
+    # ========== 聚合器工具循环(真实工具执行) ==========
+    async def _run_aggregator_tool_loop(
+        self,
+        *,
+        result: MoAResult,
+        messages: list[dict],
+        tool_names: list[str],
+        caller_role: str,
+        max_tool_rounds: int,
+        temperature: float,
+        max_tokens: int,
+    ) -> None:
+        """聚合阶段工具循环:聚合器 LLM 可发起真实工具调用。
+
+        协议:聚合器输出 JSON ``{"tool_calls": [{name, arguments}]}`` 时,
+        经 ToolHub 真实执行(角色门禁 + guardrails),结果回填消息后再调
+        聚合器;输出 ``{"final_answer": ...}`` 或纯文本时收敛结束;最多
+        ``max_tool_rounds`` 轮,防死循环。全程记录 result.tool_trace。
+        """
+        from .capability.tool_hub import get_tool_hub
+
+        hub = get_tool_hub()
+
+        # 解析请求的工具:未知/角色不允许的工具如实记录并排除
+        specs = []
+        for name in tool_names:
+            spec = hub.get_spec(name)
+            if spec is None:
+                result.metadata.setdefault("tool_loop_unknown", []).append(name)
+                continue
+            if caller_role not in spec.allowed_roles:
+                result.metadata.setdefault("tool_loop_denied", []).append(name)
+                continue
+            specs.append(spec)
+        if not specs:
+            result.metadata["tool_loop"] = "no_tools_resolved"
+            logger.warning(
+                "MoA tool loop: no tools resolved (requested=%s role=%s)",
+                tool_names,
+                caller_role,
+            )
+            return
+
+        # 聚合器 endpoint:优先复用本次编排的聚合器
+        agg_ep = (
+            self.pool.endpoints.get(result.aggregator_model)
+            if result.aggregator_model
+            else None
+        )
+        if agg_ep is None or not agg_ep.is_available:
+            agg_ep = self.pool.select_one(ModelTier.PREMIUM) or self.pool.select_one(
+                ModelTier.STANDARD
+            )
+        if agg_ep is None:
+            result.metadata["tool_loop"] = "no_aggregator_available"
+            return
+
+        # 种子消息:有参考输出时沿用聚合器上下文,否则用原始对话
+        if result.references and any(r.success for r in result.references):
+            work = self._build_aggregator_messages(messages, result.references)
+        else:
+            work = [dict(m) for m in messages]
+        tool_doc = "\n".join(
+            f"- {s.name}: {s.description} "
+            f"(parameters: {json.dumps(s.parameters, ensure_ascii=False)})"
+            for s in specs
+        )
+        draft = result.aggregated_content or result.final_content or ""
+        protocol = SYSTEM_TOOL_LOOP.format(tool_doc=tool_doc)
+        if draft:
+            protocol += (
+                "\n当前初稿答案(可用工具验证/计算后给出最终答案):\n" + draft[:4000]
+            )
+        work.append({"role": "system", "content": protocol})
+
+        rounds_used = 0
+        final_produced = False
+        for round_idx in range(1, max_tool_rounds + 1):
+            rounds_used = round_idx
+            try:
+                resp = await self._call_with_fallback(
+                    agg_ep, work, None, temperature, max_tokens
+                )
+            except Exception as e:  # noqa: BLE001 - 记录并保留已有聚合结果
+                logger.warning("MoA tool loop: aggregator call failed round %d: %s", round_idx, e)
+                result.metadata["tool_loop_error"] = str(e)
+                break
+
+            content = (resp.get("content") or "").strip()
+            result.total_cost += resp.get("cost", 0.0)
+            if resp.get("provider"):
+                result.metadata["aggregator_provider"] = resp["provider"]
+            if resp.get("used_model_id"):
+                result.aggregator_model = resp["used_model_id"]
+
+            kind, payload = self._parse_tool_loop_output(content)
+            if kind == "tool_calls":
+                work.append({"role": "assistant", "content": content})
+                observations = []
+                for tc in payload:
+                    t_name = str(tc.get("name", "")).strip()
+                    t_args = tc.get("arguments") or {}
+                    if not isinstance(t_args, dict):
+                        t_args = {}
+                    t0 = time.time()
+                    t_res = await hub.execute(t_name, t_args, caller_role)
+                    latency = round((time.time() - t0) * 1000, 1)
+                    result.tool_trace.append(
+                        {
+                            "round": round_idx,
+                            "tool": t_name,
+                            "args": t_args,
+                            "success": t_res.success,
+                            "result_summary": (t_res.output or t_res.error or "")[:500],
+                            "latency_ms": latency,
+                            "usage": t_res.usage,
+                            "source": t_res.source,
+                        }
+                    )
+                    observations.append(
+                        json.dumps(
+                            {
+                                "tool": t_name,
+                                "success": t_res.success,
+                                "output": t_res.output[:2000] if t_res.success else t_res.error,
+                            },
+                            ensure_ascii=False,
+                        )
+                    )
+                work.append(
+                    {
+                        "role": "user",
+                        "content": (
+                            "工具真实执行结果:\n"
+                            + "\n".join(observations)
+                            + "\n\n请继续:若仍需调用工具,输出 tool_calls JSON;"
+                            "否则输出 final_answer JSON。"
+                        ),
+                    }
+                )
+                continue
+
+            # 收敛:最终答案
+            result.final_content = payload if payload else content
+            if not result.aggregated_content:
+                result.aggregated_content = result.final_content
+            final_produced = True
+            break
+
+        result.metadata["tool_rounds"] = rounds_used
+        result.metadata["tool_loop"] = "executed"
+        if not final_produced:
+            # 达轮数上限仍未收敛:保留策略阶段已有输出,如实标注
+            result.metadata["tool_loop_exhausted"] = True
+            logger.warning(
+                "MoA tool loop: exhausted %d rounds without final answer", rounds_used
+            )
+
+    @staticmethod
+    def _parse_tool_loop_output(content: str) -> tuple[str, Any]:
+        """解析聚合器工具循环输出。
+
+        返回 ("tool_calls", [{name, arguments}, ...]) 或 ("final", text)。
+        无法解析出 tool_calls 时一律视为最终答案(保证收敛)。
+        """
+        text = (content or "").strip()
+        if not text:
+            return ("final", "")
+        candidate = None
+        m = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text)
+        if m:
+            candidate = m.group(1)
+        else:
+            m2 = re.search(r"\{[\s\S]*\}", text)
+            if m2:
+                candidate = m2.group(0)
+        obj = None
+        if candidate:
+            try:
+                parsed = json.loads(candidate)
+                if isinstance(parsed, dict):
+                    obj = parsed
+            except (json.JSONDecodeError, ValueError):
+                obj = None
+        if obj is not None:
+            calls = obj.get("tool_calls")
+            if isinstance(calls, list):
+                valid = [
+                    c for c in calls if isinstance(c, dict) and str(c.get("name", "")).strip()
+                ]
+                if valid:
+                    return ("tool_calls", valid)
+            if "final_answer" in obj:
+                return ("final", str(obj.get("final_answer") or ""))
+        return ("final", text)
 
     # ========== compose(多角度分工) ==========
     async def _run_compose(

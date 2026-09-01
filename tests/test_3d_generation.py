@@ -15,9 +15,10 @@ async def app():
     test_settings.auth.jwt_secret = "test-secret-long-enough-for-hs256-signing-key-xyz"
 
     with patch("moa_gateway.config.get_settings", return_value=test_settings):
-        from moa_gateway.server import create_app
+        with patch("moa_gateway.config._settings", test_settings):
+            from moa_gateway.server import create_app
 
-        yield create_app()
+            yield create_app()
 
 
 @pytest.fixture

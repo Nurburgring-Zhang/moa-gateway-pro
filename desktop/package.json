@@ -1,55 +1,30 @@
 {
   "name": "moa-gateway-desktop",
-  "version": "3.2.1",
-  "description": "MoA Gateway Pro — Windows desktop app (Electron). Launches the local MoA gateway and opens the orchestration UI.",
+  "productName": "MOA Gateway Desktop",
+  "version": "4.2.0",
+  "description": "Windows desktop client for MOA Gateway Pro: manages the local Python gateway service (lifecycle, health, logs, secrets) and embeds its web console.",
   "main": "main.js",
-  "author": "MoA Gateway Pro",
-  "license": "Apache-2.0",
+  "license": "UNLICENSED",
+  "private": true,
+  "author": {
+    "name": "MOA Gateway Team"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win",
-    "dist:dir": "electron-builder --win --dir"
+    "smoke": "electron . --smoke-test",
+    "test": "node --test \"test/*.test.js\"",
+    "check": "node scripts/syntax-check.js",
+    "icons": "node scripts/generate-icons.js",
+    "dist": "electron-builder --win nsis portable",
+    "dist:nsis": "electron-builder --win nsis",
+    "dist:portable": "electron-builder --win portable",
+    "dist:dir": "electron-builder --win dir"
   },
   "devDependencies": {
-    "electron": "^31.0.0",
-    "electron-builder": "^24.13.3"
-  },
-  "build": {
-    "appId": "com.moagateway.desktop",
-    "productName": "MoA Gateway Pro",
-    "files": [
-      "main.js",
-      "preload.js",
-      "renderer/**/*",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "../",
-        "to": "gateway",
-        "filter": [
-          "moa_gateway/**/*",
-          "config.yaml",
-          "requirements.txt",
-          "start.py"
-        ]
-      }
-    ],
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "build/icon.ico"
-    },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true
-    }
+    "electron": "^43.0.0",
+    "electron-builder": "^26.15.0"
   }
 }

@@ -1,0 +1,26 @@
+name: "moa-tool-pipeline"
+description: "MOA analysis with real tool execution (code_execute), verified by a ReAct agent loop"
+version: "1.0"
+
+steps:
+  - id: "analyze"
+    type: "moa"
+    inputs:
+      prompt: "任务: {{task}} 。如果需要计算,请通过工具真实执行代码得到数值,不要心算。"
+      strategy: "parallel"
+      preset: "balanced"
+      tools: ["local__code_execute"]
+      max_tool_rounds: 3
+    outputs:
+      - "analysis"
+
+  - id: "verify"
+    type: "agent_loop"
+    depends_on: ["analyze"]
+    inputs:
+      loop_name: "react"
+      tools: ["code_execute"]
+      max_iterations: 5
+      prompt: "校验以下分析结果。若其中包含算术结论,用 code_execute 重新计算验证,然后给出结论(通过/不通过 + 依据):\n\n{{steps.analyze.output}}"
+    outputs:
+      - "verdict"

@@ -197,7 +197,184 @@ async def get_video_task(
         raise HTTPException(status_code=502, detail=f"Task query error: {str(e)}") from e
 
 
+# ─── OpenAI-style generations endpoint (Kling video-generation wiring) ──────
+
+
+class VideoGenerationsRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=2000)
+    platform: str = Field(
+        default="auto",
+        pattern=r"^(auto|kling|runway)$",
+        description=(
+            "Video generation platform: kling uses KlingVideoProvider "
+            "(KLING_API_KEY), runway uses RunwayVideoProvider (RUNWAY_API_KEY), "
+            "auto picks the first platform with a configured key"
+        ),
+    )
+    duration: int = Field(default=5, ge=1, le=30, description="Duration in seconds")
+    dimensions: str = Field(default="1280x720", pattern=r"^\d+x\d+$")
+    fps: int = Field(default=24, ge=1, le=60)
+
+
+@router.post("/v1/video/generations", response_model=VideoCreateResponse)
+async def generate_video_v2(
+    req: VideoGenerationsRequest,
+    response: Response,
+    key_info: dict[str, Any] = Depends(require_api_key),
+):
+    """Generate video from text (platform-selectable).
+
+    platform=kling routes to KlingVideoProvider (video_generation_provider),
+    platform=runway to RunwayVideoProvider; both coexist with the legacy
+    /v1/video/generate path. Without a real key the D6 mock policy applies:
+    mock.mode=explicit → labeled synthetic task (200 + X-MOA-Mock),
+    mock.mode=disabled → 503.
+    """
+    provider = _get_video_generation_provider(req.platform)
+    _apply_mock_label(provider, response)
+
+    # Config error (503) distinct from upstream failure (502): no provider key.
+    if not getattr(provider, "api_key", "") and not provider.__class__.__name__.startswith("Mock"):
+        raise HTTPException(
+            status_code=503,
+            detail="Video provider not configured (set KLING_API_KEY or RUNWAY_API_KEY)",
+        )
+
+    try:
+        if hasattr(provider, "create_video_task"):
+            # KlingVideoProvider (dedicated video-generation interface)
+            task_id = await provider.create_video_task(
+                prompt=req.prompt,
+                duration=req.duration,
+            )
+        else:
+            # RunwayVideoProvider (video-edit interface)
+            task_id = await provider.text_to_video(
+                prompt=req.prompt,
+                duration=req.duration,
+                dimensions=req.dimensions,
+                fps=req.fps,
+            )
+
+        # Record task ownership for access control
+        if task_id:
+            _task_owners[task_id] = key_info.get("key_id", "")
+
+        return VideoCreateResponse(task_id=task_id, status="processing")
+    except HTTPException:
+        raise
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}") from e
+    except Exception as e:
+        logger.error("Video generation failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"Video generation error: {str(e)}") from e
+
+
+@router.get("/v1/video/generations/tasks/{task_id}", response_model=VideoTaskResponse)
+async def get_video_generation_task(
+    task_id: str,
+    response: Response,
+    platform: str = "auto",
+    key_info: dict[str, Any] = Depends(require_api_key),
+):
+    """Query a /v1/video/generations task (pass the platform used to create it)."""
+    if platform not in ("auto", "kling", "runway"):
+        raise HTTPException(status_code=400, detail=f"Unknown video platform: {platform}")
+
+    # Ownership check: deny access if task belongs to another user
+    owner = _task_owners.get(task_id)
+    if owner is not None and owner != key_info.get("key_id", ""):
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    provider = _get_video_generation_provider(platform)
+
+    # Audit F22: mock providers have no upstream task store — only tasks
+    # created through this gateway exist; anything else is 404.
+    if provider.__class__.__name__.startswith("Mock") and task_id not in _task_owners:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    _apply_mock_label(provider, response)
+
+    if not getattr(provider, "api_key", "") and not provider.__class__.__name__.startswith("Mock"):
+        raise HTTPException(
+            status_code=503,
+            detail="Video provider not configured (set KLING_API_KEY or RUNWAY_API_KEY)",
+        )
+
+    try:
+        if hasattr(provider, "query_video_task"):
+            # KlingVideoProvider returns {status, video_url, error} with raw
+            # upstream statuses (succeed/failed/...) — normalize them.
+            raw = await provider.query_video_task(task_id)
+            status_raw = str(raw.get("status", "")).lower()
+            if status_raw in ("succeed", "succeeded", "success", "completed", "complete"):
+                status = "completed"
+            elif status_raw in ("failed", "error", "timeout"):
+                status = "failed"
+            else:
+                status = "processing"
+            result: dict[str, Any] = {
+                "task_id": task_id,
+                "status": status,
+                "progress": 100 if status == "completed" else 0,
+                "output_url": raw.get("video_url"),
+                "error": raw.get("error"),
+            }
+        else:
+            result = await provider.query_task(task_id)
+        return VideoTaskResponse(**result)
+    except HTTPException:
+        raise
+    except NotImplementedError as e:
+        raise HTTPException(status_code=501, detail=f"Not Implemented: {str(e)}") from e
+    except Exception as e:
+        logger.error("Video task query failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"Task query error: {str(e)}") from e
+
+
 # ─── Helpers ───────────────────────────────────────────────────────────────
+
+
+def _get_video_generation_provider(platform: str):
+    """Provider for /v1/video/generations.
+
+    kling → KlingVideoProvider (video_generation_provider.py, KLING_API_KEY),
+    runway → RunwayVideoProvider (RUNWAY_API_KEY), auto → first available key
+    (runway preferred, matching the legacy endpoint's order). No real key:
+    mock.mode=explicit → MockVideoProvider (labeled 200); disabled → keyless
+    real provider so the route raises a clean 503.
+    """
+    from ..config import get_settings
+    from ..providers import is_mock_key
+    from ..providers.video_edit_provider import MockVideoProvider, RunwayVideoProvider
+    from ..providers.video_generation_provider import KlingVideoProvider
+
+    def _clean(value: str) -> str:
+        return "" if is_mock_key(value) else value
+
+    runway_key = _clean(os.environ.get("RUNWAY_API_KEY", ""))
+    kling_key = _clean(os.environ.get("KLING_API_KEY", ""))
+    kling_base = os.environ.get("KLING_API_BASE", "") or "https://api.klingai.com/v1"
+
+    if platform == "kling" and kling_key:
+        return KlingVideoProvider(api_base=kling_base, api_key=kling_key)
+    elif platform == "runway" and runway_key:
+        return RunwayVideoProvider(api_key=runway_key, api_base=os.environ.get("RUNWAY_API_BASE", ""))
+    elif platform == "auto" and runway_key:
+        return RunwayVideoProvider(api_key=runway_key, api_base=os.environ.get("RUNWAY_API_BASE", ""))
+    elif platform == "auto" and kling_key:
+        return KlingVideoProvider(api_base=kling_base, api_key=kling_key)
+    else:
+        try:
+            mock_mode = get_settings().mock.mode
+        except Exception:
+            mock_mode = "explicit"
+        if mock_mode == "explicit":
+            return MockVideoProvider()
+        # disabled: keyless provider for the requested platform (route 503s)
+        if platform == "kling":
+            return KlingVideoProvider(api_base=kling_base, api_key="")
+        return RunwayVideoProvider(api_key="", api_base=os.environ.get("RUNWAY_API_BASE", ""))
 
 
 def _get_video_provider(model: str):

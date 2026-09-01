@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "moa-gateway-pro"
-version = "3.2.1"
+version = "4.2.0"
 description = "Industrial-grade multi-model collaboration gateway - one OpenAI key for all LLMs"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 authors = [
     {name = "Mavis", email = "Mavis@moa.dev"},
 ]
@@ -16,7 +16,7 @@ keywords = ["ai", "llm", "gateway", "moa", "mixture-of-agents"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -32,7 +32,7 @@ dependencies = [
     "httpx>=0.25.0",
     "pyyaml>=6.0",
     "bcrypt>=4.1.0",
-    "python-jose[cryptography]>=3.4.0   # SEC-003: CVE-2024-33663 (align with requirements.txt)",
+    "python-jose[cryptography]>=3.3.0",
     "python-multipart>=0.0.6",
     "aiofiles>=23.2.0",
     "jinja2>=3.1.0",
@@ -40,12 +40,6 @@ dependencies = [
     "rich>=13.0",
     "typer>=0.12",
     "psutil>=5.9",
-    # v3.2.1: runtime deps the code imports but pyproject never declared
-    "sqlalchemy>=2.0.36",
-    "aiosqlite>=0.20.0",
-    "cryptography>=43.0.1",
-    "prometheus_client>=0.20.0",
-    "redis>=5.0.0",
 ]
 
 [project.scripts]
@@ -87,6 +81,7 @@ moa_gateway = [
     "param_templates/*.yaml",
     "migrations/*.mako",
     "migrations/versions/*.py",
+    "free_tiers/data/*.json",
 ]
 
 [project.urls]

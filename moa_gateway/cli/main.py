@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 
-def main():
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="moa",
         description="MoA Gateway Pro 鈥?Commercial-grade Multi-Model AI Gateway",
@@ -95,13 +95,14 @@ def main():
     p_ask = subparsers.add_parser("ask", help="AI command suggestion")
     p_ask.add_argument("query", nargs="?", help="Natural language query")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if not args.command:
         parser.print_help()
-        return
+        return 0
 
     _dispatch(args)
+    return 0
 
 
 def _dispatch(args):

@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"net"
 	"net/http"
 	"time"
 )
@@ -16,21 +15,6 @@ func Chain(handler http.Handler, middlewares ...Middleware) http.Handler {
 		handler = middlewares[i](handler)
 	}
 	return handler
-}
-
-// extractClientIP returns the trusted client IP for edge use: the direct
-// connection peer. Client-supplied X-Forwarded-For / X-Real-IP are ignored
-// on purpose — at the proxy edge those headers are attacker-controlled,
-// and forwarding them would let any client spoof its IP toward the
-// backend (the Python side trusts XFF for its login rate limiter).
-// (v3.2.1: this free function was referenced but never defined — the
-// proxy did not compile. RateLimiter keeps its config-driven variant.)
-func extractClientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil || host == "" {
-		return r.RemoteAddr
-	}
-	return host
 }
 
 // LoggingMiddleware logs request method, path, IP and duration.

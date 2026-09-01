@@ -1,0 +1,42 @@
+# v4.0.0: ship the full deliverable set in the sdist.
+# (v3.1.1 sdist carried only the moa_gateway package + README/LICENSE.)
+
+include LICENSE
+include README.md
+include CHANGELOG.md
+include CONTRIBUTING.md
+include DEPLOYMENT.md
+include INTEGRATION_GUIDE.md
+include RELEASE_NOTES_v3.1.0.md
+include RELEASE_NOTES_v3.1.1.md
+include RELEASE_NOTES_v4.0.md
+include DELIVERY_REPORT_v4.0.md
+include requirements.txt
+include config.yaml
+include alembic.ini
+
+# package data is declared in pyproject [tool.setuptools.package-data];
+# repeat here so sdist picks them up regardless of setuptools version.
+recursive-include moa_gateway/prompts *.md *.yaml *.yml
+recursive-include moa_gateway/workflows/builtin *.yaml *.yml
+recursive-include moa_gateway/webui *
+recursive-include moa_gateway/param_templates *.yaml *.yml
+recursive-include moa_gateway/migrations *.mako *.py
+
+# P9 desktop client (Electron) — sources only
+graft desktop
+prune desktop/node_modules
+prune desktop/dist
+
+# P10 mobile client (Capacitor/Android) — sources only
+graft mobile
+prune mobile/node_modules
+prune mobile/android/.gradle
+prune mobile/android/app/build
+prune mobile/android/build
+
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude __pycache__/*
+global-exclude .DS_Store
+global-exclude *.log

@@ -244,6 +244,18 @@ CREATE TABLE IF NOT EXISTS agent_tasks (
 
 CREATE INDEX IF NOT EXISTS idx_agent_tasks_status ON agent_tasks(status);
 CREATE INDEX IF NOT EXISTS idx_agent_tasks_parent ON agent_tasks(parent_task_id);
+
+CREATE TABLE IF NOT EXISTS cli_tools (
+    name TEXT PRIMARY KEY,
+    description TEXT DEFAULT '',
+    argv_template TEXT NOT NULL,
+    cwd TEXT DEFAULT '',
+    timeout_s REAL NOT NULL,
+    max_output_bytes INTEGER NOT NULL,
+    env_extra TEXT DEFAULT '{}',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
 """
 
 

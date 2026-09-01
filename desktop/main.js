@@ -1,133 +1,293 @@
-/* MoA Gateway Pro — Windows desktop entry (Electron).
- *
- * Responsibilities (real, not stubbed):
- *   1. Locate the bundled Python gateway (extraResources/gateway) and a Python
- *      interpreter, then spawn `uvicorn moa_gateway.server:app` as a child process.
- *   2. Poll the gateway /health endpoint until ready (or surface a real error).
- *   3. Open a BrowserWindow pointing at the gateway's web UI (admin console),
- *      which includes the 智能编排 (orchestration) panel.
- *
- * NOTE: building the distributable .exe (electron-builder) must be done on a
- * machine with Windows + Node; it is not produced in the audit sandbox.
- */
 'use strict';
 
-const { app, BrowserWindow, shell, dialog } = require('electron');
-const { spawn } = require('child_process');
-const path = require('path');
-const http = require('http');
+/**
+ * main.js — Electron main-process entry for MOA Gateway Desktop.
+ *
+ * Wires together:
+ *   - ConfigStore / LogStore / SecretStore (userData persistence)
+ *   - GatewayManager (Python child lifecycle + health + restart)
+ *   - StaticServer (serves the renderer shell over loopback http so the
+ *     gateway webui iframe is same-scheme; see static-server.js)
+ *   - IPC handlers, tray, single-instance lock, login-item (auto-start)
+ *
+ * Run modes:
+ *   electron .                 normal GUI
+ *   electron . --smoke-test    headless self-test (no window), exit 0/1
+ */
 
-const PORT = process.env.MOA_PORT || 8910;
-const HOST = '127.0.0.1';
-const BASE_URL = `http://${HOST}:${PORT}`;
+const { app, BrowserWindow, safeStorage, Menu } = require('electron');
+const path = require('node:path');
 
+const { ConfigStore } = require('./src/main/config-store');
+const { LogStore } = require('./src/main/log-store');
+const { SecretStore } = require('./src/main/secret-store');
+const { GatewayManager } = require('./src/main/gateway-manager');
+const { StaticServer } = require('./src/main/static-server');
+const { registerIpc } = require('./src/main/ipc');
+const { createTray, resolveIconPath } = require('./src/main/tray');
+const { runSmoke } = require('./src/main/smoke');
+
+const SMOKE_MODE = process.argv.includes('--smoke-test');
+
+// ---------------------------------------------------------------------------
+// Global state (populated in whenReady)
+// ---------------------------------------------------------------------------
 let mainWindow = null;
-let gatewayProc = null;
+let tray = null;
+let configStore = null;
+let logStore = null;
+let secretStore = null;
+let manager = null;
+let staticServer = null;
+let isQuitting = false;
 
-function gatewayDir() {
-  // Packaged: resources/gateway ; dev: repo root (parent of desktop/)
-  return app.isPackaged
-    ? path.join(process.resourcesPath, 'gateway')
-    : path.resolve(__dirname, '..');
+function userDataFile(name) {
+  return path.join(app.getPath('userData'), name);
 }
 
-function findPython() {
-  // Prefer a project venv, then common interpreter names.
-  const candidates = process.platform === 'win32'
-    ? ['python.exe', 'python3.exe', 'py.exe']
-    : ['python3', 'python'];
-  return candidates;
+// ---------------------------------------------------------------------------
+// Single-instance lock: a second launch focuses the existing window instead of
+// starting a duplicate service manager.
+// ---------------------------------------------------------------------------
+if (!SMOKE_MODE) {
+  const gotLock = app.requestSingleInstanceLock();
+  if (!gotLock) {
+    app.quit();
+  } else {
+    app.on('second-instance', () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    });
+  }
 }
 
-function startGateway() {
-  const cwd = gatewayDir();
-  const args = ['-m', 'uvicorn', 'moa_gateway.server:app', '--host', HOST, '--port', String(PORT)];
-  const [py, ...fallbacks] = findPython();
-
-  const env = { ...process.env };
-  // Pass through required secrets if provided; otherwise the gateway auto-generates
-  // an admin password into data/.admin_password (documented behavior).
-  ['MOA_ADMIN_PASSWORD', 'MOA_GATEWAY_KEY', 'MOA_JWT_SECRET'].forEach((k) => {
-    if (process.env[k]) env[k] = process.env[k];
-  });
-
-  gatewayProc = spawn(py, args, { cwd, env });
-  gatewayProc.stdout.on('data', (d) => process.stdout.write(`[gateway] ${d}`));
-  gatewayProc.stderr.on('data', (d) => process.stderr.write(`[gateway] ${d}`));
-  gatewayProc.on('error', (err) => {
-    dialog.showErrorBox('网关启动失败', `无法启动 Python 网关: ${err.message}\n请确认已安装 Python 与依赖 (pip install -r requirements.txt)。`);
-  });
-  gatewayProc.on('exit', (code) => {
-    process.stderr.write(`[gateway] exited with code ${code}\n`);
-  });
+// ---------------------------------------------------------------------------
+// Broadcast helpers (main -> renderer)
+// ---------------------------------------------------------------------------
+function broadcast(channel, payload) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      try { win.webContents.send(channel, payload); } catch { /* window closing */ }
+    }
+  }
 }
 
-function waitForGateway(url, timeoutMs = 30000) {
-  const start = Date.now();
-  return new Promise((resolve, reject) => {
-    const tryOnce = () => {
-      const req = http.get(`${url}/health`, (res) => {
-        resolve(true);
-      });
-      req.on('error', () => {
-        if (Date.now() - start > timeoutMs) {
-          reject(new Error('网关在超时时间内未就绪'));
-        } else {
-          setTimeout(tryOnce, 500);
-        }
-      });
-      req.setTimeout(2000, () => { req.destroy(); });
-    };
-    tryOnce();
-  });
+let logBatch = [];
+let logBatchTimer = null;
+function flushLogBatch() {
+  logBatchTimer = null;
+  if (logBatch.length === 0) return;
+  const entries = logBatch;
+  logBatch = [];
+  broadcast('logs:entries', { entries });
+}
+function queueLogEntry(entry) {
+  logBatch.push(entry);
+  if (logBatch.length >= 250) {
+    if (logBatchTimer) { clearTimeout(logBatchTimer); logBatchTimer = null; }
+    flushLogBatch();
+  } else if (!logBatchTimer) {
+    logBatchTimer = setTimeout(flushLogBatch, 200);
+    logBatchTimer.unref();
+  }
 }
 
-async function createWindow() {
+// ---------------------------------------------------------------------------
+// Construction
+// ---------------------------------------------------------------------------
+function buildStores() {
+  configStore = new ConfigStore(userDataFile('desktop-config.json'));
+  configStore.load();
+  for (const warning of configStore.loadWarnings) {
+    console.warn(`[config] ${warning}`);
+  }
+
+  const cfg = configStore.get();
+  logStore = new LogStore({ maxLines: cfg.logs.maxLines, maxBytes: cfg.logs.maxBytes });
+  secretStore = new SecretStore({ filePath: userDataFile('secrets.enc.json'), safeStorage });
+
+  manager = new GatewayManager({ configStore, logStore, secretStore });
+  manager.setElectronPaths({ appPath: app.getAppPath(), resourcesPath: process.resourcesPath || '' });
+
+  manager.on('status', (status) => broadcast('service:status-changed', status));
+  logStore.on('entry', queueLogEntry);
+  logStore.on('cleared', () => broadcast('logs:cleared', {}));
+}
+
+function createMainWindow() {
+  const cfg = configStore.get();
   mainWindow = new BrowserWindow({
     width: 1280,
-    height: 860,
-    title: 'MoA Gateway Pro',
+    height: 840,
+    minWidth: 940,
+    minHeight: 600,
+    show: false,
+    title: 'MOA Gateway Desktop',
+    backgroundColor: '#0b0f17',
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
+      spellcheck: false,
     },
   });
 
-  // Open external links in the system browser, not inside the app.
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith(BASE_URL)) return { action: 'allow' };
-    if (!/^https?:\/\//i.test(url)) return { action: 'deny' };  // file:, custom schemes blocked
-    shell.openExternal(url);
-    return { action: 'deny' };
+  mainWindow.removeMenu();
+  Menu.setApplicationMenu(null);
+
+  const shellUrl = staticServer ? staticServer.url : null;
+  if (shellUrl) {
+    mainWindow.loadURL(shellUrl);
+  } else {
+    // Explicit, visible degradation: static server failed to bind.
+    mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(
+      '<body style="font-family:sans-serif;background:#0b0f17;color:#e6edf3;padding:2rem">' +
+      '<h2>MOA Gateway Desktop</h2><p>The local UI server failed to start. Check the console output.</p></body>',
+    )}`);
+  }
+
+  mainWindow.once('ready-to-show', () => mainWindow.show());
+
+  // Minimize-to-tray: closing hides instead of quitting unless we are really
+  // shutting down. This keeps the managed gateway running.
+  mainWindow.on('close', (event) => {
+    const current = configStore.get();
+    if (!isQuitting && current.ui.minimizeToTray) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
   });
 
-  mainWindow.loadURL(BASE_URL);
+  mainWindow.on('minimize', (event) => {
+    const current = configStore.get();
+    if (current.ui.minimizeToTray) {
+      event.preventDefault();
+      mainWindow.hide();
+    }
+  });
+
   mainWindow.on('closed', () => { mainWindow = null; });
+  return mainWindow;
 }
 
-app.whenReady().then(async () => {
-  startGateway();
-  try {
-    await waitForGateway(BASE_URL);
-  } catch (e) {
-    dialog.showErrorBox('网关未就绪', `${e.message}\n将仍尝试打开界面。`);
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createMainWindow();
+  } else {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
   }
-  await createWindow();
+  mainWindow.focus();
+}
+
+function buildTray() {
+  const iconPath = resolveIconPath(__dirname);
+  tray = createTray({
+    getWindow: () => mainWindow,
+    manager,
+    onShowWindow: showMainWindow,
+    onQuit: () => quitApp(),
+    iconPath,
+  });
+}
+
+async function quitApp() {
+  if (isQuitting) return;
+  isQuitting = true;
+  try { if (manager) await manager.dispose(); } catch { /* shutdown best-effort */ }
+  try { if (staticServer) await staticServer.close(); } catch { /* ignore */ }
+  try { if (tray) tray.destroy(); } catch { /* ignore */ }
+  app.quit();
+}
+
+// ---------------------------------------------------------------------------
+// App lifecycle
+// ---------------------------------------------------------------------------
+app.whenReady().then(async () => {
+  app.setAppUserModelId('com.moa.gateway.desktop');
+
+  // Headless smoke test: no window, no tray, just exercise the subsystems.
+  if (SMOKE_MODE) {
+    let code = 1;
+    try {
+      code = await runSmoke({ app, safeStorage });
+    } catch (err) {
+      console.error(`[SMOKE] FAIL uncaught — ${err.stack || err}`);
+      code = 1;
+    }
+    app.exit(code);
+    return;
+  }
+
+  buildStores();
+
+  // Serve the renderer shell over loopback http (see static-server.js).
+  staticServer = new StaticServer({ rootDir: path.join(__dirname, 'src', 'renderer') });
+  try {
+    await staticServer.listen(0);
+    console.log(`[ui] renderer shell on ${staticServer.url}`);
+  } catch (err) {
+    console.error(`[ui] static server failed to bind: ${err.message}`);
+    staticServer = null;
+  }
+
+  registerIpc({
+    manager,
+    configStore,
+    secretStore,
+    logStore,
+    getWindow: () => mainWindow,
+  });
+
+  createMainWindow();
+  buildTray();
+
+  // Re-apply the persisted login-item intent on platforms where the OS may
+  // have cleared it (e.g. after an app update changed the path).
+  const cfg = configStore.get();
+  if (cfg.system.openAtLogin) {
+    try { app.setLoginItemSettings({ openAtLogin: true }); } catch { /* ignore */ }
+  }
+
+  // Auto-start the gateway if configured.
+  if (cfg.gateway.autoStart) {
+    logStore.system('auto-start enabled — launching gateway');
+    manager.start().catch((err) => logStore.system(`auto-start failed: ${err.message}`));
+  } else {
+    logStore.system('auto-start disabled — gateway will start on demand');
+  }
+
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
+    else showMainWindow();
   });
 });
 
+app.on('before-quit', () => { isQuitting = true; });
+
 app.on('window-all-closed', () => {
-  if (gatewayProc) {
-    try { gatewayProc.kill(); } catch (_) { /* ignore */ }
+  // On Windows we keep running in the tray so the managed gateway stays up.
+  // If the tray is gone (destroyed) there is nothing left to do.
+  if (process.platform !== 'win32') {
+    quitApp();
   }
-  if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
-  if (gatewayProc) {
-    try { gatewayProc.kill(); } catch (_) { /* ignore */ }
-  }
+app.on('quit', async () => {
+  try { if (manager) await manager.dispose(); } catch { /* ignore */ }
+});
+
+// Never let an unhandled rejection take down the service manager silently.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+  try { if (logStore) logStore.system(`unhandled rejection: ${reason && reason.message ? reason.message : reason}`); } catch { /* ignore */ }
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+  try { if (logStore) logStore.system(`uncaught exception: ${err.message}`); } catch { /* ignore */ }
 });

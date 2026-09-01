@@ -1,36 +1,35 @@
-import type { CapacitorConfig } from '@capacitor/cli';
+import type { CapacitorConfig } from '@capacitor/cli'
 
 /**
- * MoA Gateway Pro — Android client (Capacitor).
+ * MOA Gateway mobile console — Capacitor configuration.
  *
- * Architecture (honest): Python does not run on-device, so the Android app is a
- * CLIENT that connects to a DEPLOYED MoA gateway (self-hosted server). Two modes:
+ * The gateway is a plain-HTTP FastAPI service on the LAN (default port 8910,
+ * see moa_gateway/config.py ServerConfig). Two Android settings below exist
+ * specifically because of that:
  *
- *   A) Remote gateway (recommended): set `server.url` to the gateway's reachable
- *      address (e.g. http://192.168.1.10:8910 or https://moa.example.com). The
- *      admin/orchestration web UI is served by the gateway and wrapped natively.
+ * 1. `server.androidScheme: 'https'` — the WebView serves the bundled web app
+ *    from the origin `https://localhost`. Keep this origin when adding the app
+ *    to the gateway's `server.cors_origins` (see mobile/README.md, section
+ *    "Gateway CORS configuration").
  *
- *   B) Bundled static UI: build admin-ui as a static export into `dist/` and set
- *      `webDir: 'dist'`; the UI then calls the gateway API over the network.
- *
- * Building the .apk requires the Android SDK + gradle on a proper machine:
- *   npm install && npx cap add android && npm run build:apk
- * It is NOT produced inside the audit sandbox (no Android SDK; containers forbidden).
+ * 2. `android.allowMixedContent: true` — without it the WebView refuses to
+ *    issue `http://` requests from the `https://localhost` app origin, which
+ *    would make every gateway call fail on a LAN deployment without TLS.
  */
 const config: CapacitorConfig = {
-  appId: 'com.moagateway.mobile',
-  appName: 'MoA Gateway Pro',
-  // Mode A: connect to a deployed gateway (set your gateway address):
+  appId: 'com.moagateway.console',
+  appName: 'MOA Gateway',
+  webDir: 'www',
   server: {
-    url: 'http://192.168.1.10:8910',
-    cleartext: true, // allow http on LAN; use https in production
-    androidScheme: 'https',
+    androidScheme: 'https'
   },
-  // Mode B (alternative): bundled static UI
-  // webDir: 'dist',
-  plugins: {
-    SplashScreen: { launchShowDuration: 800 },
+  android: {
+    allowMixedContent: true,
+    // Enable per WebView debugging in debug builds only is handled natively;
+    // keep captureInput default so the keyboard does not swallow touch events
+    // meant for the chat composer.
   },
-};
+  backgroundColor: '#0B1220'
+}
 
-export default config;
+export default config

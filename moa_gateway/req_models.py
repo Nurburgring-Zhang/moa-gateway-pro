@@ -1002,9 +1002,64 @@ class CreateChannelsRequest(_ModelBase):  # type: ignore[no-redef]
     enabled: list[str] = Field(
         default_factory=lambda: ["ch1", "ch2", "ch3"], description="启用的通道"
     )
-    cli_latency_ms: int = Field(50, ge=0, description="cli_latency_ms 字段")
-    api_latency_ms: int = Field(150, ge=0, description="api_latency_ms 字段")
+    cli_tool: str = Field(
+        "",
+        description="CH2 真实执行用的已注册 CLI 工具名 (cli_registry);空 = CH2 未配置",
+    )
+    api_endpoint: str = Field(
+        "", description="CH3 真实 model_pool.call 指定的 endpoint_id;空 = 自动选可用端点"
+    )
+    persona: str = Field("", description="CH1 subagent 回环的 system prompt")
+    cli_latency_ms: int = Field(50, ge=0, description="[已废弃] 兼容保留,真实执行不再生效")
+    api_latency_ms: int = Field(150, ge=0, description="[已废弃] 兼容保留,真实执行不再生效")
     kwargs: dict[str, Any] = Field(default_factory=dict, description="execute 附加参数")
+
+
+class CreateCLIToolRegisterRequest(_ModelBase):
+    """Request body for POST /v1/capability/cli/tools (admin 注册外部 CLI 工具)."""
+
+    name: str = Field(
+        ..., pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$", description="工具名 ([a-zA-Z0-9][a-zA-Z0-9_-]{0,63})"
+    )
+    argv_template: list[str] = Field(
+        ..., min_length=1, description="argv 模板,如 [\"python\",\"-c\",\"{script}\"];argv[0] 必须在白名单内"
+    )
+    description: str = Field("", description="工具描述")
+    cwd: str = Field("", description="工作目录;空 = data/cli_sandbox,否则必须命中 allowed_dirs 白名单")
+    timeout_s: float | None = Field(None, gt=0, description="超时秒数;默认 settings.cli.default_timeout_s")
+    max_output_bytes: int | None = Field(None, gt=0, description="输出上限字节;默认 settings.cli.max_output_bytes")
+    env_extra: dict[str, str] = Field(
+        default_factory=dict, description="额外注入子进程的环境变量 (机密类键名被拒)"
+    )
+
+
+class CreateCLIToolUpdateRequest(_ModelBase):
+    """Request body for PUT /v1/capability/cli/tools/{name} (admin 部分更新)."""
+
+    argv_template: list[str] | None = Field(None, min_length=1, description="新 argv 模板 (可选)")
+    description: str | None = Field(None, description="新描述 (可选)")
+    cwd: str | None = Field(None, description="新工作目录 (可选,白名单校验)")
+    timeout_s: float | None = Field(None, gt=0, description="新超时秒数 (可选)")
+    max_output_bytes: int | None = Field(None, gt=0, description="新输出上限 (可选)")
+    env_extra: dict[str, str] | None = Field(None, description="新 env_extra (可选,整体替换)")
+
+
+class CreateCLIExecuteRequest(_ModelBase):
+    """Request body for POST /v1/capability/cli/execute (admin 单路真实执行)."""
+
+    name: str = Field(..., description="已注册的 CLI 工具名")
+    params: dict[str, Any] = Field(
+        default_factory=dict, description="argv 占位符参数;query 键保留给通道层"
+    )
+    timeout_s: float | None = Field(None, gt=0, description="覆盖注册超时 (仍受 max_timeout_s 上限)")
+
+
+class CreateCLIExecuteBatchRequest(_ModelBase):
+    """Request body for POST /v1/capability/cli/execute-batch (admin 多路并发执行)."""
+
+    items: list[dict[str, Any]] = Field(
+        ..., min_length=1, description="[{name, params?, timeout_s?}],逐路独立超时,部分失败不影响整体"
+    )
 
 
 class CreateReferenceRouterRequest(_ModelBase):
@@ -1211,11 +1266,114 @@ class CreateAgentRunLoopRequest(_ModelBase):
     loop_name: Literal["react", "plan_execute"] = Field("react", description="Loop type")
     max_iterations: int = Field(10, ge=1, description="Max loop iterations")
     tools: list[str] = Field(default_factory=list, description="Tool names to enable")
+    include_mcp_tools: bool = Field(
+        False,
+        description=(
+            "When true, the tool surface is built from the unified ToolHub and "
+            "includes mcp__ / external__ namespaced tools (role-filtered) in "
+            "addition to local__ skills"
+        ),
+    )
     endpoint_id: str | None = Field(
         None, max_length=128,
         description="Optional model endpoint id to pin the loop to (v3.1.1); "
         "defaults to the pool's first endpoint",
     )
+
+
+# ============ dialogue (多 AI 同框对话) ============
+
+
+class DialogueParticipantSpec(_ModelBase):
+    """对话参与者 — 绑定真实 model endpoint + 人设"""
+
+    endpoint_id: str = Field(..., min_length=1, description="model_pool 中的真实 endpoint id")
+    name: str = Field("", description="显示名 (空则默认取 endpoint_id)")
+    persona: str = Field("", description="人设系统提示")
+
+
+class CreateDialogueRoomRequest(_ModelBase):
+    """Request body for POST /v1/dialogue/rooms."""
+
+    topic: str = Field(..., min_length=1, description="对话主题 (缺失/空 → 422)")
+    mode: Literal["round_robin", "parallel_think", "free_talk"] = Field(
+        "round_robin", description="编排模式: 轮流 / 并行思考后汇总 / LLM 自主决定发言"
+    )
+    participants: list[DialogueParticipantSpec] = Field(
+        ..., min_length=2, description="参与者列表 (多 AI 同框,至少 2 个)"
+    )
+    max_rounds: int = Field(2, ge=1, le=20, description="单次用户发言触发的最大轮数上限")
+    participant_timeout: float = Field(60.0, ge=1, le=600, description="单参与者调用超时 (秒)")
+
+
+class PostDialogueMessageRequest(_ModelBase):
+    """Request body for POST /v1/dialogue/rooms/{room_id}/messages."""
+
+    content: str = Field(..., min_length=1, description="用户发言内容 (缺失/空 → 422)")
+
+
+# ============ music (音频音乐生成) ============
+
+
+class CreateMusicGenerationRequest(_ModelBase):
+    """Request body for POST /v1/audio/music."""
+
+    prompt: str = Field(
+        ..., min_length=1, max_length=2000, description="音乐描述/歌词提示 (缺失/空 → 422)"
+    )
+    duration: int = Field(30, ge=5, le=600, description="目标时长(秒)")
+    provider: Literal["auto", "minimax", "tiangong"] = Field(
+        "auto", description="音乐生成平台: auto 按可用 key 优先级选择 (MINIMAX_API_KEY → TIANGONG_API_KEY)"
+    )
+
+
+class MusicCreateResponseModel(_ModelBase):
+    """Response body for POST /v1/audio/music."""
+
+    task_id: str = Field(..., description="异步任务 ID")
+    status: str = Field("processing", description="任务状态")
+    message: str = Field("Task created successfully", description="提示信息")
+
+
+class MusicTaskResponseModel(_ModelBase):
+    """Response body for GET /v1/audio/music/tasks/{task_id}."""
+
+    task_id: str = Field(..., description="异步任务 ID")
+    status: str = Field(..., description="processing/completed/failed")
+    music_url: str | None = Field(None, description="生成完成后的音频 URL")
+    error: str | None = Field(None, description="失败原因")
+
+
+class CreateMultimodalExecuteRequest(_ModelBase):
+    """Request body for POST /v1/multimodal/execute (P3 多路并发扇出)."""
+
+    modality: Literal["image", "audio_tts", "audio_asr"] = Field(
+        ..., description="扇出模态: image(图像生成)/audio_tts(合成)/audio_asr(识别)"
+    )
+    platforms: list[str] = Field(
+        ..., min_length=1, description="并发执行的平台列表, 如 image: [cogview, wanx, openai]"
+    )
+    mode: Literal["all", "fastest", "best"] = Field(
+        "all", description="聚合模式: all 全部成功结果 / fastest 首个成功 / best 确定性选优"
+    )
+    prompt: str = Field("", max_length=4000, description="图像生成的提示词 (modality=image 时使用)")
+    text: str = Field("", max_length=8000, description="待合成文本 (modality=audio_tts 时使用)")
+    audio_b64: str = Field("", description="待识别音频的 base64 (modality=audio_asr 时使用)")
+    language: str = Field("zh", description="ASR 语言代码")
+    size: str = Field("1024x1024", description="图像尺寸")
+    n: int = Field(1, ge=1, le=8, description="每路图像生成数量")
+    voice: str = Field("alloy", description="TTS 音色")
+    audio_format: str = Field("mp3", description="TTS 输出格式")
+    per_route_timeout_s: float = Field(60.0, gt=0, le=600, description="单路超时(秒)")
+
+
+class CreateTaskAutoRequest(_ModelBase):
+    """Request body for POST /v1/tasks/auto (P8 主动任务分析闭环)."""
+
+    task: str = Field(..., min_length=1, max_length=8000, description="复合任务描述, 由真 LLM 分解")
+    max_subtasks: int = Field(6, ge=1, le=12, description="允许的最大子任务数")
+    per_subtask_timeout_s: float = Field(300.0, gt=0, le=1800, description="单个子任务执行超时(秒)")
+    dry_run: bool = Field(False, description="true 时只返回分解计划不执行")
 
 
 # ============ Model registry ============
@@ -1293,6 +1451,10 @@ ENDPOINT_MODELS: dict[str, type[BaseModel]] = {
     "/v1/capability/rag-search": CreateRagSearchRequest,
     "/v1/capability/plan-act": CreatePlanActRequest,
     "/v1/capability/channels": CreateChannelsRequest,
+    "/v1/capability/cli/tools": CreateCLIToolRegisterRequest,
+    "/v1/capability/cli/tools/{name}": CreateCLIToolUpdateRequest,
+    "/v1/capability/cli/execute": CreateCLIExecuteRequest,
+    "/v1/capability/cli/execute-batch": CreateCLIExecuteBatchRequest,
     "/v1/capability/reference-router": CreateReferenceRouterRequest,
     "/v1/capability/checkpoint": CreateCheckpointRequest,
     "/v1/capability/canary": CreateCanaryRequest,
@@ -1309,4 +1471,9 @@ ENDPOINT_MODELS: dict[str, type[BaseModel]] = {
     "/v1/agent/workflow/register": CreateAgentWorkflowRegisterRequest,
     "/v1/agent/workflow/run": CreateAgentWorkflowRunRequest,
     "/v1/agent/run-loop": CreateAgentRunLoopRequest,
+    "/v1/dialogue/rooms": CreateDialogueRoomRequest,
+    "/v1/dialogue/rooms/{room_id}/messages": PostDialogueMessageRequest,
+    "/v1/audio/music": CreateMusicGenerationRequest,
+    "/v1/multimodal/execute": CreateMultimodalExecuteRequest,
+    "/v1/tasks/auto": CreateTaskAutoRequest,
 }

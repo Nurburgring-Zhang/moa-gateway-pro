@@ -61,6 +61,8 @@ async def moa_execute(
                 critic_rounds=req.critic_rounds,
                 temperature=req.temperature or 0.6,
                 max_tokens=req.max_tokens or 4096,
+                max_tool_rounds=req.max_tool_rounds,
+                caller_role=key_info.get("role") or "readonly",
             )
         except ValueError as e:
             raise HTTPException(400, f"Invalid input: {e}") from e

@@ -17,6 +17,94 @@ logger = logging.getLogger(__name__)
 _active_run_ids: set[str] = set()
 
 
+# ---------------------------------------------------------------------------
+# v4.1.0 (MemoraX Code port): cross-session memory integration.
+# Both hooks are opt-in (settings.memory.retrieval_enabled / writeback_enabled)
+# and never raise into the run path — the memory service APIs swallow their own
+# errors by contract, and the guards below double-protect the executor.
+# ---------------------------------------------------------------------------
+
+
+def _memory_scope_from_run(run: Run) -> tuple[str, str]:
+    """Resolve the MemoraX scope pair (base_user_id, repository_slug).
+
+    Caller identity comes from run metadata (``user_id`` / ``base_user_id``);
+    absent that, the assistant itself is the stable identity. The repository
+    slug follows ``repository_slug`` / ``repo_key`` metadata with a stable
+    per-assistant fallback, mirroring MemoraX ``effectiveUserId = f(baseUser,
+    repoKey)`` scope isolation.
+    """
+    meta = run.metadata or {}
+    base_user = str(meta.get("user_id") or meta.get("base_user_id") or "").strip()
+    if not base_user:
+        base_user = f"assistant:{run.assistant_id}"
+    repo = str(meta.get("repository_slug") or meta.get("repo_key") or "").strip()
+    if not repo:
+        repo = f"assistant-{run.assistant_id}"
+    return base_user, repo
+
+
+def _latest_user_text(messages) -> str:
+    """Return the newest non-empty user message text (recall query source)."""
+    for msg in reversed(messages):
+        if msg.role != "user":
+            continue
+        text = ""
+        for part in msg.content:
+            if part.get("type") == "text":
+                text += part.get("text", {}).get("value", "")
+        if text.strip():
+            return text
+    return ""
+
+
+def _memory_recall_context(run: Run, messages) -> str | None:
+    try:
+        from ..config import get_settings
+
+        if not get_settings().memory.retrieval_enabled:
+            return None
+        query = _latest_user_text(messages)
+        if not query.strip():
+            return None
+        base_user, repo = _memory_scope_from_run(run)
+        from ..memory import get_memory_service
+
+        return get_memory_service().recall_for_turn(
+            query, base_user_id=base_user, repository_slug=repo
+        )
+    except Exception as exc:  # noqa: BLE001 - memory must never break a run
+        logger.warning("assistant memory recall skipped: %s", exc)
+        return None
+
+
+def _memory_writeback(run: Run, messages, reply_text: str) -> None:
+    try:
+        from ..config import get_settings
+
+        if not get_settings().memory.writeback_enabled:
+            return
+        user_text = _latest_user_text(messages)
+        if not (user_text.strip() and (reply_text or "").strip()):
+            return
+        base_user, repo = _memory_scope_from_run(run)
+        from ..memory import get_memory_service
+
+        get_memory_service().queue_writeback(
+            base_user_id=base_user,
+            repository_slug=repo,
+            session_id=str(run.thread_id),
+            messages=[
+                {"role": "user", "content": user_text},
+                {"role": "assistant", "content": reply_text},
+            ],
+            correlation_id=str(run.id),
+            client="assistant-runs",
+        )
+    except Exception as exc:  # noqa: BLE001 - memory must never break a run
+        logger.warning("assistant memory writeback skipped: %s", exc)
+
+
 def _acquire_run(run_id: str) -> bool:
     """Claim exclusive in-process execution rights for a run."""
     if run_id in _active_run_ids:
@@ -107,6 +195,12 @@ async def _execute_run_inner(run: Run) -> Run:
                 "content": run.instructions or assistant.instructions or "",
             })
 
+        # v4.1.0 (MemoraX Code): inject recalled cross-session memory context
+        # (opt-in; None when disabled or nothing relevant was found).
+        memory_ctx = _memory_recall_context(run, messages)
+        if memory_ctx:
+            llm_messages.append({"role": "system", "content": memory_ctx})
+
         for msg in messages:
             content_text = ""
             for part in msg.content:
@@ -164,6 +258,9 @@ async def _execute_run_inner(run: Run) -> Run:
             run_id=run.id,
         )
         storage.save_message(assistant_msg)
+
+        # v4.1.0 (MemoraX Code): queue this turn for memory writeback (opt-in).
+        _memory_writeback(run, messages, content_text)
 
         # Create run step for message creation
         step = RunStep(
@@ -256,6 +353,12 @@ async def _submit_tool_outputs_inner(run: Run, tool_outputs: list[dict[str, Any]
     if assistant and (assistant.instructions or run.instructions):
         llm_messages.append({"role": "system", "content": run.instructions or assistant.instructions or ""})
 
+    # v4.1.0 (MemoraX Code): inject recalled cross-session memory context
+    # (opt-in; None when disabled or nothing relevant was found).
+    memory_ctx = _memory_recall_context(run, messages)
+    if memory_ctx:
+        llm_messages.append({"role": "system", "content": memory_ctx})
+
     for msg in messages:
         content_text = ""
         for part in msg.content:
@@ -294,6 +397,9 @@ async def _submit_tool_outputs_inner(run: Run, tool_outputs: list[dict[str, Any]
             run_id=run.id,
         )
         storage.save_message(assistant_msg)
+
+        # v4.1.0 (MemoraX Code): queue this turn for memory writeback (opt-in).
+        _memory_writeback(run, messages, content_text)
 
         # Complete run
         run.status = "completed"

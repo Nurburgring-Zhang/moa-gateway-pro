@@ -33,6 +33,12 @@ from .registry import (
     get_registry,
 )
 
+try:
+    from ..agent_loop.skills import BUILTIN_TOOLS, DANGEROUS_TOOLS
+except ImportError:  # v4.1: DANGEROUS_TOOLS lives in skill_factory instead
+    from ..agent_loop.skills import BUILTIN_TOOLS
+    from .skill_factory import DANGEROUS_TOOLS
+
 logger = logging.getLogger(__name__)
 
 # skill 的主参数名(用于把通用输入解析成 handler 需要的 kwargs)
@@ -259,7 +265,6 @@ class Executor:
 
     async def _exec_loop(self, cap, inp: dict[str, Any], privileged: bool = True) -> dict[str, Any]:
         from ..agent_loop.harness import AgentHarness
-        from ..agent_loop.skills import BUILTIN_TOOLS, DANGEROUS_TOOLS
 
         loop_name = (cap.invoke or {}).get("loop_name") or cap.name
         llm_call = self._make_llm_call()

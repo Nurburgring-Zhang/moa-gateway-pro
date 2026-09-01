@@ -8,13 +8,19 @@
 Chain 行为: 顺序尝试 CH1→CH2→CH3,第一个成功就返回,都失败抛 ``ChannelError``。
 
 错误分类 (R-24): 4 类 — auth / timeout / cli / empty。
+
+v3.1.1 审计整改: 三通道全部真实执行,不再有 sleep+模板字符串模拟:
+- ``SubagentChannel`` 经内部鉴权头回环调用本网关 ``/v1/chat/completions``
+  (与 yaml_workflow 的 D2 回环模式一致),persona 作为 system prompt。
+- ``CLIChannel`` 经 ``cli_registry`` 真实 ``subprocess.run`` 执行已注册外部
+  CLI 工具 (或内联 argv 模板),捕获 stdout/stderr/exit code/耗时。
+- ``APIChannel`` 经 ``model_pool.call`` 真实调用 LLM 端点 (pool 可注入以便
+  测试;生产路径直连真实 provider)。
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
-import random
 import time
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
@@ -64,18 +70,13 @@ class CLIErrorKind(str, Enum):
 
 
 class ChannelResult(NamedTuple):
-    """单次通道执行结果
-
-    ``mock=True`` 标记该输出为本地合成/模拟结果而非真实 LLM/CLI/API 调用
-    (v3.2.1 诚实性政策: 所有合成结果必须显式标注)。
-    """
+    """单次通道执行结果"""
 
     channel: ChannelType
     success: bool
     output: str
     latency_ms: int
     error: str | None = None
-    mock: bool = False
 
 
 class ChannelError(RuntimeError):
@@ -95,7 +96,6 @@ class ChannelError(RuntimeError):
                     "output": r.output,
                     "latency_ms": r.latency_ms,
                     "error": r.error,
-                    "mock": bool(r.mock),
                 }
                 for r in self.attempts
             ],
@@ -145,6 +145,11 @@ def classify_error(exc: BaseException) -> str:
     return CLIErrorKind.CLI.value
 
 
+def _error_str(kind: str, exc: BaseException) -> str:
+    """统一错误串格式: ``<kind>:<异常类型>:<消息>``。"""
+    return f"{kind}:{type(exc).__name__}:{exc}"
+
+
 # ============ Channel ABC ============
 
 
@@ -178,7 +183,6 @@ class Channel(ABC):
         success: bool = True,
         latency_ms: int = 0,
         error: str | None = None,
-        mock: bool = False,
     ) -> ChannelResult:
         return ChannelResult(
             channel=self.channel_type,
@@ -186,21 +190,26 @@ class Channel(ABC):
             output=output,
             latency_ms=latency_ms,
             error=error,
-            mock=mock,
         )
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}(type={self.channel_type.value}, enabled={self.enabled})"
 
 
-# ============ CH1 — SubagentChannel ============
+# ============ CH1 — SubagentChannel (真实网关回环) ============
 
 
 class SubagentChannel(Channel):
-    """CH1: 本地 subagent,快速便宜 — 智能 mock fallback
+    """CH1: 本地 subagent — 真实回环调用本网关 ``/v1/chat/completions``。
 
-    当 query 命中内置启发式 (空 / 简单问候 / 短命令) 时直接给出文本,
-    其它情况按概率选择"成功 / 失败"以测试 chain fallback。
+    与 ``yaml_workflow._http_post`` 的 D2 模式一致:内部回环请求携带网关
+    ``Authorization`` 头 (``internal_auth_headers``),persona 参数作为
+    system prompt 注入。
+
+    可注入项 (测试用):
+    - ``client``: 现成的 ``httpx.AsyncClient`` (例如挂 ASGITransport 直连
+      测试 app);生产路径不传,自建真实 HTTP 客户端。
+    - ``base_url``: 覆盖回环地址 (默认 ``internal_gateway_url()``)。
     """
 
     def __init__(
@@ -208,58 +217,93 @@ class SubagentChannel(Channel):
         *,
         enabled: bool = True,
         name: str | None = None,
-        fail_rate: float = 0.0,
-        sleep_ms: int = 5,
+        client: Any | None = None,
+        base_url: str | None = None,
+        model: str = "auto",
+        timeout_s: float = 120.0,
     ) -> None:
         super().__init__(ChannelType.SUBAGENT, enabled=enabled, name=name)
-        self.fail_rate = max(0.0, min(1.0, fail_rate))
-        self.sleep_ms = max(0, sleep_ms)
+        self._client = client
+        self.base_url = base_url
+        self.model = model
+        self.timeout_s = timeout_s
 
     async def execute(self, query: str, **kwargs: Any) -> ChannelResult:
+        import httpx
+
+        from ..internal_callback import internal_auth_headers, internal_gateway_url
+
         start = time.perf_counter()
         try:
-            await asyncio.sleep(self.sleep_ms / 1000.0)
-            if self.fail_rate > 0 and random.random() < self.fail_rate:
-                latency = int((time.perf_counter() - start) * 1000)
-                return self._make_result(
-                    "",
-                    success=False,
-                    latency_ms=latency,
-                    error="subagent simulated failure",
-                )
-            text = _smart_subagent_answer(query)
+            persona = str(kwargs.get("persona") or "").strip()
+            model = str(kwargs.get("model") or self.model)
+            messages: list[dict[str, str]] = []
+            if persona:
+                messages.append({"role": "system", "content": persona})
+            messages.append({"role": "user", "content": query or ""})
+            base = (self.base_url or internal_gateway_url()).rstrip("/")
+            url = f"{base}/v1/chat/completions"
+            body = {"model": model, "messages": messages, "stream": False}
+            headers = internal_auth_headers()
+
+            if self._client is not None:
+                resp = await self._client.post(url, json=body, headers=headers)
+            else:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout_s, trust_env=False
+                ) as client:
+                    resp = await client.post(url, json=body, headers=headers)
+
             latency = int((time.perf_counter() - start) * 1000)
-            # v3.2.1 诚实性: 本地启发式合成结果, 显式标注 mock (不再仅靠 [subagent] 前缀)
-            return self._make_result(text, success=True, latency_ms=latency, mock=True)
-        except Exception as exc:  # 兜底
+            if resp.status_code in (401, 403):
+                exc = PermissionError(
+                    f"unauthorized: gateway loopback returned {resp.status_code}"
+                )
+                return self._make_result(
+                    "", success=False, latency_ms=latency, error=_error_str(classify_error(exc), exc)
+                )
+            if resp.status_code != 200:
+                exc = RuntimeError(
+                    f"gateway loopback HTTP {resp.status_code}: {resp.text[:200]}"
+                )
+                return self._make_result(
+                    "", success=False, latency_ms=latency, error=_error_str(classify_error(exc), exc)
+                )
+            data = resp.json()
+            content = ""
+            try:
+                content = data["choices"][0]["message"].get("content") or ""
+            except (KeyError, IndexError, TypeError, AttributeError):
+                content = ""
+            if not content.strip():
+                exc = ValueError("empty response from subagent loopback")
+                return self._make_result(
+                    "", success=False, latency_ms=latency, error=_error_str(classify_error(exc), exc)
+                )
+            return self._make_result(content, success=True, latency_ms=latency)
+        except Exception as exc:
             latency = int((time.perf_counter() - start) * 1000)
             return self._make_result(
-                "", success=False, latency_ms=latency, error=f"{type(exc).__name__}: {exc}"
+                "", success=False, latency_ms=latency, error=_error_str(classify_error(exc), exc)
             )
 
 
-def _smart_subagent_answer(query: str) -> str:
-    """本地 subagent 的极简启发式 — 真实可用,但功能有限。"""
-    q = (query or "").strip()
-    if not q:
-        return "[subagent] (empty query, no answer)"
-    lower = q.lower()
-    if lower in {"hi", "hello", "hey", "你好", "您好"}:
-        return f"[subagent] hello — got {len(q)} chars"
-    if q.endswith("?"):
-        return f"[subagent] tentative answer to: {q[:80]}"
-    return f"[subagent] quick answer ({len(q)} chars): {q[:80]}"
-
-
-# ============ CH2 — CLIChannel ============
+# ============ CH2 — CLIChannel (真实 subprocess) ============
 
 
 class CLIChannel(Channel):
-    """CH2: CLI fallback,使用 ``asyncio.to_thread`` 包装同步调用。
+    """CH2: CLI fallback — 真实 ``subprocess.run`` 执行外部 CLI 工具。
 
-    默认走 mock 路径: sleep 一段,然后根据 ``fail_kind`` 返回错误分类,
-    或根据 ``fail_empty_output`` 返回空字符串。
-    真实场景下,这里会调用 ``subprocess.run`` 启动 ``codex`` / ``claude`` 等 CLI。
+    两种配置方式 (二选一):
+    - ``tool="name"``: 执行 ``cli_registry`` 里已注册的工具 (admin 注册,
+      白名单可执行文件 + argv 模板 + 沙箱 cwd + 超时/输出上限)。
+    - ``argv=[...]``: 内联 argv 模板,走与注册工具同等的白名单/沙箱校验。
+
+    占位符: 模板里的 ``{key}`` 由 ``params`` + ``{"query": <本次 query>}``
+    替换;替换结果保持单个 argv 元素,绝不经过 shell。
+
+    都不配置时,execute 返回 ``success=False`` (error 归类 cli) — chain 会
+    继续 fallback,而不是假装成功。
     """
 
     def __init__(
@@ -267,66 +311,80 @@ class CLIChannel(Channel):
         *,
         enabled: bool = True,
         name: str | None = None,
-        fail_kind: str | None = None,
-        fail_empty_output: bool = False,
-        sleep_ms: int = 20,
+        tool: str | None = None,
+        argv: list[str] | None = None,
+        params: dict[str, Any] | None = None,
+        timeout_s: float | None = None,
+        registry: Any | None = None,
     ) -> None:
         super().__init__(ChannelType.CLI, enabled=enabled, name=name)
-        self.fail_kind = fail_kind
-        self.fail_empty_output = fail_empty_output
-        self.sleep_ms = max(0, sleep_ms)
+        if tool and argv:
+            raise ValueError("CLIChannel accepts either tool= or argv=, not both")
+        self.tool = tool
+        self.argv = list(argv) if argv else None
+        self.static_params = dict(params or {})
+        self.timeout_s = timeout_s
+        self._registry = registry
+
+    @property
+    def registry(self):
+        if self._registry is None:
+            from .cli_registry import get_cli_registry
+
+            self._registry = get_cli_registry()
+        return self._registry
 
     async def execute(self, query: str, **kwargs: Any) -> ChannelResult:
         start = time.perf_counter()
         try:
-            output = await asyncio.to_thread(self._run_cli_blocking, query)
-            latency = int((time.perf_counter() - start) * 1000)
-            if self.fail_empty_output or not (output or "").strip():
-                return self._make_result(
-                    output or "",
-                    success=False,
-                    latency_ms=latency,
-                    error=f"empty:{CLIErrorKind.EMPTY.value}",
+            params: dict[str, Any] = {
+                **self.static_params,
+                **(kwargs.get("params") or {}),
+                "query": query or "",
+            }
+            if self.tool:
+                res = await self.registry.aexecute(
+                    self.tool, params, timeout_s=self.timeout_s
                 )
-            # v3.2.1 诚实性: 当前 CLI 通道为模拟实现 (未调用真实 CLI 子进程),
-            # 成功输出必须标注 mock。
-            return self._make_result(output, success=True, latency_ms=latency, mock=True)
+            elif self.argv:
+                res = await asyncio.to_thread(
+                    self.registry.execute_argv,
+                    self.argv,
+                    params,
+                    timeout_s=self.timeout_s,
+                )
+            else:
+                raise RuntimeError(
+                    "cli channel not configured: provide tool= (registered) or argv= (inline)"
+                )
+            latency = int((time.perf_counter() - start) * 1000)
+            if res.ok:
+                return self._make_result(res.stdout, success=True, latency_ms=latency)
+            # 子进程失败:携带注册表给出的四分类 + 逐路证据
+            return self._make_result(
+                res.stdout or "",
+                success=False,
+                latency_ms=latency,
+                error=f"{res.error_kind}:{res.error}",
+            )
         except Exception as exc:
             latency = int((time.perf_counter() - start) * 1000)
-            kind = self.fail_kind or classify_error(exc)
             return self._make_result(
-                "", success=False, latency_ms=latency, error=f"{kind}:{type(exc).__name__}:{exc}"
+                "", success=False, latency_ms=latency, error=_error_str(classify_error(exc), exc)
             )
 
-    def _run_cli_blocking(self, query: str) -> str:
-        """同步 CLI 模拟 — 真实实现应替换为 ``subprocess.run``。"""
-        time.sleep(self.sleep_ms / 1000.0)
-        if self.fail_kind:
-            _raise_for_kind(self.fail_kind, query)
-        return f"[cli] processed: {(query or '')[:80]}"
 
-
-def _raise_for_kind(kind: str, query: str) -> None:
-    """按指定错误分类抛出对应异常 — 供 CLI mock 使用。"""
-    if kind == CLIErrorKind.AUTH.value:
-        raise PermissionError(f"unauthorized: bad token for query={query[:20]}")
-    if kind == CLIErrorKind.TIMEOUT.value:
-        raise TimeoutError(f"timeout after waiting for query={query[:20]}")
-    if kind == CLIErrorKind.EMPTY.value:
-        raise ValueError("empty response from cli")
-    if kind == CLIErrorKind.CLI.value:
-        raise RuntimeError(f"cli error while processing query={query[:20]}")
-    raise RuntimeError(f"unknown cli kind={kind}")
-
-
-# ============ CH3 — APIChannel ============
+# ============ CH3 — APIChannel (真实 model_pool.call) ============
 
 
 class APIChannel(Channel):
-    """CH3: 远程 API,最终 fallback,最贵。
+    """CH3: 远程 API,最终 fallback,最贵 — 真实经 ``model_pool.call`` 调 LLM。
 
-    mock 行为: sleep + 返回 (或抛错) — 真实实现会调用 OpenAI/Anthropic SDK。
-    支持 ``fail_kind`` 模拟各错误分类。
+    - ``pool`` 可注入 (测试用 fake/真实 ModelPool 均可);生产路径默认
+      ``get_model_pool()``。
+    - ``endpoint_id`` 指定端点;缺省时取第一个可用端点。
+    - 无可用端点按 auth 归类 (没有可用凭据),空响应按 empty 归类,
+      ProviderError 401/403 由消息特征归入 auth — 全部走 classify_error。
     """
 
     def __init__(
@@ -334,32 +392,67 @@ class APIChannel(Channel):
         *,
         enabled: bool = True,
         name: str | None = None,
-        fail_kind: str | None = None,
-        sleep_ms: int = 50,
-        api_key_env: str | None = None,
+        pool: Any | None = None,
+        endpoint_id: str | None = None,
+        temperature: float = 0.6,
+        max_tokens: int = 1024,
     ) -> None:
         super().__init__(ChannelType.API, enabled=enabled, name=name)
-        self.fail_kind = fail_kind
-        self.sleep_ms = max(0, sleep_ms)
-        self.api_key_env = api_key_env
+        self._pool = pool
+        self.endpoint_id = endpoint_id
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+
+    @property
+    def pool(self):
+        if self._pool is None:
+            from ..model_pool import get_model_pool
+
+            self._pool = get_model_pool()
+        return self._pool
+
+    def _pick_endpoint(self, endpoint_id: str | None):
+        pool = self.pool
+        if endpoint_id:
+            ep = pool.endpoints.get(endpoint_id)
+            if ep is None:
+                raise ValueError(f"endpoint {endpoint_id} not found")
+            return ep
+        available = pool.available_endpoints()
+        if not available:
+            raise PermissionError(
+                "unauthorized: no available model endpoint (missing API keys?)"
+            )
+        return available[0]
 
     async def execute(self, query: str, **kwargs: Any) -> ChannelResult:
         start = time.perf_counter()
         try:
-            await asyncio.sleep(self.sleep_ms / 1000.0)
-            if self.fail_kind:
-                _raise_for_kind(self.fail_kind, query)
-            if self.api_key_env and not os.environ.get(self.api_key_env):
-                raise PermissionError(f"missing api key env={self.api_key_env}")
-            text = f"[api] final answer ({len(query or '')} chars): {(query or '')[:80]}"
+            endpoint_id = kwargs.get("endpoint_id") or self.endpoint_id
+            ep = self._pick_endpoint(endpoint_id)
+            system = str(kwargs.get("system") or "").strip()
+            messages: list[dict[str, str]] = []
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": query or ""})
+            resp = await self.pool.call(
+                ep.id,
+                messages,
+                temperature=float(kwargs.get("temperature", self.temperature)),
+                max_tokens=int(kwargs.get("max_tokens", self.max_tokens)),
+            )
             latency = int((time.perf_counter() - start) * 1000)
-            # v3.2.1 诚实性: 当前 API 通道为模拟实现 (未调用真实 SDK), 标注 mock
-            return self._make_result(text, success=True, latency_ms=latency, mock=True)
+            content = (resp.content or "").strip()
+            if not content:
+                exc = ValueError("empty response from api channel")
+                return self._make_result(
+                    "", success=False, latency_ms=latency, error=_error_str(classify_error(exc), exc)
+                )
+            return self._make_result(resp.content, success=True, latency_ms=latency)
         except Exception as exc:
             latency = int((time.perf_counter() - start) * 1000)
-            kind = self.fail_kind or classify_error(exc)
             return self._make_result(
-                "", success=False, latency_ms=latency, error=f"{kind}:{type(exc).__name__}:{exc}"
+                "", success=False, latency_ms=latency, error=_error_str(classify_error(exc), exc)
             )
 
 
@@ -440,8 +533,6 @@ class ChannelChain:
                     "result": result,
                     "fallback_path": path,
                     "attempts": attempts,
-                    # v3.2.1 诚实性: 合成结果在链级聚合标注, 供编排器/路由透传
-                    "mock": bool(result.mock),
                 }
             last_error = result.error
 

@@ -460,6 +460,60 @@ async def tool_rag_search(args: dict[str, Any]) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": json.dumps(out, ensure_ascii=False, default=str)}]}
 
 
+# ========== RBAC(审计修复:独立进程 server 原先没有任何权限检查) ==========
+# 危险工具会改写网关配置/扫描代码 — 只允许 admin 角色的 token 调用。
+# 角色用已有的 gateway login token 实时向 /api/auth/me 校验(stdlib urllib),
+# fail-closed:没有 token / 校验失败 / 网关不可达,一律拒绝。
+DANGEROUS_TOOLS: frozenset[str] = frozenset({"endpoint_upsert", "secret_scan"})
+
+_ROLE_CACHE: dict[str, Any] = {"role": None, "ts": 0.0}
+_ROLE_CACHE_TTL = 30.0  # 秒 — 避免每次 tool 调用都打一次网关
+
+
+async def _current_token_role() -> str:
+    """查询当前 gateway token 的角色。
+
+    返回 "admin"/"operator"/...;空串表示无 token、token 无效或网关不可达
+    (fail-closed — 调用方必须把空串当作拒绝)。
+    """
+    import time as _time
+
+    await _ensure_token()
+    if not GATEWAY_TOKEN:
+        return ""
+    now = _time.monotonic()
+    cached_role = _ROLE_CACHE.get("role")
+    if cached_role is not None and (now - float(_ROLE_CACHE.get("ts", 0.0))) < _ROLE_CACHE_TTL:
+        return str(cached_role)
+    try:
+        out = await _http_get("/api/auth/me", timeout=10.0)
+    except Exception as e:
+        # /api/auth/me 对非 admin token 返回 401;网关不可达返回 URLError。
+        # 两种情况都必须拒绝危险工具(fail-closed)。
+        print(f"[mcp-server] RBAC role check failed (fail-closed): {e}", file=sys.stderr, flush=True)
+        _ROLE_CACHE.update({"role": "", "ts": now})
+        return ""
+    role = out.get("role", "") if isinstance(out, dict) else ""
+    _ROLE_CACHE.update({"role": role, "ts": now})
+    return str(role)
+
+
+def reset_rbac_cache() -> None:
+    """清空角色缓存(token 变更/测试用)。"""
+    _ROLE_CACHE.update({"role": None, "ts": 0.0})
+
+
+async def check_tool_rbac(tool_name: str) -> tuple[bool, str]:
+    """工具调用前的 RBAC 检查。返回 (是否放行, 角色)。
+
+    非危险工具直接放行;危险工具要求 admin 角色。
+    """
+    if tool_name not in DANGEROUS_TOOLS:
+        return True, ""
+    role = await _current_token_role()
+    return role == "admin", role
+
+
 # ========== JSON-RPC 2.0 协议层 ==========
 def make_response(req_id, result):
     return {"jsonrpc": "2.0", "id": req_id, "result": result}
@@ -503,6 +557,15 @@ async def handle_request(req: dict[str, Any]):
             tool_args = params.get("arguments", {})
             if tool_name not in _TOOLS:
                 return make_error(req_id, -32602, f"unknown tool: {tool_name}")
+            # RBAC:危险工具要求 admin 角色(fail-closed),非 admin 返回 403
+            allowed, role = await check_tool_rbac(tool_name)
+            if not allowed:
+                return make_error(
+                    req_id,
+                    -32003,
+                    f"403 Forbidden: tool '{tool_name}' requires admin role "
+                    f"(current role: '{role or 'unauthenticated'}')",
+                )
             result = await _TOOLS[tool_name]["handler"](tool_args)
             return make_response(req_id, result)
         elif method == "ping":

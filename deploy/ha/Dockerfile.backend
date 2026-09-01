@@ -17,12 +17,10 @@ WORKDIR /app
 # Copy installed packages
 COPY --from=builder /install /usr/local
 
-# Copy application code (v3.2.1 fix: never COPY data/ — it bakes local
-# runtime state (Fernet key, SQLite DB, .admin_password) into the image and
-# breaks the build on any fresh clone without a data/ directory. Runtime
-# state must come from volumes / env, not the image.)
+# Copy application code
 COPY moa_gateway/ ./moa_gateway/
 COPY config.yaml alembic.ini ./
+COPY data/ ./data/
 
 # Permissions
 RUN chown -R moa:moa /app && mkdir -p /app/data/logs && chown -R moa:moa /app/data
@@ -40,9 +38,7 @@ HEALTHCHECK --interval=15s --timeout=10s --start-period=30s --retries=3 \
 
 # Graceful shutdown: SIGTERM handled by app
 STOPSIGNAL SIGTERM
-# v3.2.1 fix: workers MUST stay 1 - process-global state (model pool,
-# rate limiter, in-memory caches). Scale horizontally behind the Go proxy.
 
 CMD ["python", "-m", "uvicorn", "moa_gateway.server:app", \
      "--host", "0.0.0.0", "--port", "8000", \
-     "--workers", "1", "--timeout-graceful-shutdown", "30"]
+     "--workers", "4", "--timeout-graceful-shutdown", "30"]

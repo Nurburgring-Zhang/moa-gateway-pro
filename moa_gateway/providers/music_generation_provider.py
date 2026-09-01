@@ -107,3 +107,31 @@ class TiangongMusicProvider(MusicGenerationProvider):
             "music_url": music_url,
             "error": task_data.get("error") if status == "FAILED" else None,
         }
+
+
+class MockMusicProvider(MusicGenerationProvider):
+    """Mock music generation provider — returns synthetic task ids labeled
+    X-MOA-Mock at the route level. Used when no real music key is configured
+    and mock.mode=explicit, so /v1/audio/music returns 200 instead of 503.
+
+    The route layer enforces the audit-F22 rule: only task ids created
+    through this gateway may be queried; arbitrary ids get 404 (a mock has
+    no real upstream task store to fabricate results from).
+    """
+
+    def __init__(self):
+        super().__init__(api_base="https://mock.example.com", api_key="")
+
+    async def create_music_task(self, prompt: str, duration: int = 30) -> str:
+        logger.warning(
+            "[mock] music.create_music_task: no real provider configured; returning synthetic task"
+        )
+        return f"mock-music-task-{abs(hash(prompt)) % 100000:05d}"
+
+    async def query_music_task(self, task_id: str) -> dict[str, Any]:
+        logger.warning("[mock] music.query_music_task: synthetic")
+        return {
+            "status": "completed",
+            "music_url": "https://mock.example.com/music.mp3",
+            "error": None,
+        }

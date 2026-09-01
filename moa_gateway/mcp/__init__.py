@@ -18,6 +18,7 @@ from .protocol import (
 )
 from .registry import ToolRegistry
 from .server import MCPServer
+from .stdio_client import StdioMCPClient, StdioMCPError
 
 __all__ = [
     "JSONRPCRequest",
@@ -30,4 +31,6 @@ __all__ = [
     "GuardrailEngine",
     "MCPServer",
     "MCPClient",
+    "StdioMCPClient",
+    "StdioMCPError",
 ]

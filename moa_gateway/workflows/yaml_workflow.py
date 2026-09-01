@@ -18,7 +18,7 @@ import yaml
 logger = logging.getLogger(__name__)
 
 # Valid step types
-VALID_STEP_TYPES = {"moa", "chat", "discover", "transform", "conditional"}
+VALID_STEP_TYPES = {"moa", "moa_graph", "chat", "discover", "transform", "conditional", "agent_loop"}
 
 
 @dataclass
@@ -296,12 +296,16 @@ class WorkflowYAML:
             return await self._execute_conditional(step, inputs, context, outputs)
         elif step.type == "moa":
             return await self._execute_moa(inputs)
+        elif step.type == "moa_graph":
+            return await self._execute_moa_graph(inputs)
         elif step.type == "chat":
             return await self._execute_chat(inputs)
         elif step.type == "discover":
             return await self._execute_discover(inputs)
         elif step.type == "transform":
             return await self._execute_transform(inputs)
+        elif step.type == "agent_loop":
+            return await self._execute_agent_loop(inputs)
         else:
             return {"output": "", "error": f"Unknown step type: {step.type}"}
 
@@ -313,20 +317,78 @@ class WorkflowYAML:
         preset = inputs.get("preset", "balanced")
 
         base_url = _get_gateway_url()
-        result = await _http_post(
-            f"{base_url}/v1/moa/execute",
-            {
-                "model": "auto",
-                "messages": [{"role": "user", "content": str(prompt)}],
-                "preset": preset,
-                "strategy": strategy,
-            },
-        )
+        body: dict[str, Any] = {
+            "model": "auto",
+            "messages": [{"role": "user", "content": str(prompt)}],
+            "preset": preset,
+            "strategy": strategy,
+        }
+        # ToolHub tool names (local__/mcp__/external__) enable the MoA
+        # engine's real aggregator tool loop; schema dicts pass through.
+        step_tools = inputs.get("tools")
+        if isinstance(step_tools, list) and step_tools:
+            body["tools"] = step_tools
+        if inputs.get("max_tool_rounds"):
+            body["max_tool_rounds"] = int(inputs["max_tool_rounds"])
+        result = await _http_post(f"{base_url}/v1/moa/execute", body)
         # P2-7: Check for HTTP error in result
         if "error" in result:
             return {"output": "", "raw": result, "success": False, "error": result["error"]}
         content = result.get("final_content") or result.get("aggregated_content", "")
         return {"output": content, "raw": result, "success": True}
+
+    async def _execute_moa_graph(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Execute a MOA *graph* step — layered committee orchestration (P4-4).
+
+        与基础 ``moa`` 步骤的区别:
+        - 默认 ``strategy=layered`` (Together-AI 风格真多层 L1 提议 → L2/L3 聚合),
+          即 MOA 的图/分层编排形态; 也可显式指定 compose/judge/chain/pipeline 等图策略。
+        - 暴露图结构参数: ``reference_count`` (每层提议者数量)、``critic_rounds``
+          (互审轮数)、``temperature``、``tools`` (聚合器工具循环)。
+        - 返回值附带分层证据 ``graph``: layers/references/critics 计数, 供下游步骤
+          与审计追溯。
+
+        依赖/条件/分波由 DAG 引擎本身提供 —— 本步骤可像普通节点一样声明
+        ``depends_on``、被 ``conditional`` 分支引用、按拓扑序分波并行。
+        """
+        prompt = inputs.get("prompt", inputs.get("message", ""))
+        strategy = inputs.get("strategy", "layered")
+        preset = inputs.get("preset", "balanced")
+
+        body: dict[str, Any] = {
+            "model": "auto",
+            "messages": [{"role": "user", "content": str(prompt)}],
+            "preset": preset,
+            "strategy": strategy,
+        }
+        # 图结构参数（可选）
+        if inputs.get("reference_count"):
+            body["reference_count"] = int(inputs["reference_count"])
+        if inputs.get("critic_rounds"):
+            body["critic_rounds"] = int(inputs["critic_rounds"])
+        if inputs.get("temperature"):
+            body["temperature"] = float(inputs["temperature"])
+        step_tools = inputs.get("tools")
+        if isinstance(step_tools, list) and step_tools:
+            body["tools"] = step_tools
+        if inputs.get("max_tool_rounds"):
+            body["max_tool_rounds"] = int(inputs["max_tool_rounds"])
+
+        base_url = _get_gateway_url()
+        result = await _http_post(f"{base_url}/v1/moa/execute", body)
+        if "error" in result:
+            return {"output": "", "raw": result, "success": False, "error": result["error"]}
+
+        content = result.get("final_content") or result.get("aggregated_content", "")
+        # 分层图证据（存在即透传, 供下游步骤引用与审计）
+        graph = {
+            "strategy": strategy,
+            "layers": result.get("layers") or result.get("layer_results") or [],
+            "references_count": len(result.get("references") or []),
+            "critics_count": len(result.get("critics") or []),
+            "tool_trace": result.get("tool_trace") or [],
+        }
+        return {"output": content, "raw": result, "graph": graph, "success": True}
 
     async def _execute_chat(self, inputs: dict[str, Any]) -> dict[str, Any]:
         """Execute a chat completion step."""
@@ -378,6 +440,107 @@ class WorkflowYAML:
             result = result.replace("{{" + key + "}}", str(val))
         return {"output": result}
 
+    async def _execute_agent_loop(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        """Execute an agent-loop step (react / plan_execute) for real.
+
+        In-process execution: the harness runs a real LLM callback bound to
+        the model pool plus real tool handlers. Tool selection:
+        - bare names (``code_execute`` ...) register the local skill handler
+          directly (same semantics as the builtin MCP run_agent_loop tool);
+        - namespaced names (``local__``/``mcp__``/``external__``) or
+          ``include_mcp_tools: true`` route through the unified ToolHub with
+          role filtering (workflows run server-side with the trusted internal
+          identity, so the default caller role is ``admin``).
+        """
+        from ..agent_loop.harness import AgentHarness
+
+        prompt = inputs.get("prompt", inputs.get("message", ""))
+        loop_name = inputs.get("loop_name", "react")
+        if loop_name not in ("react", "plan_execute"):
+            return {
+                "output": "",
+                "success": False,
+                "error": f"invalid loop_name: {loop_name}",
+            }
+        tools = inputs.get("tools") or []
+        if not isinstance(tools, list):
+            return {"output": "", "success": False, "error": "tools must be a list"}
+        try:
+            max_iterations = int(inputs.get("max_iterations", 5) or 5)
+        except (TypeError, ValueError):
+            max_iterations = 5
+        include_mcp_tools = bool(inputs.get("include_mcp_tools", False))
+        caller_role = str(inputs.get("caller_role") or "admin")
+
+        namespaced = [
+            t
+            for t in tools
+            if isinstance(t, str)
+            and t.startswith(("local__", "mcp__", "external__"))
+        ]
+
+        harness: AgentHarness
+        hub_tools: list[str] | None = None
+        if include_mcp_tools or namespaced:
+            # ToolHub surface (role-filtered, guarded execution)
+            harness = AgentHarness(
+                llm_call=_make_pool_llm_call(),
+                tools_source="tool_hub",
+                caller_role=caller_role,
+            )
+            if tools:
+                hub_tools = [
+                    t if t.startswith(("local__", "mcp__", "external__")) else f"local__{t}"
+                    for t in tools
+                    if isinstance(t, str)
+                ]
+        else:
+            # Legacy local-skill surface
+            from ..agent_loop.skills import BUILTIN_TOOLS
+
+            harness = AgentHarness(llm_call=_make_pool_llm_call())
+            requested = [t for t in tools if isinstance(t, str)] or list(BUILTIN_TOOLS.keys())
+            for tool_name in requested:
+                entry = BUILTIN_TOOLS.get(tool_name)
+                if entry:
+                    handler, desc = entry
+                    harness.register_tool(tool_name, handler, desc)  # type: ignore[arg-type]
+
+        result = await harness.run(
+            messages=[{"role": "user", "content": str(prompt)}],
+            loop_name=loop_name,
+            max_iterations=max_iterations,
+            caller_role=caller_role,
+            hub_tools=hub_tools,
+        )
+        raw = {
+            "success": result.success,
+            "iterations": result.iterations,
+            "tool_calls": [
+                {"name": tc.name, "arguments": tc.arguments} for tc in result.tool_calls
+            ],
+            "tool_results": [
+                {
+                    "name": tr.name,
+                    "success": tr.success,
+                    "output": (tr.output or "")[:500],
+                    "error": tr.error,
+                }
+                for tr in result.tool_results
+            ],
+            "total_tokens": result.total_tokens,
+            "total_cost": round(result.total_cost, 6),
+            "error": result.error,
+        }
+        if not result.success:
+            return {
+                "output": result.final_response or "",
+                "raw": raw,
+                "success": False,
+                "error": result.error or "agent loop failed",
+            }
+        return {"output": result.final_response, "raw": raw, "success": True}
+
     async def _execute_conditional(
         self,
         step: WorkflowStep,
@@ -399,10 +562,14 @@ class WorkflowYAML:
 
         if branch_type == "moa":
             return await self._execute_moa(branch_inputs)
+        elif branch_type == "moa_graph":
+            return await self._execute_moa_graph(branch_inputs)
         elif branch_type == "chat":
             return await self._execute_chat(branch_inputs)
         elif branch_type == "transform":
             return await self._execute_transform(branch_inputs)
+        elif branch_type == "agent_loop":
+            return await self._execute_agent_loop(branch_inputs)
         else:
             # success: False so execute() propagates the failure instead of
             # silently returning an empty workflow output
@@ -574,6 +741,42 @@ class WorkflowYAML:
 
 
 # --- Module-level helpers ---
+
+
+def _make_pool_llm_call():
+    """Build a real llm_call callback bound to the model pool.
+
+    Used by ``agent_loop`` workflow steps for in-process execution. Mirrors
+    ``routes.agent._make_llm_call``: picks the first available endpoint and
+    reports real provider usage. With no endpoints configured it returns an
+    honest placeholder content instead of pretending a model answered.
+    """
+    from ..agent_loop.base import LlmOutcome, LlmUsage
+    from ..model_pool import get_model_pool
+
+    pool = get_model_pool()
+
+    async def llm_call(messages: list[dict], **params) -> LlmOutcome:
+        endpoints = list(pool.endpoints.keys()) if pool.endpoints else []
+        if not endpoints:
+            return LlmOutcome(content="(no model endpoints configured)")
+        ep_id = params.get("endpoint_id", endpoints[0])
+        resp = await pool.call(
+            endpoint_id=ep_id,
+            messages=messages,
+            temperature=params.get("temperature", 0.7),
+            max_tokens=params.get("max_tokens", 4096),
+        )
+        return LlmOutcome(
+            content=resp.content,
+            usage=LlmUsage(
+                prompt_tokens=resp.prompt_tokens,
+                completion_tokens=resp.completion_tokens,
+                cost=resp.cost or 0.0,
+            ),
+        )
+
+    return llm_call
 
 
 def _get_gateway_url() -> str:

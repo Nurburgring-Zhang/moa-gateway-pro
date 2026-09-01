@@ -44,6 +44,7 @@ from .image_generation_provider import (
 from .mock_provider import MockProvider
 from .music_generation_provider import (
     MiniMaxMusicProvider,
+    MockMusicProvider,
     MusicGenerationProvider,
     TiangongMusicProvider,
 )
@@ -104,6 +105,7 @@ __all__ = [
     "MusicGenerationProvider",
     "MiniMaxMusicProvider",
     "TiangongMusicProvider",
+    "MockMusicProvider",
     "AudioEditProvider",
     "ElevenLabsEditProvider",
     "OpenSourceAudioEditProvider",

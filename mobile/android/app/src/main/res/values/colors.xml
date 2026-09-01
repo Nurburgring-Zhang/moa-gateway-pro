@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Brand palette. App-level resources override the same-named colors shipped
+  inside the capacitor-android library, so the whole app (status bar, recents
+  screenshot, widgets) picks up MOA Gateway colors instead of the Capacitor
+  template defaults.
+-->
+<resources>
+    <color name="colorPrimary">#6366F1</color>
+    <color name="colorPrimaryDark">#0B1220</color>
+    <color name="colorAccent">#22D3EE</color>
+
+    <!-- Must match the app background defined in www/css/app.css and backgroundColor in capacitor.config.ts -->
+    <color name="app_background">#0B1220</color>
+    <color name="splash_background">#0B1220</color>
+</resources>

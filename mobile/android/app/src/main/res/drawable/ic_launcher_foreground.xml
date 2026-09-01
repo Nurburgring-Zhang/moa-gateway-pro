@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MOA Gateway adaptive-icon foreground (108dp viewport, safe zone = center 66dp).
+  Hand-drawn vector: the "Mixture-of-Agents" motif — three agent nodes feeding
+  one aggregator node, matching the gateway's multi-AI architecture.
+  Artwork occupies x:[28.6,79.4] y:[23.7,81.5], fully inside the safe zone.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- links: each agent -> aggregator (drawn first, nodes paint over them) -->
+    <path
+        android:pathData="M 35.1 37.8 L 54 71.8 M 54 30.2 L 54 71.8 M 72.9 37.8 L 54 71.8"
+        android:strokeWidth="3.4"
+        android:strokeLineCap="round">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:type="linear"
+                android:startX="30"
+                android:startY="26"
+                android:endX="80"
+                android:endY="80">
+                <item android:offset="0" android:color="#FF818CF8" />
+                <item android:offset="1" android:color="#FF22D3EE" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- agent node: top-left -->
+    <path android:pathData="M 28.6 37.8 a 6.5 6.5 0 1 0 13 0 a 6.5 6.5 0 1 0 -13 0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="28.6"
+                android:startY="31.3"
+                android:endX="41.6"
+                android:endY="44.3">
+                <item android:offset="0" android:color="#FF818CF8" />
+                <item android:offset="1" android:color="#FF6366F1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- agent node: top-center -->
+    <path android:pathData="M 47.5 30.2 a 6.5 6.5 0 1 0 13 0 a 6.5 6.5 0 1 0 -13 0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="47.5"
+                android:startY="23.7"
+                android:endX="60.5"
+                android:endY="36.7">
+                <item android:offset="0" android:color="#FFA5B4FC" />
+                <item android:offset="1" android:color="#FF6366F1" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- agent node: top-right -->
+    <path android:pathData="M 66.4 37.8 a 6.5 6.5 0 1 0 13 0 a 6.5 6.5 0 1 0 -13 0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="66.4"
+                android:startY="31.3"
+                android:endX="79.4"
+                android:endY="44.3">
+                <item android:offset="0" android:color="#FF67E8F9" />
+                <item android:offset="1" android:color="#FF22D3EE" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- aggregator node -->
+    <path android:pathData="M 44.3 71.8 a 9.7 9.7 0 1 0 19.4 0 a 9.7 9.7 0 1 0 -19.4 0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="44.3"
+                android:startY="62.1"
+                android:endX="63.7"
+                android:endY="81.5">
+                <item android:offset="0" android:color="#FF6366F1" />
+                <item android:offset="1" android:color="#FF22D3EE" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

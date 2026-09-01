@@ -657,4 +657,147 @@ $env:ANTHROPIC_API_KEY = "sk-mock"
 
 ---
 
+## 9. v4.1 新能力接入（OmniRoute / OpenClacky / MemoraX Code 集成）
+
+v4.1 引入九个新能力域，全部受能力开关管理（管理面"能力管理"页或
+`/v1/capability/toggles`），关闭后对应端点返回 503。默认配置不改变任何
+既有流量行为（压缩/记忆等均为 opt-in）。
+
+### 9.1 路由策略引擎（/v1/routing/*）
+
+```bash
+# 查看 20 个可用策略
+curl -H "Authorization: Bearer $KEY" $BASE/v1/routing/strategies
+
+# dry-run：给定候选端点与请求上下文，返回策略排序结果
+curl -H "Authorization: Bearer $KEY" -X POST $BASE/v1/routing/resolve \
+  -H "Content-Type: application/json" \
+  -d '{"strategy":"auto","candidates":[{"endpoint_id":"ep1","model":"deepseek-chat"},{"endpoint_id":"ep2","model":"gpt-4o"}],"context":{"prompt_tokens":1200,"task_kind":"chat"}}'
+
+# 端点遥测（延迟/错误率/成本滚动统计）
+curl -H "Authorization: Bearer $KEY" $BASE/v1/routing/telemetry
+```
+
+在 MoA 编排中可直接使用策略名 `routing_fusion`（已注册进策略注册表）。
+
+### 9.2 配额调度（/v1/quota/*）
+
+配额遥测按 OmniRoute 来源优先级合并：provider_api > response_headers >
+configured > estimated。自适应监控默认 60s 轮询，任一供应商接近耗尽
+（warn 0.80 / exhaust 0.95）自动切 15s 快档；`can_afford` 闸门默认
+fail-open（配额不确定不拦请求）。
+
+```bash
+curl -H "Authorization: Bearer $KEY" $BASE/v1/quota/status
+curl -H "Authorization: Bearer $KEY" $BASE/v1/quota/snapshots
+curl -X POST -H "Authorization: Bearer $KEY" $BASE/v1/quota/refresh
+```
+
+### 9.3 堆叠压缩（/v1/compression/*）
+
+RTK（CLI/工具输出过滤器）+ Caveman（冗余词规则）两级串联，默认只对显式
+调用生效（`compression.apply_to_chat: false`）。
+
+```bash
+curl -X POST -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  $BASE/v1/compression/compress \
+  -d '{"text":"<待压缩文本>","mode":"stacked"}'
+# mode: off|lite|standard|aggressive|ultra|rtk|stacked
+```
+
+保真度闸门：压缩结果保真度低于阈值时自动回退原文；messages 压缩保留
+cache_control 标记。
+
+### 9.4 免费层目录（/v1/free-tiers/*）
+
+内置 OmniRoute 456 条免费模型目录（poolKey 池去重、regime 分类）：
+
+```bash
+curl -H "Authorization: Bearer $KEY" "$BASE/v1/free-tiers?regime=always_free&provider=google"
+curl -H "Authorization: Bearer $KEY" $BASE/v1/free-tiers/<key>
+```
+
+### 9.5 A2A 协议（/.well-known/agent.json + /v1/a2a）
+
+```bash
+# 公开发现端点（无需鉴权）
+curl $BASE/.well-known/agent.json
+
+# JSON-RPC 2.0（需 API key）
+curl -X POST -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  $BASE/v1/a2a -d '{"jsonrpc":"2.0","id":1,"method":"skills/list"}'
+```
+
+5 个技能：chat-completion、model-list、health、routing-advice、cache-insight，
+全部真实内调网关管道。
+
+### 9.6 Token 效率（/v1/efficiency/*）
+
+```bash
+# 对 messages 应用双缓存标记 + 冻结 system prompt 策略
+curl -X POST -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  $BASE/v1/efficiency/prepare -d '{"messages":[...]}'
+
+# 会话压缩（超阈值时压缩到目标长度，归档原文）
+curl -X POST -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  $BASE/v1/efficiency/compress-session -d '{"session_id":"s1","messages":[...]}'
+
+curl -H "Authorization: Bearer $KEY" $BASE/v1/efficiency/metrics
+```
+
+### 9.7 技能中心（/v1/skills/*）
+
+```bash
+curl -H "Authorization: Bearer $KEY" $BASE/v1/skills                # 列表
+curl -X POST -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  $BASE/v1/skills/search -d '{"query":"摘要"}'                       # 模糊搜索
+curl -X POST -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  $BASE/v1/skills -d '{"description":"把长文压缩成 3 个要点"}'        # 自然语言建技能
+curl -X POST -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  $BASE/v1/skills/<name>/invoke -d '{"task":"..."}'                  # 调用技能（真实 LLM 管道）
+```
+
+### 9.8 IM 渠道（/v1/channels/*）
+
+五个平台适配器通过环境变量启用（无凭据时状态为 unconfigured，诚实呈现）：
+
+| 平台 | 环境变量（前缀 MOA_ 可配） |
+|---|---|
+| Telegram | MOA_TELEGRAM_TOKEN（可选 _BASE_URL / _PARSE_MODE / _SECRET_TOKEN） |
+| 飞书 | MOA_FEISHU_APP_ID / MOA_FEISHU_APP_SECRET（可选 _DOMAIN / _VERIFICATION_TOKEN / _ENCRYPT_KEY） |
+| 钉钉 | MOA_DINGTALK_CLIENT_ID / MOA_DINGTALK_CLIENT_SECRET（可选 _WEBHOOK_URL） |
+| 企业微信 | MOA_WECOM_CORP_ID / MOA_WECOM_CORP_SECRET / MOA_WECOM_AGENT_ID（回调验证 _TOKEN / _ENCODING_AES_KEY） |
+| Discord | MOA_DISCORD_BOT_TOKEN（可选 _WEBHOOK_URL / _PUBLIC_KEY） |
+
+```bash
+curl -H "Authorization: Bearer $KEY" $BASE/v1/channels          # 适配器状态
+curl -X POST -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  $BASE/v1/channels/telegram/send -d '{"chat_id":"...","text":"..."}'
+```
+
+webhook 端点：`POST /v1/channels/{name}/webhook`（含各平台验签）。
+
+### 9.9 跨会话记忆（/v1/memory/*）
+
+默认关闭，opt-in：`memory.retrieval_enabled: true` / `memory.writeback_enabled: true`。
+开启后 assistant runs 自动在每轮注入 `<memories>` 召回上下文并在完成后
+走脱敏→缓冲→分块→幂等写回管道。
+
+```bash
+# 三端点 hook 协议（fail-closed 白名单）
+curl -X POST -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  $BASE/v1/memory/turn-start -d '{"base_user_id":"u1","query":"..."}'
+curl -X POST -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  $BASE/v1/memory/writeback -d '{"base_user_id":"u1","messages":[{"role":"user","content":"..."}]}'
+
+curl -H "Authorization: Bearer $KEY" "$BASE/v1/memory/recall?query=..."
+curl -H "Authorization: Bearer $KEY" $BASE/v1/memory/items
+```
+
+工作区记忆：`GET /v1/workspace-memory/status`、`POST /v1/workspace-memory/update`
+（需 `memory.workspace_enabled: true`）。
+
+---
+
 *指南生成: 2026-07-20 / MoA Gateway Pro v1.8.1 / 基于实测,所有命令均已验证*
+*v4.1 增补: 2026-08-26 / MoA Gateway Pro v4.1.0 / 第 9 章为三项目能力集成接入指南*

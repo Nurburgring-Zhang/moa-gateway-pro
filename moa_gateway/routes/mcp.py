@@ -30,7 +30,13 @@ router = APIRouter(tags=["mcp"])
 # --- Singleton MCP Server instance ---
 _registry = ToolRegistry()
 _guardrails = GuardrailEngine()
-_mcp_server = MCPServer(registry=_registry, guardrails=_guardrails)
+# The external registry is injected so tools/list merges discovered external
+# tools (external__<server>__<tool>) and tools/call forwards them for real.
+_mcp_server = MCPServer(
+    registry=_registry,
+    guardrails=_guardrails,
+    external_registry=get_external_mcp_registry(),
+)
 _sse_transport = SSETransport(_mcp_server)
 _http_transport = HTTPTransport(_mcp_server)
 
@@ -80,6 +86,7 @@ async def restore_persisted_external_servers() -> None:
                 env=entry.get("env", {}),
                 transport=entry.get("transport", "stdio"),
                 url=entry.get("url", ""),
+                cwd=entry.get("cwd", ""),
                 enabled=entry.get("enabled", True),
                 auto_discover=entry.get("auto_discover", True),
             )
@@ -158,7 +165,7 @@ async def mcp_sse(key_info: dict[str, Any] = Depends(require_api_key)):
     """MCP over SSE - Server-Sent Events keepalive stream.
 
     Client connects via GET, receives session ID, then POSTs requests
-    to /v1/mcp with session context.
+    to /v1/mcp/sse/messages with that session context.
     """
     session_id = _sse_transport.create_session()
 
@@ -172,17 +179,70 @@ async def mcp_sse(key_info: dict[str, Any] = Depends(require_api_key)):
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
+@router.post("/v1/mcp/sse/messages")
+async def mcp_sse_message(
+    body: dict[str, Any],
+    key_info: dict[str, Any] = Depends(require_api_key),
+):
+    """Deliver a client JSON-RPC message into an active SSE session.
+
+    Body: {"session_id": "<id from GET /v1/mcp/sse>", "message": {...}}
+
+    The message is processed by the MCP server (RBAC + guardrails apply)
+    and the response is pushed onto the session's SSE queue, so the client
+    holding the GET /v1/mcp/sse stream receives it as a ``message`` event
+    (e.g. the result of a tools/call). Unknown sessions get 404.
+    """
+    session_id = body.get("session_id", "")
+    message = body.get("message")
+    if not isinstance(session_id, str) or not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required")
+    if not isinstance(message, dict):
+        raise HTTPException(status_code=400, detail="message (JSON-RPC object) is required")
+
+    if not _sse_transport.has_session(session_id):
+        raise HTTPException(status_code=404, detail=f"SSE session '{session_id}' not found")
+
+    try:
+        request = JSONRPCRequest(**message)
+    except Exception as e:
+        # Malformed JSON-RPC: report the protocol error, not a 500.
+        return {
+            "jsonrpc": "2.0",
+            "id": message.get("id"),
+            "error": {"code": -32600, "message": "Invalid Request", "data": str(e)},
+        }
+
+    # handle_message processes the request AND pushes the response onto the
+    # session queue, which is exactly the delivery path the SSE stream reads.
+    response = await _sse_transport.handle_message(session_id, request, user=key_info)
+    if response is None:
+        # Notification (e.g. notifications/initialized): accepted, no payload.
+        return {"jsonrpc": "2.0", "id": message.get("id"), "result": "accepted"}
+    return response.model_dump()
+
+
 # ==================== REST Convenience Endpoints ====================
 
 
 @router.get("/v1/mcp/tools")
 async def list_mcp_tools(key_info: dict[str, Any] = Depends(require_api_key)):
-    """List available MCP tools filtered by user role."""
+    """List available MCP tools filtered by user role.
+
+    Built-in tools come first; tools discovered from connected external MCP
+    servers are appended under the ``external__<server>__<tool>`` namespace
+    (visible to admin/operator only — calling them executes remote code).
+    """
+    from ..mcp.server import EXTERNAL_TOOL_ROLES
+
     role = key_info.get("role") if key_info else None
     tools = _registry.list_tools(user_role=role)
+    tool_dicts = [t.model_dump() for t in tools]
+    if role in EXTERNAL_TOOL_ROLES:
+        tool_dicts.extend(_mcp_server.external_tool_definitions())
     return {
-        "tools": [t.model_dump() for t in tools],
-        "total": len(tools),
+        "tools": tool_dicts,
+        "total": len(tool_dicts),
     }
 
 
@@ -308,9 +368,18 @@ async def register_external_mcp_server(
 ):
     """Register a new external MCP server via the registry.
 
-    Body: {"name": "...", "command": "npx", "args": [...], "transport": "stdio",
-           "url": "", "env": {}, "enabled": true, "auto_discover": true}
+    Body (stdio): {"name": "...", "transport": "stdio", "command": "python",
+                   "args": ["server.py"], "env": {...}, "cwd": "...",
+                   "enabled": true, "auto_discover": true}
+    Body (http/sse): {"name": "...", "transport": "http", "url": "https://..."}
+
+    stdio commands are allowlist-checked against
+    ``settings.mcp.stdio_allowed_commands`` (default: python/python3/node/
+    npx/uvx) — anything else is rejected with 400 before a process exists.
     """
+    from ..config import get_settings
+    from ..mcp.stdio_client import is_command_allowed
+
     role = key_info.get("role", "readonly")
     if role not in ("admin", "operator"):
         raise HTTPException(status_code=403, detail="Only admin/operator can register MCP servers")
@@ -318,11 +387,35 @@ async def register_external_mcp_server(
     name = body.get("name", "")
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
+    if "__" in name:
+        raise HTTPException(
+            status_code=400,
+            detail="server name must not contain '__' (reserved for tool namespacing)",
+        )
 
     transport = body.get("transport", "stdio")
+    if transport not in ("stdio", "http", "sse"):
+        raise HTTPException(status_code=400, detail="transport must be stdio, http or sse")
+
     url = body.get("url", "")
-    # SSRF guard for network transports (audit F10 + existing SSRF policy).
-    if transport in ("http", "sse") and url and not _is_safe_external_url(url):
+    command = body.get("command", "")
+    if transport == "stdio":
+        if not command:
+            raise HTTPException(
+                status_code=400, detail="command is required for stdio transport"
+            )
+        allowed = get_settings().mcp.stdio_allowed_commands
+        if not is_command_allowed(command, allowed):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"command '{command}' is not in the stdio allowlist "
+                    f"({sorted(allowed)}). Extend settings.mcp.stdio_allowed_commands "
+                    "to permit it."
+                ),
+            )
+    elif url and not _is_safe_external_url(url):
+        # SSRF guard for network transports (audit F10 + existing SSRF policy).
         raise HTTPException(
             status_code=400,
             detail="Refusing to register server: URL must point to a public host "
@@ -333,11 +426,12 @@ async def register_external_mcp_server(
     registry = get_external_mcp_registry()
     server = ExternalMCPServer(
         name=name,
-        command=body.get("command", ""),
+        command=command,
         args=body.get("args", []),
         env=body.get("env", {}),
         transport=transport,
         url=url,
+        cwd=body.get("cwd", ""),
         enabled=body.get("enabled", True),
         auto_discover=body.get("auto_discover", True),
     )

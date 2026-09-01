@@ -100,6 +100,9 @@ tr:hover { background: var(--panel-2); }
 .badge.yellow { background: rgba(210,153,34,0.2); color: var(--yellow); }
 .badge.gray { background: rgba(139,148,158,0.2); color: var(--text-dim); }
 .badge.purple { background: rgba(163,113,247,0.2); color: var(--purple); }
+.dlg-avatar { display:inline-flex; align-items:center; justify-content:center;
+  width:28px; height:28px; border-radius:50%; color:#fff; font-size:13px;
+  font-weight:600; flex-shrink:0; }
 
 .row { display: flex; gap: 12px; align-items: center; }
 .col { display: flex; flex-direction: column; gap: 6px; }
@@ -205,6 +208,9 @@ pre.code {
     </div>
     <div class="nav-item" data-page="benchmark">
       <span class="icon">📊</span> Benchmark
+    </div>
+    <div class="nav-item" data-page="dialogue">
+      <span class="icon">💬</span> 多 AI 对话
     </div>
     <div class="nav-item" data-page="settings">
       <span class="icon">⚙️</span> 系统设置
@@ -649,6 +655,40 @@ pre.code {
         <div class="row mb-2"><div class="text-dim" style="width:120px;">Python</div><div class="mono" id="info-py"></div></div>
       </div>
     </div>
+
+    <div id="page-dialogue" class="page">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">多 AI 对话</h1>
+          <div class="page-sub">多个真实模型端点在同一对话框内同框讨论（轮流 / 并行思考 / 自由发言）</div>
+        </div>
+        <button class="primary" onclick="openDialogueRoomModal()">＋ 新建对话房间</button>
+      </div>
+      <div class="row" style="align-items:flex-start;gap:16px;">
+        <div class="card" style="width:280px;flex-shrink:0;">
+          <h3 class="card-title">对话房间</h3>
+          <div id="dlg-room-list"><div class="text-dim">加载中…</div></div>
+        </div>
+        <div class="card" style="flex:1;display:flex;flex-direction:column;min-height:560px;">
+          <div class="row mb-2" style="justify-content:space-between;">
+            <div>
+              <h3 class="card-title" id="dlg-room-title" style="margin:0;">未选择房间</h3>
+              <div class="text-dim" id="dlg-room-meta" style="font-size:12px;"></div>
+            </div>
+            <div class="row" style="gap:8px;">
+              <span class="badge" id="dlg-room-mode" style="display:none;"></span>
+              <span class="badge green" id="dlg-stream-state" style="display:none;">未连接</span>
+            </div>
+          </div>
+          <div id="dlg-participants" class="row mb-2" style="flex-wrap:wrap;gap:6px;"></div>
+          <div id="dlg-chat" style="flex:1;overflow-y:auto;border:1px solid var(--panel-2);border-radius:8px;padding:12px;background:var(--panel-2);"></div>
+          <div class="row mt-2" style="gap:8px;">
+            <input id="dlg-input" style="flex:1;" placeholder="输入消息，触发一轮多 AI 响应…" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendDialogueMessage();}">
+            <button class="primary" id="dlg-send-btn" onclick="sendDialogueMessage()">发送</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -803,6 +843,7 @@ $$(".nav-item[data-page]").forEach(item => {
     if (page === "settings") refreshSettings();
     if (page === "prompts") reloadPrompts();
     if (page === "benchmark") populateLayeredPresets();
+    if (page === "dialogue") refreshDialogue();
   };
 });
 
@@ -1042,6 +1083,284 @@ async function deleteEndpoint(eid) {
     toast("已删除"); refreshEndpoints();
   } catch (e) { toast("失败: " + e.message, "error"); }
 }
+
+// ========== Dialogue (多 AI 同框对话, P7-4) ==========
+let dlgCurrentRoom = null;      // 当前房间对象
+let dlgSSEAbort = null;         // SSE fetch 的 AbortController
+let dlgBusy = false;            // 一轮对话进行中
+const dlgSpeakerHue = {};       // speaker -> 色相
+
+function dlgHue(name) {
+  if (!(name in dlgSpeakerHue)) {
+    let h = 0;
+    for (const ch of String(name)) h = (h * 31 + ch.codePointAt(0)) % 360;
+    dlgSpeakerHue[name] = h;
+  }
+  return dlgSpeakerHue[name];
+}
+function dlgAvatar(name) {
+  const hue = dlgHue(name);
+  return `<span class="dlg-avatar" style="background:hsl(${hue},55%,42%);">${escapeHtml(String(name).slice(0, 1).toUpperCase())}</span>`;
+}
+function dlgScrollBottom() {
+  const box = $("#dlg-chat");
+  if (box) box.scrollTop = box.scrollHeight;
+}
+
+async function refreshDialogue() {
+  const list = $("#dlg-room-list");
+  try {
+    const data = await api("/v1/dialogue/rooms?limit=50");
+    const rooms = data.rooms || [];
+    if (!rooms.length) {
+      list.innerHTML = '<div class="text-dim">暂无房间，点右上「新建对话房间」开始</div>';
+      return;
+    }
+    list.innerHTML = rooms.map(r => `
+      <div class="dlg-room-item ${dlgCurrentRoom && dlgCurrentRoom.room_id === r.room_id ? "active" : ""}"
+           onclick="selectDialogueRoom('${r.room_id}')" style="padding:8px;border-radius:6px;cursor:pointer;margin-bottom:6px;border:1px solid var(--panel-2);">
+        <div style="font-weight:600;font-size:13px;">${escapeHtml(r.topic || "(无主题)")}</div>
+        <div class="text-dim" style="font-size:11px;">${r.mode} · ${r.participants.length} 位 AI · ${r.status === "active" ? "进行中" : "已归档"}</div>
+      </div>`).join("");
+  } catch (e) {
+    list.innerHTML = `<div class="text-dim">加载失败: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function openDialogueRoomModal() {
+  let endpoints = [];
+  try {
+    const eps = await api("/api/endpoints");
+    endpoints = (eps.endpoints || eps || []).filter(e => e.enabled !== false);
+  } catch (e) {
+    toast("加载端点失败: " + e.message, "error");
+    return;
+  }
+  if (!endpoints.length) {
+    toast("模型池里没有可用端点，请先在「模型端点」页添加", "error");
+    return;
+  }
+  $("#modal-content").innerHTML = `
+    <h3 class="card-title">新建多 AI 对话房间</h3>
+    <div class="field"><label>讨论主题</label>
+      <input id="dlg-new-topic" placeholder="例如：如何设计一个多模型网关的限流方案？"></div>
+    <div class="field"><label>对话模式</label>
+      <select id="dlg-new-mode">
+        <option value="round_robin">轮流发言 (round_robin)</option>
+        <option value="parallel_think">并行思考后汇总 (parallel_think)</option>
+        <option value="free_talk">主持人决定发言 (free_talk)</option>
+      </select></div>
+    <div class="field"><label>参与 AI（至少 2 个，来自模型池真实端点）</label>
+      <div id="dlg-new-parts" style="max-height:220px;overflow-y:auto;border:1px solid var(--panel-2);border-radius:6px;padding:8px;">
+        ${endpoints.map(e => `
+          <label class="row" style="gap:8px;padding:4px 0;cursor:pointer;">
+            <input type="checkbox" class="dlg-new-part" value="${escapeHtml(e.id)}">
+            <span class="mono">${escapeHtml(e.id)}</span>
+            <span class="text-dim" style="font-size:11px;">${escapeHtml(e.provider || "")} ${e.mock ? "(mock)" : ""}</span>
+          </label>`).join("")}
+      </div></div>
+    <div class="row" style="justify-content:flex-end;gap:8px;">
+      <button onclick="closeModal()">取消</button>
+      <button class="primary" onclick="createDialogueRoom()">创建房间</button>
+    </div>`;
+  $("#modal-bg").classList.add("show");
+}
+
+async function createDialogueRoom() {
+  const topic = $("#dlg-new-topic").value.trim();
+  const mode = $("#dlg-new-mode").value;
+  const parts = [...document.querySelectorAll(".dlg-new-part:checked")].map(c => ({ endpoint_id: c.value }));
+  if (!topic) { toast("请填写主题", "error"); return; }
+  if (parts.length < 2) { toast("至少选择 2 个 AI 参与者", "error"); return; }
+  try {
+    const room = await api("/v1/dialogue/rooms", {
+      method: "POST",
+      body: JSON.stringify({ topic, mode, participants: parts, max_rounds: 8, participant_timeout: 90 }),
+    });
+    closeModal();
+    toast("房间已创建");
+    await refreshDialogue();
+    await selectDialogueRoom(room.room_id);
+  } catch (e) {
+    toast("创建失败: " + e.message, "error");
+  }
+}
+
+function dlgRenderMessage(m) {
+  const chat = $("#dlg-chat");
+  const isUser = m.role === "user";
+  const name = isUser ? "你" : (m.speaker || "assistant");
+  const bad = m.status && m.status !== "ok";
+  const div = document.createElement("div");
+  div.className = "dlg-msg";
+  div.style.cssText = "display:flex;gap:8px;margin-bottom:10px;";
+  div.innerHTML = `
+    ${dlgAvatar(name)}
+    <div style="flex:1;min-width:0;">
+      <div style="font-size:12px;margin-bottom:2px;">
+        <b style="color:hsl(${dlgHue(name)},60%,60%);">${escapeHtml(name)}</b>
+        ${m.round ? `<span class="text-dim"> · 第 ${m.round} 轮</span>` : ""}
+        ${m.mock ? '<span class="badge" style="margin-left:6px;">mock</span>' : ""}
+        ${bad ? `<span class="badge red" style="margin-left:6px;">${escapeHtml(m.status)}</span>` : ""}
+      </div>
+      <div class="dlg-msg-body" style="white-space:pre-wrap;word-break:break-word;font-size:13px;${bad ? "color:var(--text-dim);font-style:italic;" : ""}">${escapeHtml(m.content || m.error || "")}</div>
+    </div>`;
+  chat.appendChild(div);
+  dlgScrollBottom();
+  return div;
+}
+
+async function selectDialogueRoom(roomId) {
+  if (dlgSSEAbort) { dlgSSEAbort.abort(); dlgSSEAbort = null; }
+  try {
+    const data = await api(`/v1/dialogue/rooms/${roomId}?limit=200`);
+    dlgCurrentRoom = data.room;
+    $("#dlg-room-title").textContent = data.room.topic || "(无主题)";
+    $("#dlg-room-meta").textContent = `房间 ${data.room.room_id} · ${data.total_messages} 条消息`;
+    const modeBadge = $("#dlg-room-mode");
+    modeBadge.style.display = "";
+    modeBadge.textContent = data.room.mode;
+    $("#dlg-participants").innerHTML = (data.room.participants || []).map(p =>
+      `<span class="badge" style="background:hsl(${dlgHue(p.name)},45%,25%);">${dlgAvatar(p.name)} ${escapeHtml(p.name)}</span>`).join("");
+    const chat = $("#dlg-chat");
+    chat.innerHTML = "";
+    (data.messages || []).forEach(dlgRenderMessage);
+    refreshDialogue();
+    dlgConnectSSE(roomId);
+  } catch (e) {
+    toast("打开房间失败: " + e.message, "error");
+  }
+}
+
+function dlgSetStreamState(text, ok) {
+  const b = $("#dlg-stream-state");
+  b.style.display = "";
+  b.textContent = text;
+  b.className = "badge " + (ok ? "green" : "red");
+}
+
+function dlgConnectSSE(roomId) {
+  const ctrl = new AbortController();
+  dlgSSEAbort = ctrl;
+  dlgSetStreamState("连接中…", true);
+  fetch(`/v1/dialogue/rooms/${roomId}/stream?replay=false&live=true`, {
+    headers: { "Authorization": "Bearer " + TOKEN },
+    signal: ctrl.signal,
+  }).then(async resp => {
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    dlgSetStreamState("实时连接", true);
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const chunk = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        for (const line of chunk.split("\n")) {
+          if (!line.startsWith("data:")) continue;
+          try { dlgHandleEvent(JSON.parse(line.slice(5).trim())); }
+          catch (_) { /* keep-alive / 非 JSON 行忽略 */ }
+        }
+      }
+    }
+    if (dlgCurrentRoom && dlgCurrentRoom.room_id === roomId) dlgSetStreamState("已断开", false);
+  }).catch(e => {
+    if (e.name !== "AbortError" && dlgCurrentRoom && dlgCurrentRoom.room_id === roomId)
+      dlgSetStreamState("连接失败", false);
+  });
+}
+
+function dlgHandleEvent(ev) {
+  if (!dlgCurrentRoom || ev.room_id !== dlgCurrentRoom.room_id) return;
+  const chat = $("#dlg-chat");
+  if (ev.type === "turn_start") {
+    dlgBusy = true;
+    $("#dlg-send-btn").disabled = true;
+    const div = document.createElement("div");
+    div.className = "text-dim";
+    div.style.cssText = "text-align:center;font-size:11px;margin:8px 0;";
+    div.textContent = `── 第 ${ev.round} 轮开始 ──`;
+    chat.appendChild(div);
+  } else if (ev.type === "message_start") {
+    const div = document.createElement("div");
+    div.className = "dlg-msg";
+    div.id = "dlg-live-" + ev.speaker;
+    div.style.cssText = "display:flex;gap:8px;margin-bottom:10px;";
+    div.innerHTML = `
+      ${dlgAvatar(ev.speaker)}
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:12px;margin-bottom:2px;"><b style="color:hsl(${dlgHue(ev.speaker)},60%,60%);">${escapeHtml(ev.speaker)}</b>
+        ${ev.mock ? '<span class="badge" style="margin-left:6px;">mock</span>' : ""}
+        <span class="dlg-typing text-dim" style="margin-left:6px;font-size:11px;">正在输入…</span></div>
+        <div class="dlg-msg-body" style="white-space:pre-wrap;word-break:break-word;font-size:13px;"></div>
+      </div>`;
+    chat.appendChild(div);
+  } else if (ev.type === "delta") {
+    const div = document.getElementById("dlg-live-" + ev.speaker);
+    if (div) div.querySelector(".dlg-msg-body").textContent += ev.delta || "";
+  } else if (ev.type === "message_end") {
+    const live = document.getElementById("dlg-live-" + ev.speaker);
+    if (live) {
+      live.removeAttribute("id");
+      const ty = live.querySelector(".dlg-typing");
+      if (ty) ty.remove();
+      const body = live.querySelector(".dlg-msg-body");
+      if (ev.final) body.textContent = ev.final;
+      if (ev.status && ev.status !== "ok") {
+        const badge = document.createElement("span");
+        badge.className = "badge red";
+        badge.style.marginLeft = "6px";
+        badge.textContent = ev.status + (ev.error ? ": " + ev.error : "");
+        live.querySelector("div > div").appendChild(badge);
+        body.style.color = "var(--text-dim)";
+        body.style.fontStyle = "italic";
+      }
+    } else {
+      dlgRenderMessage({ speaker: ev.speaker, role: "assistant", content: ev.final || "", status: ev.status, mock: ev.mock, error: ev.error, round: ev.round });
+    }
+  } else if (ev.type === "moderator") {
+    const div = document.createElement("div");
+    div.className = "text-dim";
+    div.style.cssText = "text-align:center;font-size:11px;margin:6px 0;";
+    div.textContent = "🎙 " + (ev.final || ev.delta || "");
+    chat.appendChild(div);
+  } else if (ev.type === "turn_complete") {
+    dlgBusy = false;
+    $("#dlg-send-btn").disabled = false;
+    const div = document.createElement("div");
+    div.className = "text-dim";
+    div.style.cssText = "text-align:center;font-size:11px;margin:8px 0;";
+    div.textContent = `── 第 ${ev.round} 轮结束 ──`;
+    chat.appendChild(div);
+  }
+  dlgScrollBottom();
+}
+
+async function sendDialogueMessage() {
+  if (!dlgCurrentRoom) { toast("请先选择或创建一个房间", "error"); return; }
+  if (dlgBusy) { toast("上一轮还在进行，请稍候", "error"); return; }
+  const input = $("#dlg-input");
+  const content = input.value.trim();
+  if (!content) return;
+  input.value = "";
+  dlgRenderMessage({ speaker: "user", role: "user", content });
+  $("#dlg-send-btn").disabled = true;
+  try {
+    const res = await api(`/v1/dialogue/rooms/${dlgCurrentRoom.room_id}/messages?stream=true`, {
+      method: "POST",
+      body: JSON.stringify({ content }),
+    });
+    if (res.mock_used) toast("本轮含 mock 产出（无真实 key 的端点已显式标注）");
+  } catch (e) {
+    toast("发送失败: " + e.message, "error");
+    $("#dlg-send-btn").disabled = false;
+  }
+}
+
 function closeModal() { $("#modal-bg").classList.remove("show"); }
 $("#modal-bg").onclick = (e) => { if (e.target.id === "modal-bg") closeModal(); };
 
@@ -1129,12 +1448,7 @@ function clearPlayground() {
   $("#pg-refs-card").style.display = "none";
   $("#pg-critics-card").style.display = "none";
 }
-function escapeHtml(s) {
-  return String(s || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
+// escapeHtml 定义见文件底部统一定义(含引号转义的完整版)
 
 // ========== Keys ==========
 async function refreshKeys() {

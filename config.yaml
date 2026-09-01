@@ -738,3 +738,79 @@ optimizer:
   max_experiments: 50
   convergence_threshold: 0.95
   test_cases_per_round: 3
+
+# ============================================================================
+# v4.1.0 integration (OmniRoute / OpenClacky / MemoraX Code, all MIT)
+# ============================================================================
+
+# --- OmniRoute: routing strategy engine (19 public + quota-share) ---
+routing_strategies:
+  enabled: true
+  default_strategy: auto
+  history_window: 100
+
+# --- OmniRoute: quota telemetry + quota-aware scheduling ---
+quota:
+  enabled: true
+  poll_interval_s: 60
+  fast_poll_interval_s: 15
+  warn_threshold: 0.80
+  exhaust_threshold: 0.95
+  fail_open: true
+
+# --- OmniRoute: RTK + Caveman stacked compression ---
+compression:
+  enabled: true
+  apply_to_chat: false        # opt-in: never mutate traffic by default
+  default_mode: "off"         # off|lite|standard|aggressive|ultra|rtk|stacked
+  fidelity_gate: true
+  preserve_cache_control: true
+
+# --- OmniRoute: free-tier catalog ---
+free_tiers:
+  enabled: true
+  catalog_path: ""            # empty = bundled catalog
+
+# --- OmniRoute: A2A JSON-RPC + Agent Card ---
+a2a:
+  enabled: true
+  agent_name: moa-gateway-pro
+
+# --- OpenClacky: token-efficiency harness ---
+efficiency:
+  enabled: true
+  cache_markers: true
+  compression_threshold_tokens: 150000
+  compression_threshold_messages: 200
+  idle_delay_s: 266           # < provider cache TTL so compression hits cache
+  idle_threshold_tokens: 20000
+  target_compressed_tokens: 10000
+  max_recent_messages: 20
+
+# --- OpenClacky: skill ecosystem ---
+skillhub:
+  enabled: true
+  extra_dirs: []
+  max_skills_in_prompt: 30
+  evolution_enabled: true
+  evolution_min_iterations: 5
+  auto_create_min_iterations: 12
+
+# --- OpenClacky: IM channels (credentials via MOA_* env vars only) ---
+channels:
+  enabled: true
+  poll_interval_s: 3
+  max_message_chars: 8000
+  session_ttl_s: 3600
+
+# --- MemoraX Code: cross-session memory ---
+memory:
+  enabled: true
+  retrieval_enabled: false    # opt-in injection
+  writeback_enabled: false    # opt-in capture
+  top_k: 6
+  max_context_chars: 4000
+  max_item_chars: 1000
+  redact_pii: true
+  workspace_enabled: false
+  workspace_update_policy: adaptive

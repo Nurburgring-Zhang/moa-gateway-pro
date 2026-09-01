@@ -12,14 +12,11 @@ python-multipart>=0.0.18
 
 # HTTP 客户端 (verified)
 httpx==0.28.1
+aiohttp>=3.11.0
 websockets>=13.1
-# (v3.2.1: aiohttp removed — no module in this repo imports it; keeping an
-#  unused vulnerable-floor dependency only invites CVE noise.)
-# aiofiles (used by async file IO paths; was missing from this manifest)
-aiofiles>=23.2.0
 
 # 数据 / 存储 (verified)
-sqlalchemy>=2.0.36   # >=2.0.36: SQL-injection advisory fix (dependabot)
+sqlalchemy==2.0.35
 aiosqlite>=0.20.0
 
 # 安全 / 认证 (verified)

@@ -64,13 +64,33 @@ def _isolate_config(tmp_path, monkeypatch):
         orig_router = _rt._router
         _rt._router = None
 
+    # Response-cache manager is a process-wide singleton; cached entries from
+    # earlier test files would be hit by later tests (e.g. chaos tests that
+    # patch ModelPool.call still got 200 from a cache hit). Reset per test.
+    from moa_gateway.cache.manager import reset_cache_manager as _reset_cache
+    _reset_cache()
+
     # Every ModelPool subscribes itself to settings-change callbacks; clear
     # the list per test so stale pools neither leak nor get notified later.
     import moa_gateway.config as _cfg_mod
     orig_subscribers = list(_cfg_mod._settings_subscribers)
     _cfg_mod._settings_subscribers.clear()
 
+    # Graceful-shutdown singleton: a test that drains a shutdown must not
+    # leave the flag set — the observability middleware would 503 every
+    # later test's requests ("Server is shutting down").
+    from moa_gateway.ha.graceful import graceful as _graceful
+    _graceful.reset()
+
+    # Capability toggles cache: force re-read from the (isolated) storage.
+    import moa_gateway.capability_toggles as _toggles
+    orig_toggle_cache = _toggles._cache
+    _toggles._cache = None
+
     yield
+
+    # Restore toggle cache
+    _toggles._cache = orig_toggle_cache
 
     # Restore singletons
     if "moa_gateway.storage" in sys.modules:

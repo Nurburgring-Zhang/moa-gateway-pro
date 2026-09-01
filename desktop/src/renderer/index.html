@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src http://127.0.0.1:* http://localhost:*; connect-src 'self'" />
+  <title>MOA Gateway Desktop</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- ======================= Top bar ======================= -->
+    <header id="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <path d="M12 2 3.5 7v10L12 22l8.5-5V7L12 2z" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            <circle cx="12" cy="12" r="2.4" fill="currentColor"/>
+            <path d="M2.5 12h6M15.5 12h6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-name">MOA Gateway Desktop</span>
+          <span class="brand-sub">Pro v4.0 · 本地 AI 网关控制台</span>
+        </div>
+      </div>
+      <div class="topbar-status">
+        <span id="status-pill" class="pill pill-unknown" role="status">
+          <span class="pill-dot"></span><span id="status-pill-text">检测中…</span>
+        </span>
+        <span id="status-meta" class="status-meta"></span>
+        <button id="btn-open-browser" class="btn btn-ghost btn-sm" title="在系统浏览器中打开控制台">
+          <svg viewBox="0 0 16 16" width="13" height="13"><path d="M6.5 3H3v10h10V9.5M9 2h5v5M14 2 7.5 8.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          浏览器打开
+        </button>
+      </div>
+    </header>
+
+    <div id="body">
+      <!-- ======================= Sidebar ======================= -->
+      <nav id="sidebar">
+        <button class="nav-item active" data-view="console">
+          <svg viewBox="0 0 20 20" width="17" height="17"><rect x="2" y="3" width="16" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M5 7l2.5 2L5 11M9.5 11.5H13" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M6 18h8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>控制台</span>
+        </button>
+        <button class="nav-item" data-view="service">
+          <svg viewBox="0 0 20 20" width="17" height="17"><circle cx="10" cy="10" r="2.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 1.8v2.6M10 15.6v2.6M1.8 10h2.6M15.6 10h2.6M4.2 4.2l1.9 1.9M13.9 13.9l1.9 1.9M15.8 4.2l-1.9 1.9M6.1 13.9l-1.9 1.9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+          <span>服务管理</span>
+        </button>
+        <div class="nav-footer">
+          <div id="nav-service-light" class="nav-light light-unknown" title="网关服务状态"></div>
+          <span id="nav-version" class="nav-version"></span>
+        </div>
+      </nav>
+
+      <!-- ======================= Views ======================= -->
+      <main id="views">
+        <!-- ---------- Console view ---------- -->
+        <section id="view-console" class="view active">
+          <div id="console-wrap">
+            <iframe id="console-frame" title="MOA Gateway Web 控制台" referrerpolicy="no-referrer" style="display:none"></iframe>
+            <div id="console-waiting" class="waiting">
+              <div class="waiting-card">
+                <div id="waiting-spinner" class="spinner" aria-hidden="true"></div>
+                <h2 id="waiting-title">正在启动网关服务…</h2>
+                <p id="waiting-detail" class="waiting-detail">正在定位 Python 解释器与网关代码…</p>
+                <div id="waiting-error" class="waiting-error" hidden></div>
+                <div id="waiting-actions" class="waiting-actions" hidden>
+                  <button id="btn-waiting-start" class="btn btn-primary">启动服务</button>
+                  <button id="btn-waiting-service" class="btn btn-ghost">打开服务管理</button>
+                </div>
+                <div class="waiting-log-head">
+                  <span>启动日志</span>
+                  <span id="waiting-log-count" class="muted"></span>
+                </div>
+                <pre id="waiting-log" class="log-pre waiting-log" aria-live="off"></pre>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ---------- Service management view ---------- -->
+        <section id="view-service" class="view">
+          <!-- Status card -->
+          <div class="card">
+            <div class="card-head">
+              <h2>服务状态</h2>
+              <div class="card-actions">
+                <button id="btn-start" class="btn btn-primary btn-sm">启动</button>
+                <button id="btn-stop" class="btn btn-danger btn-sm">停止</button>
+                <button id="btn-restart" class="btn btn-ghost btn-sm">重启</button>
+              </div>
+            </div>
+            <div class="status-line">
+              <div id="svc-light" class="svc-light light-unknown"></div>
+              <div>
+                <div id="svc-state" class="svc-state">未知</div>
+                <div id="svc-state-sub" class="muted small"></div>
+              </div>
+            </div>
+            <div class="meta-grid">
+              <div class="meta"><span class="meta-k">监听地址</span><span id="m-url" class="meta-v">—</span></div>
+              <div class="meta"><span class="meta-k">端口</span><span id="m-port" class="meta-v">—</span></div>
+              <div class="meta"><span class="meta-k">进程 PID</span><span id="m-pid" class="meta-v">—</span></div>
+              <div class="meta"><span class="meta-k">运行时长</span><span id="m-uptime" class="meta-v">—</span></div>
+              <div class="meta"><span class="meta-k">崩溃重启次数</span><span id="m-restarts" class="meta-v">—</span></div>
+              <div class="meta"><span class="meta-k">最近健康检查</span><span id="m-health" class="meta-v">—</span></div>
+              <div class="meta meta-wide"><span class="meta-k">Python 解释器</span><span id="m-python" class="meta-v">—</span></div>
+              <div class="meta meta-wide"><span class="meta-k">网关目录</span><span id="m-repo" class="meta-v">—</span></div>
+              <div class="meta meta-wide" id="m-error-row" hidden><span class="meta-k">最近错误</span><span id="m-error" class="meta-v err-text"></span></div>
+            </div>
+          </div>
+
+          <!-- Log panel -->
+          <div class="card">
+            <div class="card-head">
+              <h2>服务日志 <span id="log-count" class="muted small"></span></h2>
+              <div class="card-actions log-tools">
+                <label class="check"><input type="checkbox" id="log-autoscroll" checked /> 自动滚动</label>
+                <button id="btn-log-clear" class="btn btn-ghost btn-sm">清空</button>
+                <button id="btn-log-export" class="btn btn-ghost btn-sm">导出…</button>
+              </div>
+            </div>
+            <pre id="log-panel" class="log-pre" aria-live="off"></pre>
+          </div>
+
+          <!-- Settings -->
+          <div class="card">
+            <div class="card-head">
+              <h2>服务配置</h2>
+              <div class="card-actions">
+                <button id="btn-probe" class="btn btn-ghost btn-sm">自动探测环境</button>
+                <button id="btn-save-config" class="btn btn-primary btn-sm">保存配置</button>
+              </div>
+            </div>
+            <div id="probe-result" class="probe-result" hidden></div>
+            <div class="form-grid">
+              <label class="field field-wide">
+                <span class="field-k">Python 解释器路径 <em class="muted">（留空 = 自动探测 ../venv/Scripts/python.exe → 系统 python）</em></span>
+                <input id="cfg-python" type="text" spellcheck="false" placeholder="例如 D:\moa\venv\Scripts\python.exe" />
+              </label>
+              <label class="field field-wide">
+                <span class="field-k">网关仓库目录 <em class="muted">（包含 moa_gateway/ 与 config.yaml 的目录，留空 = 自动探测）</em></span>
+                <input id="cfg-repo" type="text" spellcheck="false" placeholder="留空使用内置/相对探测" />
+              </label>
+              <label class="field">
+                <span class="field-k">监听主机</span>
+                <select id="cfg-host">
+                  <option value="127.0.0.1">127.0.0.1（仅本机，推荐）</option>
+                  <option value="0.0.0.0">0.0.0.0（局域网可见 — 谨慎）</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="field-k">首选端口 <em class="muted">（被占用时自动顺延）</em></span>
+                <input id="cfg-port" type="number" min="1" max="65535" step="1" />
+              </label>
+              <label class="field">
+                <span class="field-k">就绪超时（秒）</span>
+                <input id="cfg-ready-timeout" type="number" min="5" max="600" step="5" />
+              </label>
+              <label class="field">
+                <span class="field-k">日志保留行数</span>
+                <input id="cfg-max-lines" type="number" min="500" max="50000" step="500" />
+              </label>
+              <label class="check field-check"><input type="checkbox" id="cfg-autostart" /> 应用启动时自动启动网关服务</label>
+              <label class="check field-check"><input type="checkbox" id="cfg-restart-enabled" /> 进程崩溃后自动重启（指数退避）</label>
+            </div>
+            <p id="config-note" class="config-note" hidden></p>
+          </div>
+
+          <!-- API keys -->
+          <div class="card">
+            <div class="card-head"><h2>API Keys <span class="muted small">（Windows DPAPI 加密存储，绝不落盘明文）</span></h2></div>
+            <div id="secrets-unavailable" class="banner banner-warn" hidden>
+              当前系统不可用 DPAPI 加密（safeStorage.isEncryptionAvailable = false）。为保证密钥不落盘明文，已禁用密钥保存。
+            </div>
+            <p class="muted small">
+              此处保存的 Key 会在启动网关时以环境变量形式注入服务进程（名称即环境变量名，例如
+              <code>GROQ_API_KEY</code>、<code>DASHSCOPE_API_KEY</code>），与 <code>moa_gateway.config</code> 的
+              <code>api_key_env</code> 机制对接。保存后需重启服务生效。
+            </p>
+            <div class="secret-form">
+              <input id="secret-name" type="text" placeholder="环境变量名，如 GROQ_API_KEY" spellcheck="false" />
+              <input id="secret-value" type="password" placeholder="API Key 明文（仅本次输入，加密后存储）" spellcheck="false" />
+              <button id="btn-secret-save" class="btn btn-primary btn-sm">加密保存</button>
+            </div>
+            <table class="secret-table">
+              <thead><tr><th>名称（环境变量）</th><th>更新时间</th><th class="th-action">操作</th></tr></thead>
+              <tbody id="secret-rows"></tbody>
+            </table>
+            <p id="secret-empty" class="muted small">尚未保存任何 API Key。</p>
+          </div>
+
+          <!-- System -->
+          <div class="card">
+            <div class="card-head"><h2>系统</h2></div>
+            <div class="sys-rows">
+              <label class="check"><input type="checkbox" id="sys-open-at-login" /> 开机自动启动（登录时启动本应用）</label>
+              <label class="check"><input type="checkbox" id="sys-minimize-tray" /> 关闭/最小化时收进托盘，保持网关运行</label>
+            </div>
+            <div id="app-info" class="muted small app-info"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast" hidden></div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

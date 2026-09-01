@@ -32,10 +32,42 @@ class SSETransport:
         logger.info("SSE session created: %s", session_id)
         return session_id
 
+    def register_session(self, session_id: str) -> asyncio.Queue:
+        """Explicitly register a session id (idempotent), return its queue."""
+        queue = self._sessions.get(session_id)
+        if queue is None:
+            queue = asyncio.Queue()
+            self._sessions[session_id] = queue
+            logger.info("SSE session registered: %s", session_id)
+        return queue
+
     def remove_session(self, session_id: str) -> None:
         """Remove a session when client disconnects."""
         self._sessions.pop(session_id, None)
         logger.info("SSE session removed: %s", session_id)
+
+    def has_session(self, session_id: str) -> bool:
+        """True if the session exists (used to 404 unknown message posts)."""
+        return session_id in self._sessions
+
+    def get_session(self, session_id: str) -> asyncio.Queue | None:
+        """Return the session's message queue, or None when unknown."""
+        return self._sessions.get(session_id)
+
+    @property
+    def session_count(self) -> int:
+        return len(self._sessions)
+
+    async def deliver(self, session_id: str, response: JSONRPCResponse) -> bool:
+        """Push an already-computed response onto the session's SSE queue.
+
+        Returns False when the session no longer exists.
+        """
+        queue = self._sessions.get(session_id)
+        if queue is None:
+            return False
+        await queue.put(response)
+        return True
 
     async def handle_message(
         self, session_id: str, request: JSONRPCRequest, user: dict | None = None

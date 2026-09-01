@@ -204,6 +204,7 @@ async def agent_run_loop(
     max_iter = int(body.get("max_iterations", 10))
     requested_tools = body.get("tools") or []
     endpoint_id = body.get("endpoint_id")
+    include_mcp_tools = bool(body.get("include_mcp_tools", False))
 
     if not isinstance(messages, list) or not messages:
         raise HTTPException(422, "messages (non-empty list) is required")
@@ -219,31 +220,16 @@ async def agent_run_loop(
     # v3.1.1 audit P0 fix: dangerous tools (code execution / filesystem /
     # outbound URL probing) are admin/operator-only. AGENTS.md rule 8 —
     # never expose RCE-capable primitives to API-key users.
-    # v3.2.1: imported from skills/__init__ (single source of truth, shared
-    # with the orchestrator's planner/executor enforcement).
-    from ..agent_loop.skills import DANGEROUS_TOOLS
-
+    DANGEROUS_TOOLS = frozenset(
+        {"code_execute", "file_read", "file_write", "file_list", "api_verify"}
+    )
     caller_role = key_info.get("role") or "readonly"
     privileged = caller_role in ("admin", "operator")
 
-    if requested_tools:
-        if not isinstance(requested_tools, list) or not all(
-            isinstance(t, str) for t in requested_tools
-        ):
-            raise HTTPException(422, "tools must be a list of tool names")
-        denied = sorted(t for t in requested_tools if t in DANGEROUS_TOOLS and not privileged)
-        if denied:
-            raise HTTPException(
-                403,
-                f"tools {denied} require admin/operator role (caller role={caller_role})",
-            )
-        tools_to_register = list(requested_tools)
-    else:
-        tools_to_register = (
-            list(BUILTIN_TOOLS.keys())
-            if privileged
-            else [t for t in BUILTIN_TOOLS if t not in DANGEROUS_TOOLS]
-        )
+    if requested_tools and not isinstance(requested_tools, list):
+        raise HTTPException(422, "tools must be a list of tool names")
+    if requested_tools and not all(isinstance(t, str) for t in requested_tools):
+        raise HTTPException(422, "tools must be a list of tool names")
 
     base_llm_call = _make_llm_call()
     if endpoint_id:
@@ -257,13 +243,76 @@ async def agent_run_loop(
     else:
         llm_call = base_llm_call
 
-    harness = AgentHarness(llm_call=llm_call)
+    hub_tools: list[str] | None = None
+    if include_mcp_tools:
+        # ToolHub surface: local__ / mcp__ / external__ namespaced tools,
+        # role-filtered, executed through the unified guarded entry point.
+        from ..capability.tool_hub import NAMESPACE_PREFIXES, get_tool_hub
 
-    for tool_name in tools_to_register:
-        entry = BUILTIN_TOOLS.get(tool_name)
-        if entry:
-            handler, desc = entry
-            harness.register_tool(tool_name, handler, desc)  # type: ignore[arg-type]
+        hub = get_tool_hub()
+        if requested_tools:
+            resolved = [
+                t if t.startswith(NAMESPACE_PREFIXES) else f"local__{t}"
+                for t in requested_tools
+            ]
+            denied = []
+            hub_tools = []
+            for name in resolved:
+                spec = hub.get_spec(name)
+                if spec is None:
+                    continue  # unknown names are skipped (legacy behavior)
+                if caller_role not in spec.allowed_roles:
+                    denied.append(name)
+                    continue
+                hub_tools.append(name)
+            if denied:
+                raise HTTPException(
+                    403,
+                    f"tools {denied} require admin/operator role "
+                    f"(caller role={caller_role})",
+                )
+        else:
+            hub_tools = None  # all tools permitted for this role
+        harness = AgentHarness(
+            llm_call=llm_call, tools_source="tool_hub", caller_role=caller_role
+        )
+    else:
+        # Legacy surface: local skills only (default behavior unchanged).
+        if requested_tools:
+            denied = sorted(
+                t for t in requested_tools if t in DANGEROUS_TOOLS and not privileged
+            )
+            if denied:
+                raise HTTPException(
+                    403,
+                    f"tools {denied} require admin/operator role (caller role={caller_role})",
+                )
+            tools_to_register = list(requested_tools)
+        else:
+            tools_to_register = (
+                list(BUILTIN_TOOLS.keys())
+                if privileged
+                else [t for t in BUILTIN_TOOLS if t not in DANGEROUS_TOOLS]
+            )
+
+        harness = AgentHarness(llm_call=llm_call)
+
+        for tool_name in tools_to_register:
+            entry = BUILTIN_TOOLS.get(tool_name)
+            if entry:
+                handler, desc = entry
+                harness.register_tool(tool_name, handler, desc)  # type: ignore[arg-type]
+
+        # v4.1.0 (OpenClacky port): lite-model subagent tool, gated by the
+        # same capability toggle as /v1/subagent/* (function_call).
+        try:
+            from ..capability_toggles import is_enabled as _cap_enabled
+            from ..subagent_routing import register_subagent_tools
+
+            if _cap_enabled("function_call"):
+                register_subagent_tools(harness)
+        except Exception as _e:  # noqa: BLE001 - never break agent runs
+            logger.warning("subagent tool registration skipped: %s", _e)
 
     from ..observability.tracer import get_tracer
 
@@ -274,6 +323,8 @@ async def agent_run_loop(
             messages=messages,
             loop_name=loop_name,
             max_iterations=max_iter,
+            caller_role=caller_role,
+            hub_tools=hub_tools,
         )
         span.set_attribute("agent.success", result.success)
         span.set_attribute("agent.iterations", result.iterations)

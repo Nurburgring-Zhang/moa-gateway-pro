@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Launch splash: brand background + centered vector mark.
+  Replaces the per-density splash.png set with one resolution-independent
+  drawable (item width/height requires API 23+; minSdk is 24).
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/splash_background" />
+    <item
+        android:width="148dp"
+        android:height="148dp"
+        android:gravity="center"
+        android:drawable="@drawable/ic_moa_mark" />
+</layer-list>

@@ -228,6 +228,59 @@ class TestSSRFValidator:
         assert not ok, f"{url} should be blocked ({reason})"
         assert reason
 
+    # Encoded IP literals must be normalized and blocked platform-
+    # independently, i.e. WITHOUT relying on socket.getaddrinfo (whose
+    # handling of these forms differs per platform).
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://0177.0.0.1/",                # octal dotted 127.0.0.1
+            "http://0x7f.0x0.0x0.0x1/",          # hex dotted 127.0.0.1
+            "http://0x7F.0x0.0x0.0x1/",          # uppercase hex
+            "http://127.0.1/",                   # 3-part short form
+            "http://127.1/",                     # 2-part short form
+            "http://0x7f.1/",                    # mixed hex/decimal parts
+            "http://017700000001/",              # single octal integer
+            "http://127.0.0.1./",                # trailing dot
+            "http://[::1]/",                     # IPv6 loopback compressed
+            "http://[0:0:0:0:0:0:0:1]/",         # IPv6 loopback expanded
+            "http://[::ffff:127.0.0.1]/",        # IPv4-mapped IPv6
+            "http://[::ffff:7f00:1]/",           # IPv4-mapped IPv6 (hex)
+            "http://[::ffff:169.254.169.254]/",  # mapped cloud metadata
+            "http://[::ffff:10.0.0.5]/",         # mapped RFC1918
+            "http://[::127.0.0.1]/",             # IPv4-compatible IPv6
+            "http://127.0.0.256/",               # invalid literal -> fail closed
+            "http://1.2.3.4.5/",                 # 5 parts -> fail closed
+            # leading-zero ambiguity: octal reading public, decimal reading
+            # internal -> blocked (stacks disagree on these encodings)
+            "http://010.010.010.010/",           # oct 8.8.8.8 / dec 10.10.10.10
+            "http://02130706433/",               # oct public / dec 127.0.0.1
+        ],
+    )
+    def test_blocked_encoded_ip_variants(self, url):
+        from moa_gateway.utils.url_validator import is_safe_external_url
+
+        ok, reason = is_safe_external_url(url)
+        assert not ok, f"{url} should be blocked ({reason})"
+        assert reason
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://8.8.8.8/",          # public IPv4 literal
+            "http://93.184.216.34/",    # public IPv4 literal
+            "https://1.1.1.1/",         # public IPv4 literal (https)
+            "https://example.com/",     # ordinary domain -> DNS path
+            "http://example.com./",     # FQDN trailing dot -> DNS path
+            "http://01.1.1.1/",         # leading zero, both readings public
+        ],
+    )
+    def test_allowed_public_targets(self, url):
+        from moa_gateway.utils.url_validator import is_safe_external_url
+
+        ok, reason = is_safe_external_url(url)
+        assert ok, f"{url} should be allowed ({reason})"
+
     def test_api_verify_delegates(self):
         from moa_gateway.agent_loop.skills.api_verify import _is_safe_url
 

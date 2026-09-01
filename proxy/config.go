@@ -10,11 +10,6 @@ import (
 type Config struct {
 	ListenAddr     string
 	BackendAddr    string
-	// BackendURLs is the optional multi-backend pool from $BACKEND_URLS
-	// (comma-separated). When empty the proxy behaves exactly as before:
-	// every request goes to BackendAddr. (v3.2.1 — the HA compose already
-	// exported BACKEND_URLS but no code read it.)
-	BackendURLs    []string
 	JWTSecret      string
 	RateLimit      int // requests per second per IP
 	MaxConnections int
@@ -38,7 +33,6 @@ func LoadConfig(file, listen, backend string) *Config {
 		EnableMetrics:  getEnv("PROXY_METRICS", "true") == "true",
 		EnableAuth:     getEnv("PROXY_AUTH", "true") == "true",
 		TrustedProxies: getEnvList("PROXY_TRUSTED_PROXIES"),
-		BackendURLs:    getEnvList("BACKEND_URLS"),
 	}
 	return cfg
 }

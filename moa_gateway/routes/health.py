@@ -7,6 +7,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 
+from .. import __version__
 from ..auth import require_admin, require_api_key
 from ..ha import health_checker
 from ..model_pool import get_model_pool
@@ -17,7 +18,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["health"])
 
 # v3.1.1: unified version constant (audit P3 — was hardcoded "1.0.0")
-_HEALTH_VERSION = "3.1.1"
+# v4.0.0: track the package __version__ single source of truth.
+_HEALTH_VERSION = __version__
 
 
 @router.get("/health")

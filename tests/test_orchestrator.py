@@ -19,9 +19,26 @@ _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-os.environ.setdefault("MOA_ADMIN_PASSWORD", "Audit#2026StrongPwd!")
-os.environ.setdefault("MOA_GATEWAY_KEY", "gw-test-key-audit-20260814")
-os.environ.setdefault("MOA_JWT_SECRET", "audit-jwt-secret-0123456789abcdef0123456789abcdef")
+@pytest.fixture(autouse=True)
+def _orch_env(monkeypatch):
+    """Test-only env + global registry isolation (auto-restored).
+
+    R7 finding: module-level os.environ writes leaked to every later test in
+    the same process (loopback 401s in test_cli_registry / test_tool_hub).
+    R8 finding: skill_factory._register mutates agent_loop.skills.BUILTIN_TOOLS
+    in place; tests that develop/load skills leaked entries (e.g. "dup_skill")
+    into later ToolHub aggregation tests (18 tools instead of 17).
+    """
+    monkeypatch.setenv("MOA_ADMIN_PASSWORD", "Audit#2026StrongPwd!")
+    monkeypatch.setenv("MOA_GATEWAY_KEY", "gw-test-key-audit-20260814")
+    monkeypatch.setenv("MOA_JWT_SECRET", "audit-jwt-secret-0123456789abcdef0123456789abcdef")
+
+    import moa_gateway.agent_loop.skills as _skills
+
+    saved_tools = dict(_skills.BUILTIN_TOOLS)
+    yield
+    _skills.BUILTIN_TOOLS.clear()
+    _skills.BUILTIN_TOOLS.update(saved_tools)
 
 
 # ---------------------------------------------------------------------------

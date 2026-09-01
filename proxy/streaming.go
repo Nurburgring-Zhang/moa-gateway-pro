@@ -11,7 +11,7 @@ import (
 // handleStreaming performs zero-buffer SSE stream forwarding from backend.
 func (h *ProxyHandler) handleStreaming(w http.ResponseWriter, r *http.Request, start time.Time) {
 	// Build backend request
-	backendURL := h.pickBackend().String() + r.URL.RequestURI()
+	backendURL := h.backend.String() + r.URL.RequestURI()
 	req, err := http.NewRequestWithContext(r.Context(), r.Method, backendURL, r.Body)
 	if err != nil {
 		http.Error(w, `{"error":"proxy_error"}`, http.StatusBadGateway)

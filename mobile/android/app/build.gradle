@@ -1,0 +1,89 @@
+apply plugin: 'com.android.application'
+
+// ============================================================================
+// Release signing — driven entirely by environment variables so no secret
+// material ever lives in the repo. Provide:
+//   MOA_KEYSTORE_PATH      absolute path to the .keystore/.jks file
+//   MOA_KEYSTORE_PASSWORD  keystore password
+//   MOA_KEY_ALIAS          key alias inside the keystore
+//   MOA_KEY_PASSWORD       key password
+// When MOA_KEYSTORE_PATH is absent the release build falls back to the debug
+// signature so CI smoke builds still produce an installable APK (clearly
+// debug-signed — never ship that artifact).
+// ============================================================================
+def keystorePath = System.getenv('MOA_KEYSTORE_PATH')
+def hasReleaseKeystore = keystorePath != null && !keystorePath.isEmpty() && file(keystorePath).exists()
+
+android {
+    namespace = "com.moagateway.console"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.moagateway.console"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 3
+        versionName "1.2.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            if (hasReleaseKeystore) {
+                storeFile file(keystorePath)
+                storePassword System.getenv('MOA_KEYSTORE_PASSWORD') ?: ''
+                keyAlias System.getenv('MOA_KEY_ALIAS') ?: ''
+                keyPassword System.getenv('MOA_KEY_PASSWORD') ?: ''
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            // Default debug signing (auto-generated ~/.android/debug.keystore).
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (hasReleaseKeystore) {
+                signingConfig signingConfigs.release
+            } else {
+                logger.warn('MOA_KEYSTORE_PATH not set or file missing — release APK will be ' +
+                        'signed with the DEBUG key. Set MOA_KEYSTORE_PATH/MOA_KEYSTORE_PASSWORD/' +
+                        'MOA_KEY_ALIAS/MOA_KEY_PASSWORD for a shippable build.')
+                signingConfig signingConfigs.debug
+            }
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

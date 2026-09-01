@@ -25,15 +25,6 @@ func (h *ProxyHandler) quickAuthCheck(r *http.Request) bool {
 	}
 	token := strings.TrimPrefix(auth, "Bearer ")
 
-	// v3.2.1 fix (found by live smoke): OpenAI-compatible clients send the
-	// gateway API key as "Authorization: Bearer mgw-..." — that is NOT a
-	// JWT. Gateway keys are owned by the Python backend; forward them and
-	// let the backend validate (it answers 401 itself for bad keys).
-	// Everything JWT-shaped (3 dot-separated segments) is verified here.
-	if strings.HasPrefix(token, "mgw-") {
-		return true
-	}
-
 	// If no secret configured, pass through to backend
 	if h.cfg.JWTSecret == "" {
 		return true

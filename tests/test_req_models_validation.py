@@ -232,6 +232,17 @@ VALID_BODIES: dict[type, dict] = {
     rm.CreateRagSearchRequest: {"query": "q", "corpus": ["doc1", "doc2"], "max_results": 2},
     rm.CreatePlanActRequest: {"query": "plan the migration"},
     rm.CreateChannelsRequest: {"action": "chain_info"},
+    rm.CreateCLIToolRegisterRequest: {
+        "name": "pyver",
+        "argv_template": ["python", "--version"],
+        "description": "python version",
+        "timeout_s": 10.0,
+    },
+    rm.CreateCLIToolUpdateRequest: {"description": "updated", "timeout_s": 20.0},
+    rm.CreateCLIExecuteRequest: {"name": "pyver", "params": {"x": "1"}},
+    rm.CreateCLIExecuteBatchRequest: {
+        "items": [{"name": "pyver"}, {"name": "echo", "params": {"payload": "p"}}]
+    },
     rm.CreateReferenceRouterRequest: {"query": "q", "strategy": "shadow"},
     rm.CreateCheckpointRequest: {"action": "list", "name": "default"},
     rm.CreateCanaryRequest: {"action": "inject", "prompt": "p", "strategy": "suffix"},
@@ -278,6 +289,35 @@ VALID_BODIES: dict[type, dict] = {
         "loop_name": "react",
         "max_iterations": 2,
         "tools": ["web_search"],
+    },
+    rm.CreateDialogueRoomRequest: {
+        "topic": "How should we design a rate limiter?",
+        "mode": "round_robin",
+        "participants": [
+            {"endpoint_id": "ep-alpha", "name": "Alpha", "persona": "optimist"},
+            {"endpoint_id": "ep-beta", "name": "Beta"},
+        ],
+        "max_rounds": 2,
+        "participant_timeout": 60.0,
+    },
+    rm.PostDialogueMessageRequest: {"content": "hello room"},
+    rm.CreateMusicGenerationRequest: {
+        "prompt": "lofi hip-hop beat",
+        "duration": 30,
+        "provider": "auto",
+    },
+    rm.CreateMultimodalExecuteRequest: {
+        "modality": "image",
+        "platforms": ["cogview", "wanx"],
+        "mode": "all",
+        "prompt": "a red panda in a bamboo forest",
+        "size": "1024x1024",
+        "n": 1,
+    },
+    rm.CreateTaskAutoRequest: {
+        "task": "调研多模型网关的限流方案并输出对比报告",
+        "max_subtasks": 4,
+        "dry_run": True,
     },
 }
 
@@ -355,6 +395,10 @@ INVALID_BODIES: dict[type, dict] = {
     rm.CreateRagSearchRequest: {"corpus": "not a list"},
     rm.CreatePlanActRequest: {"query": ["not", "str"]},
     rm.CreateChannelsRequest: {"action": "bogus"},  # Literal
+    rm.CreateCLIToolRegisterRequest: {"name": "bad name!", "argv_template": ["python"]},  # pattern
+    rm.CreateCLIToolUpdateRequest: {"argv_template": []},  # min_length=1
+    rm.CreateCLIExecuteRequest: {"params": {}},  # missing required name
+    rm.CreateCLIExecuteBatchRequest: {"items": []},  # min_length=1
     rm.CreateReferenceRouterRequest: {"strategy": "bogus"},  # Literal
     rm.CreateCheckpointRequest: {"name": "bad name!"},  # pattern violation
     rm.CreateCanaryRequest: {"strategy": "bogus"},  # Literal
@@ -371,6 +415,14 @@ INVALID_BODIES: dict[type, dict] = {
     rm.CreateAgentWorkflowRegisterRequest: {},  # missing name
     rm.CreateAgentWorkflowRunRequest: {},  # missing name
     rm.CreateAgentRunLoopRequest: {"messages": []},  # min_length=1
+    rm.CreateDialogueRoomRequest: {
+        "topic": "t",
+        "participants": [{"endpoint_id": "ep-alpha"}],  # 多 AI 同框至少 2 个参与者
+    },
+    rm.PostDialogueMessageRequest: {"content": ""},  # min_length=1
+    rm.CreateMusicGenerationRequest: {"prompt": ""},  # min_length=1
+    rm.CreateMultimodalExecuteRequest: {"modality": "image", "platforms": []},  # min_length=1
+    rm.CreateTaskAutoRequest: {"task": ""},  # min_length=1
 }
 
 
@@ -380,8 +432,13 @@ INVALID_BODIES: dict[type, dict] = {
 
 
 def test_registry_covers_exactly_85_models():
-    """ENDPOINT_MODELS must reference exactly the 85 known request models."""
-    assert len(ALL_MODELS) == 85, f"expected 85 distinct models, got {len(ALL_MODELS)}"
+    """ENDPOINT_MODELS must reference exactly the 94 known request models.
+
+    (originally 85; +2 dialogue room models +1 music generation model
+    +4 CLI registry/execute models +1 multimodal fanout model
+    +1 task-auto pipeline model)
+    """
+    assert len(ALL_MODELS) == 94, f"expected 94 distinct models, got {len(ALL_MODELS)}"
 
 
 def test_every_model_has_valid_and_invalid_case():

@@ -1,18 +1,31 @@
 {
   "name": "moa-gateway-mobile",
-  "version": "3.1.1",
-  "description": "MoA Gateway Pro — Android client (Capacitor). Wraps the admin/orchestration web UI and connects to a deployed MoA gateway.",
-  "license": "Apache-2.0",
+  "version": "1.2.0",
+  "private": true,
+  "description": "MOA Gateway Pro mobile console — Capacitor Android client for the FastAPI multi-AI gateway",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "sync": "cap sync android",
-    "open": "cap open android",
-    "build:apk": "cd android && ./gradlew assembleDebug"
+    "build": "npm run build:bundle && npm run build:types",
+    "build:bundle": "esbuild src/main.ts --bundle --minify --sourcemap --target=es2020 --format=iife --outfile=www/js/app.js",
+    "build:types": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "watch": "esbuild src/main.ts --bundle --sourcemap --target=es2020 --format=iife --outfile=www/js/app.js --watch",
+    "sync": "npm run build && cap sync android",
+    "sync:android": "cap sync android",
+    "open:android": "cap open android"
   },
   "dependencies": {
-    "@capacitor/core": "^6.0.0",
-    "@capacitor/android": "^6.0.0"
+    "@aparajita/capacitor-biometric-auth": "^10.0.0",
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/preferences": "^8.0.1"
   },
   "devDependencies": {
-    "@capacitor/cli": "^6.0.0"
+    "@capacitor/cli": "^8.5.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.3"
   }
 }

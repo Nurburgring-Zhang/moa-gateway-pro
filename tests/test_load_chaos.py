@@ -9,9 +9,27 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-os.environ.setdefault("MOA_JWT_SECRET", "test-secret-key-minimum-32-characters-long!")
-os.environ.setdefault("MOA_ADMIN_PASSWORD", "TestPass#2024")
-os.environ.setdefault("MOA_GATEWAY_KEY", "load-test-key-001")
+# 模块级 os.environ.setdefault 会泄漏到后续测试文件（曾导致 subagent 回环
+# 401 连锁失败）——改为模块作用域 fixture, 退出时精确还原。
+_ENV_NEEDED = {
+    "MOA_JWT_SECRET": "test-secret-key-minimum-32-characters-long!",
+    "MOA_ADMIN_PASSWORD": "TestPass#2024",
+    "MOA_GATEWAY_KEY": "load-test-key-001",
+}
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _isolate_load_chaos_env():
+    saved = {k: os.environ.get(k) for k in _ENV_NEEDED}
+    for k, v in _ENV_NEEDED.items():
+        os.environ.setdefault(k, v)
+    yield
+    for k, v in saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+
 
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 

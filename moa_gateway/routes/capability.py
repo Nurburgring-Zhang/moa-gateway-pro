@@ -31,6 +31,10 @@ from ..req_models import (  # noqa: E501
     CreateCanaryRequest,
     CreateChannelsRequest,
     CreateCheckpointRequest,
+    CreateCLIExecuteBatchRequest,
+    CreateCLIExecuteRequest,
+    CreateCLIToolRegisterRequest,
+    CreateCLIToolUpdateRequest,
     CreateConfigRequest,
     CreateConflictArbitrateRequest,
     CreateConsumptionIntelRequest,
@@ -2953,10 +2957,17 @@ async def capability_channels(
     body: CreateChannelsRequest,
     key_info: dict[str, Any] = Depends(require_api_key),
 ):
-    """R-23: CH1/CH2/CH3 三通道 fallback — subagent → CLI → API"""
+    """R-23: CH1/CH2/CH3 三通道 fallback — subagent → CLI → API
+
+    v3.1.1 审计整改: 三通道全部真实执行 (无 sleep 模拟):
+    - CH1 经内部鉴权头回环本网关 /v1/chat/completions (persona = system prompt)
+    - CH2 经 cli_registry 真实 subprocess.run 执行已注册 CLI 工具 (cli_tool)
+    - CH3 经 model_pool.call 真实调 LLM (api_endpoint 可选)
+    """
     from ..capability.channels import (
         APIChannel,
         ChannelChain,
+        ChannelError,
         ChannelType,
         CLIChannel,
         SubagentChannel,
@@ -2977,47 +2988,64 @@ async def capability_channels(
             }
         elif action == "execute":
             enabled = body.get("enabled", ["ch1", "ch2", "ch3"])
+            persona = body.get("persona", "")
+            cli_tool = body.get("cli_tool", "") or None
+            api_endpoint = body.get("api_endpoint", "") or None
             chs = []
             if "ch1" in enabled:
+                # persona 经 kwargs 传入 execute(),作为回环请求的 system prompt
                 chs.append(SubagentChannel())
             if "ch2" in enabled:
-                chs.append(CLIChannel(sleep_ms=body.get("cli_latency_ms", 50)))  # type: ignore[arg-type]
+                # 未指定 cli_tool 时 CH2 未配置 → 该通道如实报错并 fallback,
+                # 注册/执行外部 CLI 的入口是 admin-only 的 /v1/capability/cli/*
+                chs.append(CLIChannel(tool=cli_tool))
             if "ch3" in enabled:
-                chs.append(APIChannel(sleep_ms=body.get("api_latency_ms", 150)))  # type: ignore[arg-type]
+                chs.append(APIChannel(endpoint_id=api_endpoint))
             chain = ChannelChain(chs)
-            result = await chain.execute(query, **body.get("kwargs", {}))
-            # v3.1.1 audit P1-9: all three channels are simulations in this
-            # deployment (heuristic text + sleep, no real subagent/CLI/API).
-            # Label the output explicitly per the D6 explicit-mock policy.
-            _ch = result.get("channel")
-            _res = result.get("result")
-            payload = {
-                "channel": _ch.value if hasattr(_ch, "value") else str(_ch),
-                "success": bool(_res.success) if _res is not None else False,
-                "output": _res.output if _res is not None else "",
-                "latency_ms": _res.latency_ms if _res is not None else 0,
-                "error": _res.error if _res is not None else None,
-                "fallback_path": [
-                    c.value if hasattr(c, "value") else str(c)
-                    for c in result.get("fallback_path", [])
-                ],
-                "attempts": [
-                    {
-                        "channel": a.channel.value if hasattr(a.channel, "value") else str(a.channel),
-                        "success": a.success,
-                        "output": a.output,
-                        "latency_ms": a.latency_ms,
-                        "error": a.error,
-                    }
-                    for a in result.get("attempts", [])
-                ],
-                "mock": True,
-                "mock_note": (
-                    "simulated channel chain: outputs are heuristic/synthetic in "
-                    "this deployment, not real subagent/CLI/API execution"
-                ),
-            }
-            return JSONResponse(content=payload, headers=mock_headers(True))
+            kwargs = dict(body.get("kwargs", {}))
+            if persona:
+                kwargs.setdefault("persona", persona)
+            try:
+                result = await chain.execute(query, **kwargs)
+                payload: dict[str, Any] = {
+                    "channel": result["channel"].value,
+                    "success": bool(result["result"].success),
+                    "output": result["result"].output,
+                    "latency_ms": result["result"].latency_ms,
+                    "error": result["result"].error,
+                    "fallback_path": [c.value for c in result["fallback_path"]],
+                    "attempts": [
+                        {
+                            "channel": a.channel.value,
+                            "success": a.success,
+                            "output": a.output,
+                            "latency_ms": a.latency_ms,
+                            "error": a.error,
+                        }
+                        for a in result["attempts"]
+                    ],
+                }
+            except ChannelError as cerr:
+                # 全通道失败是合法的业务结果 (每路都有真实证据),不是 500
+                payload = {
+                    "channel": None,
+                    "success": False,
+                    "output": "",
+                    "latency_ms": 0,
+                    "error": cerr.to_dict(),
+                    "fallback_path": [a.channel.value for a in cerr.attempts],
+                    "attempts": [
+                        {
+                            "channel": a.channel.value,
+                            "success": a.success,
+                            "output": a.output,
+                            "latency_ms": a.latency_ms,
+                            "error": a.error,
+                        }
+                        for a in cerr.attempts
+                    ],
+                }
+            return JSONResponse(content=payload)
         else:
             raise HTTPException(400, f"unknown action: {action}")
     except HTTPException:
@@ -3025,6 +3053,154 @@ async def capability_channels(
 
     except Exception as e:
         raise err_500(e, "channels failed:") from e
+
+
+# ========== 外部 CLI 工具注册表 (cli_registry) ==========
+# 权限模型 (AGENTS.md rule 8): 读 = require_api_key;
+# 写/执行 = require_admin — 执行外部进程属于 RCE 级原语,绝不开放给普通 key。
+
+
+@router.get("/v1/capability/cli/tools")
+async def capability_cli_tools_list(
+    name: str = "",
+    key_info: dict[str, Any] = Depends(require_api_key),
+):
+    """列出已注册 CLI 工具 (只读);?name= 查单个。"""
+    from ..capability.cli_registry import get_cli_registry
+
+    try:
+        reg = get_cli_registry()
+        if name:
+            tool = reg.get(name)
+            if tool is None:
+                raise HTTPException(404, f"unknown cli tool: {name}")
+            return {"tool": tool}
+        return {"tools": reg.list(), "count": len(reg.list())}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise err_500(e, "cli tools list failed:") from e
+
+
+@router.post("/v1/capability/cli/tools")
+async def capability_cli_tools_register(
+    body: CreateCLIToolRegisterRequest,
+    admin: dict[str, Any] = Depends(require_admin),
+):
+    """注册外部 CLI 工具 (admin)。argv[0] 白名单 / cwd 白名单在此强制。"""
+    from ..capability.cli_registry import get_cli_registry
+
+    try:
+        spec = get_cli_registry().register(
+            body["name"],
+            body["argv_template"],
+            description=body.get("description", ""),
+            cwd=body.get("cwd", ""),
+            timeout_s=body.get("timeout_s"),
+            max_output_bytes=body.get("max_output_bytes"),
+            env_extra=body.get("env_extra", {}),
+        )
+        return {"registered": spec}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise err_500(e, "cli tool register failed:") from e
+
+
+@router.put("/v1/capability/cli/tools/{name}")
+async def capability_cli_tools_update(
+    name: str,
+    body: CreateCLIToolUpdateRequest,
+    admin: dict[str, Any] = Depends(require_admin),
+):
+    """部分更新已注册工具 (admin);提供的字段全部重新走白名单校验。"""
+    from ..capability.cli_registry import CLIRegistryError, get_cli_registry
+
+    try:
+        updates = {k: v for k, v in body.model_dump().items() if v is not None}
+        spec = get_cli_registry().update(name, **updates)
+        return {"updated": spec}
+    except CLIRegistryError as e:
+        if str(e).startswith("unknown cli tool"):
+            raise HTTPException(404, str(e)) from e
+        raise HTTPException(400, str(e)) from e
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise err_500(e, "cli tool update failed:") from e
+
+
+@router.delete("/v1/capability/cli/tools/{name}")
+async def capability_cli_tools_delete(
+    name: str,
+    admin: dict[str, Any] = Depends(require_admin),
+):
+    """删除已注册工具 (admin)。"""
+    from ..capability.cli_registry import get_cli_registry
+
+    try:
+        deleted = get_cli_registry().delete(name)
+        if not deleted:
+            raise HTTPException(404, f"unknown cli tool: {name}")
+        return {"deleted": True, "name": name}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise err_500(e, "cli tool delete failed:") from e
+
+
+@router.post("/v1/capability/cli/execute")
+async def capability_cli_execute(
+    body: CreateCLIExecuteRequest,
+    admin: dict[str, Any] = Depends(require_admin),
+):
+    """单路真实执行已注册 CLI 工具 (admin)。
+
+    返回逐路真实证据: stdout/stderr/exit_code/latency_ms/timed_out/truncated。
+    """
+    from ..capability.cli_registry import get_cli_registry
+
+    try:
+        res = await get_cli_registry().aexecute(
+            body["name"],
+            body.get("params", {}),
+            timeout_s=body.get("timeout_s"),
+        )
+        out = res.to_dict()
+        out["name"] = body["name"]
+        return out
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise err_500(e, "cli execute failed:") from e
+
+
+@router.post("/v1/capability/cli/execute-batch")
+async def capability_cli_execute_batch(
+    body: CreateCLIExecuteBatchRequest,
+    admin: dict[str, Any] = Depends(require_admin),
+):
+    """多路并发执行已注册 CLI 工具 (admin)。
+
+    asyncio.gather 并发,每路独立 subprocess 超时;部分失败不影响整体 —
+    失败路携带自身错误证据 (ok=false + error/error_kind),聚合计数返回。
+    """
+    from ..capability.cli_registry import get_cli_registry
+
+    try:
+        items = body["items"]
+        results = await get_cli_registry().execute_batch(items)
+        ok_count = sum(1 for r in results if r.get("ok"))
+        return {
+            "results": results,
+            "total": len(results),
+            "ok_count": ok_count,
+            "failed_count": len(results) - ok_count,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise err_500(e, "cli execute-batch failed:") from e
 
 
 @router.post("/v1/capability/reference-router")

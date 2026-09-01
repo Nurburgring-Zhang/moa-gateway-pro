@@ -184,11 +184,16 @@ async def generate_images(
     try:
         from ..providers import build_multimodal_provider
 
+        # P0 wiring fix: read the REAL credentials for the selected platform
+        # from the environment (same pattern as image_edit.py). Hardcoding
+        # api_key="" here previously forced the mock fallback even when a
+        # real key was configured.
+        api_key, api_base = _resolve_image_credentials(platform)
         provider = build_multimodal_provider(
             modality="image",
             platform_id=platform,
-            api_key="",
-            api_base="",
+            api_key=api_key,
+            api_base=api_base,
         )
 
         # No real key + mock.mode=explicit → MockImageProvider (200, labeled mock)
@@ -282,9 +287,49 @@ def _select_vision_model(settings: Any) -> str:
     return "gpt-4o"
 
 
+def _resolve_image_credentials(platform: str) -> tuple[str, str]:
+    """Resolve real (api_key, api_base) for an image platform from the env.
+
+    Mirrors the env-reading pattern of routes/image_edit.py. Placeholder
+    keys ("your-...", "mock") are treated as absent (providers.is_mock_key)
+    so the mock.mode policy downstream stays in charge of the no-key case.
+    Unknown platforms get ("", "") — build_multimodal_provider returns None
+    for them and the caller applies the mock.mode branch.
+    """
+    import os
+
+    from ..providers import is_mock_key
+
+    def _clean(value: str) -> str:
+        return "" if is_mock_key(value) else value
+
+    if platform in ("cogview", "zhipu"):
+        key = _clean(os.environ.get("ZHIPU_API_KEY", ""))
+        base = os.environ.get("ZHIPU_API_BASE", "") or os.environ.get("COGVIEW_API_BASE", "")
+    elif platform == "openai":
+        key = _clean(os.environ.get("OPENAI_API_KEY", ""))
+        base = os.environ.get("OPENAI_API_BASE", "")
+    elif platform == "wanx":
+        key = _clean(os.environ.get("WANX_API_KEY", "") or os.environ.get("DASHSCOPE_API_KEY", ""))
+        base = os.environ.get("WANX_API_BASE", "") or os.environ.get("DASHSCOPE_API_BASE", "")
+    else:
+        key, base = "", ""
+    return key, base
+
+
 def _select_image_provider(settings: Any) -> str:
-    """Auto-select image generation provider."""
+    """Auto-select image generation provider.
+
+    Prefers a platform that actually has credentials configured so "auto"
+    reaches a real provider whenever one is available; falls back to the
+    first registered provider (mock.mode policy handles the no-key case).
+    """
     from ..providers import PROVIDER_MODALITY_MAP
+
+    for candidate in ("cogview", "wanx", "openai"):
+        key, _base = _resolve_image_credentials(candidate)
+        if key:
+            return candidate
 
     image_providers = PROVIDER_MODALITY_MAP.get("image", [])
     if image_providers:

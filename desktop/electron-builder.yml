@@ -1,0 +1,82 @@
+# electron-builder configuration — MOA Gateway Desktop (Windows)
+#
+# Targets: NSIS installer + portable exe (both x64).
+# Build:   npm run dist          (both targets)
+#          npm run dist:nsis     (installer only)
+#          npm run dist:portable (portable only)
+#
+# NOTE on packaging scope: the installer bundles the desktop client AND a
+# read-only copy of the gateway source (extraResources below) so a packaged
+# install can find moa_gateway/ without the repo. A Python interpreter with
+# the gateway's dependencies (uvicorn/fastapi, see requirements.txt) remains
+# a prerequisite — the client auto-detects ../venv/Scripts/python.exe or a
+# user-configured interpreter. This is stated in the README as well.
+
+appId: com.moagateway.desktop
+productName: MOA Gateway Desktop
+copyright: Copyright © 2026 MOA Gateway Team
+
+directories:
+  output: dist
+  buildResources: build
+
+# Files packed into app.asar. Tests, build scripts and dist output stay out.
+files:
+  - main.js
+  - preload.js
+  - src/**/*
+  - assets/**/*
+  - package.json
+  - "!node_modules"
+  - "!test"
+  - "!scripts"
+  - "!dist"
+  - "!**/*.test.js"
+
+# Bundle the gateway source so packaged builds can resolve a repo path even
+# without a checkout (paths.js probes process.resourcesPath/gateway).
+extraResources:
+  - from: ../moa_gateway
+    to: gateway/moa_gateway
+    filter:
+      - "**/*"
+      - "!**/__pycache__/**"
+  - from: ../config.yaml
+    to: gateway/config.yaml
+  - from: ../requirements.txt
+    to: gateway/requirements.txt
+
+asar: true
+
+win:
+  icon: assets/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-${target}-${arch}.${ext}
+  # Custom signing hook (scripts/sign.js) — electron-builder 26 exposes it via
+  # signtoolOptions.sign. Without a certificate configured in the environment
+  # it produces an UNSIGNED build and says so explicitly.
+  signtoolOptions:
+    sign: scripts/sign.js
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: MOA Gateway Desktop
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
+
+# No auto-publish: artifacts are produced locally / by CI only.
+publish: null

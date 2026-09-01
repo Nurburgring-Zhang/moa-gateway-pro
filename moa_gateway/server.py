@@ -22,7 +22,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from . import config as _cfg
+from . import __version__, config as _cfg
 from .audit import setup_audit_logging
 from .benchmark import init_benchmark_system, shutdown_benchmark_system
 from .cache.manager import get_cache_manager
@@ -427,6 +427,51 @@ def create_app() -> FastAPI:
         except Exception as _e:  # noqa: BLE001
             logger.warning("external MCP server restore failed: %s", _e)
 
+        # ===== v4.1.0 integration lifecycles (OmniRoute / OpenClacky / MemoraX) =====
+        # Lite subagent runner (blind-review F-1 fix): without a registered
+        # runner, invoke_lite_subagent could only report a dry-run decision.
+        # Register the real ModelPool executor unless the function_call
+        # capability is disabled.
+        from .capability_toggles import is_enabled as _cap_enabled_v41
+
+        if _cap_enabled_v41("function_call"):
+            from .subagent_routing import set_subagent_runner
+            from .subagent_routing.runner import run_subagent_task
+
+            set_subagent_runner(run_subagent_task)
+            logger.info("lite subagent runner registered (ModelPool pipeline)")
+
+        # Quota scheduler adaptive polling loop (OmniRoute port): re-evaluates
+        # quota states on the monitor's own adaptive cadence (poll_interval_s
+        # normally, fast_poll_interval_s when any provider nears exhaustion).
+        quota_poll_task: asyncio.Task | None = None
+        if settings.quota.enabled:
+            from .quota_scheduler.monitor import get_monitor as _get_quota_monitor
+
+            application.state.quota_monitor = _get_quota_monitor()
+
+            async def _quota_adaptive_loop() -> None:
+                monitor = application.state.quota_monitor
+                while True:
+                    try:
+                        delay = max(1.0, float(monitor.next_poll_delay_global()))
+                    except Exception:  # noqa: BLE001 - keep the loop alive
+                        delay = float(settings.quota.poll_interval_s)
+                    await asyncio.sleep(delay)
+                    try:
+                        monitor.refresh()
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("quota monitor refresh failed: %s", exc)
+
+            quota_poll_task = asyncio.create_task(_quota_adaptive_loop())
+            logger.info(
+                "Quota scheduler adaptive poll loop started (normal=%.0fs, fast=%.0fs)",
+                settings.quota.poll_interval_s,
+                settings.quota.fast_poll_interval_s,
+            )
+        else:
+            logger.info("Quota scheduler disabled by config")
+
         # HA: Mark instance as ready to receive traffic
         health_checker.mark_ready()
         logger.info("Instance marked READY \u2014 accepting traffic")
@@ -439,6 +484,20 @@ def create_app() -> FastAPI:
         health_checker.mark_not_ready()
         # Shutdown cache
         await get_cache_manager().shutdown()
+
+        # v4.1.0: stop the quota adaptive poll loop and idle compression timers
+        if quota_poll_task is not None:
+            quota_poll_task.cancel()
+            try:
+                await quota_poll_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        try:
+            from .efficiency.idle_scheduler import get_idle_scheduler
+
+            get_idle_scheduler().shutdown()
+        except Exception as _e:  # noqa: BLE001
+            logger.warning("idle compression scheduler shutdown failed: %s", _e)
 
         cleanup_task.cancel()
         try:
@@ -497,7 +556,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="MoA Gateway Pro",
-        version="3.2.1",
+        version=__version__,  # v4.0.0: single source of truth
         description="工业级多模型协作网关 — 一份 OpenAI Key 接入所有大模型",
         lifespan=lifespan,
     )
@@ -659,6 +718,7 @@ def create_app() -> FastAPI:
 
     # ============ Register Route Modules ============
     from .routes import (
+        a2a_router,
         admin_console_router,
         admin_router,
         agent_router,
@@ -667,18 +727,31 @@ def create_app() -> FastAPI:
         auth_router,
         benchmark_router,
         capability_router,
+        channels_router,
         chat_router,
         compliance_router,
+        compression_router,
+        dialogue_router,
+        efficiency_router,
         embodied_router,
+        free_tiers_router,
         health_router,
         image_edit_router,
         mcp_router,
+        memory_router,
         metrics_router,
         moa_router,
         models_router,
+        multimodal_router,
+        music_router,
         observability_router,
         optimizer_router,
         orchestrator_router,
+        quota_router,
+        routing_strategies_router,
+        skillhub_router,
+        subagent_router,
+        task_pipeline_router,
         tasks_router,
         threed_router,
         video_router,
@@ -705,18 +778,40 @@ def create_app() -> FastAPI:
     app.include_router(observability_router)
     app.include_router(benchmark_router)
     app.include_router(optimizer_router)
-    app.include_router(orchestrator_router)
     app.include_router(vision_router)
     app.include_router(audio_router)
+    app.include_router(music_router)
+    app.include_router(multimodal_router)
     app.include_router(image_edit_router)
     app.include_router(video_router)
     app.include_router(embodied_router)
     app.include_router(world_model_router)
     app.include_router(threed_router)
     app.include_router(assistant_router)
+    # Multi-AI dialogue rooms (多 AI 同框对话)
+    app.include_router(dialogue_router)
     # D13: persistent agent TaskBoard CRUD (must be included after agent_router
     # so /v1/agent/tasks/{id} does not shadow fixed /v1/agent/* routes)
     app.include_router(tasks_router)
+    # P8: proactive task analysis closed loop (/v1/tasks/auto)
+    app.include_router(task_pipeline_router)
+
+    # ============ v4.1.0 integration routers ============
+    # OmniRoute: routing strategy engine, quota telemetry, A2A protocol
+    app.include_router(routing_strategies_router)
+    app.include_router(quota_router)
+    app.include_router(a2a_router)
+    app.include_router(compression_router)
+    app.include_router(free_tiers_router)
+    # OpenClacky: token efficiency, skill hub, IM channels, subagent routing
+    app.include_router(efficiency_router)
+    app.include_router(skillhub_router)
+    app.include_router(channels_router)
+    app.include_router(subagent_router)
+    # MemoraX Code: cross-session memory layer
+    app.include_router(memory_router)
+    # v3.2.1 backport: autonomous orchestration engine (O1-O6)
+    app.include_router(orchestrator_router)
 
     return app
 

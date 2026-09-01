@@ -12,12 +12,24 @@ Capability name mapping (frontend card name -> gated routes):
     image_gen     -> /v1/images/generations, /v1/images/edits, /v1/images/variations
     tts           -> /v1/audio/speech
     stt           -> /v1/audio/transcriptions, /v1/audio/edit, /v1/audio/clone
+    music         -> /v1/audio/music, /v1/audio/music/tasks/*
     embedding     -> /v1/embeddings, /v1/capability/embeddings, /v1/capability/semantic-search
     video         -> /v1/video/*
     three_d       -> /v1/3d/*
     world_model   -> /v1/world/*
     embodied      -> /v1/embodied/*
     code / reasoning / search / function_call -> agent-loop tools & routing hints
+
+v4.1.0 integration capabilities (OmniRoute / OpenClacky / MemoraX Code, all MIT):
+    routing_strategies -> /v1/routing/*           (OmniRoute 19+1 strategy engine)
+    quota_scheduler    -> /v1/quota/*             (OmniRoute quota telemetry + DRR/P2C)
+    stacked_compression-> /v1/compression/*       (OmniRoute RTK + Caveman stacked)
+    free_tiers         -> /v1/free-tiers/*        (OmniRoute free-tier catalog)
+    a2a                -> /v1/a2a, /.well-known/agent.json (OmniRoute A2A skills)
+    token_efficiency   -> /v1/efficiency/*        (OpenClacky cache markers / idle compression)
+    skillhub           -> /v1/skills/*            (OpenClacky skill ecosystem / invoke_skill)
+    channels           -> /v1/channels/*          (OpenClacky IM channel adapters)
+    memory             -> /v1/memory/*            (MemoraX cross-session memory layer)
 """
 
 from __future__ import annotations
@@ -39,6 +51,7 @@ DEFAULT_CAPABILITIES: dict[str, bool] = {
     "image_gen": True,
     "tts": True,
     "stt": True,
+    "music": True,
     "embedding": True,
     "video": True,
     "three_d": True,
@@ -48,6 +61,16 @@ DEFAULT_CAPABILITIES: dict[str, bool] = {
     "reasoning": True,
     "search": True,
     "function_call": True,
+    # v4.1.0 integration capabilities
+    "routing_strategies": True,
+    "quota_scheduler": True,
+    "stacked_compression": True,
+    "free_tiers": True,
+    "a2a": True,
+    "token_efficiency": True,
+    "skillhub": True,
+    "channels": True,
+    "memory": True,
 }
 
 _STORAGE_KEY = "capability_toggles"

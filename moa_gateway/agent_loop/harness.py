@@ -22,12 +22,31 @@ LlmCall = Callable[..., Awaitable[str | LlmOutcome]]
 
 
 class AgentHarness:
-    """Agent runtime framework — register loops, tools, and run."""
+    """Agent runtime framework — register loops, tools, and run.
 
-    def __init__(self, llm_call: LlmCall | None = None) -> None:
+    Tool sourcing:
+    - ``tools_source="builtin"`` (default): tools are registered manually via
+      :meth:`register_tool` / the skills helpers. Behavior is unchanged.
+    - ``tools_source="tool_hub"``: at :meth:`run` time the harness pulls the
+      available tools from the unified :class:`capability.tool_hub.ToolHub`,
+      filtered by the caller role, and registers them onto the shared
+      executor. ``hub_tools`` (run kwarg) optionally restricts the subset by
+      namespaced name.
+    """
+
+    def __init__(
+        self,
+        llm_call: LlmCall | None = None,
+        tools_source: str = "builtin",
+        caller_role: str = "user",
+    ) -> None:
+        if tools_source not in ("builtin", "tool_hub"):
+            raise ValueError(f"unknown tools_source: {tools_source!r}")
         self._tool_executor = ToolExecutor()
         self._loops: dict[str, AgentLoop] = {}
         self._llm_call = llm_call
+        self._tools_source = tools_source
+        self._caller_role = caller_role
 
         # Register default loops when llm_call is provided
         if llm_call:
@@ -39,6 +58,21 @@ class AgentHarness:
                 "plan_execute",
                 PlanExecuteLoop(llm_call, self._tool_executor),
             )
+
+    @property
+    def tools_source(self) -> str:
+        return self._tools_source
+
+    @property
+    def caller_role(self) -> str:
+        return self._caller_role
+
+    def _sync_tool_hub(self, caller_role: str, hub_tools: list[str] | None) -> None:
+        """Register role-filtered ToolHub tools onto the shared executor."""
+        from ..capability.tool_hub import get_tool_hub
+
+        hub = get_tool_hub()
+        hub.register_to_executor(self._tool_executor, caller_role, only=hub_tools)
 
     def register_loop(self, name: str, loop: AgentLoop) -> None:
         """Register or replace a named loop."""
@@ -80,6 +114,8 @@ class AgentHarness:
         Keyword args:
             max_iterations: override the default iteration cap.
             context: a pre-built AgentContext (optional).
+            caller_role: role used for ToolHub filtering (tools_source="tool_hub").
+            hub_tools: optional list of namespaced ToolHub tool names to restrict to.
         """
         loop = self._loops.get(loop_name)
         if loop is None:
@@ -89,6 +125,13 @@ class AgentHarness:
                 iterations=0,
                 error=f"Unknown loop: {loop_name}",
             )
+
+        # Resolve tool sourcing. For tool_hub, register role-filtered tools
+        # onto the shared executor before the loop starts.
+        caller_role = kwargs.pop("caller_role", None) or self._caller_role
+        hub_tools = kwargs.pop("hub_tools", None)
+        if self._tools_source == "tool_hub":
+            self._sync_tool_hub(caller_role, hub_tools)
 
         context: AgentContext | None = kwargs.get("context")
         if context is None:

@@ -45,13 +45,22 @@ class ChatCompletionRequest(BaseModel):
     top_p: float | None = Field(default=1.0, ge=0.0, le=1.0)
     stream: bool | None = False
     stop: Union[str, list[str]] | None = Field(default=None, max_length=64)
-    tools: list[dict[str, Any]] | None = Field(default=None, max_length=64)
+    tools: list[str | dict[str, Any]] | None = Field(default=None, max_length=64)
     tool_choice: Any | None = None
     # Extension fields
     preset: str | None = Field(default=None, max_length=32)
     strategy: str | None = Field(default=None, max_length=32)
     reference_count: int | None = Field(default=None, ge=1, le=8)
     critic_rounds: int | None = Field(default=None, ge=0, le=5)
+    max_tool_rounds: int | None = Field(
+        default=None,
+        ge=1,
+        le=8,
+        description=(
+            "Upper bound on MoA aggregator tool-call rounds when 'tools' carries "
+            "ToolHub tool names (default 3)"
+        ),
+    )
     # More OpenAI pass-through fields
     n: int | None = Field(default=1, ge=1, le=8)
     presence_penalty: float | None = Field(default=0.0, ge=-2.0, le=2.0)
@@ -143,11 +152,17 @@ async def chat_completions(
             elif isinstance(req.function_call, dict) and "name" in req.function_call:
                 req.tool_choice = {"type": "function", "function": {"name": req.function_call["name"]}}
 
+    # The 'tools' field may also carry ToolHub tool-name strings (they drive
+    # the MoA engine's real tool-execution loop on /v1/moa/execute). The chat
+    # completions path forwards ONLY OpenAI-style schema dicts to providers /
+    # MoA, keeping legacy pass-through behavior exactly as before.
+    schema_tools = [t for t in req.tools if isinstance(t, dict)] if req.tools else None
+
     # Pass-through OpenAI fields for model_pool.call
     chat_kwargs: dict[str, Any] = dict(
         temperature=temperature,
         max_tokens=max_tokens,
-        tools=req.tools,
+        tools=schema_tools,
         max_retries=3,
     )
     if req.response_format:
@@ -231,20 +246,10 @@ async def chat_completions(
             )
         except ProviderError as e:
             metrics.error("chat_failed")
-            # v3.2.1 honesty: failures are recorded too, so the chat
-            # error-rate alert reflects reality (previously success-only).
-            try:
-                _prom_record_chat(model_id, e.status or 502, (time.time() - t0))
-            except Exception as pe:
-                logger.warning("Prometheus recording failed: %s", pe)
             logger.warning("chat failed (provider): %s", e)
             raise HTTPException(e.status or 502, f"model call failed: {e}") from e
         except Exception as e:
             metrics.error("chat_failed")
-            try:
-                _prom_record_chat(model_id, 502, (time.time() - t0))
-            except Exception as pe:
-                logger.warning("Prometheus recording failed: %s", pe)
             logger.exception("chat failed: %s", e)
             raise HTTPException(502, f"model call failed: {e}") from e
 
@@ -297,7 +302,7 @@ async def chat_completions(
         moa_stream = moa.execute_stream(
             query=messages[-1].get("content", ""),
             context=messages[:-1] if len(messages) > 1 else None,
-            tools=req.tools,
+            tools=schema_tools,
             preset=preset,
             strategy=strategy,
             reference_count=reference_count,
@@ -331,7 +336,7 @@ async def chat_completions(
         result: MoAResult = await moa.execute(
             query=messages[-1].get("content", ""),
             context=messages[:-1] if len(messages) > 1 else None,
-            tools=req.tools,
+            tools=schema_tools,
             preset=preset,
             strategy=strategy,
             reference_count=reference_count,
