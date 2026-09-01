@@ -90,7 +90,7 @@ jobs:
 
       - name: Upload coverage
         if: matrix.python-version == '3.11' && matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: coverage.xml
@@ -147,7 +147,7 @@ jobs:
           pip-audit --strict --desc 2>&1 || echo "::warning::Dependency vulnerabilities found"
       - name: Upload bandit report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bandit-report
           path: bandit-report.json
